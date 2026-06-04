@@ -65,7 +65,7 @@ final class AppState: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "选择"
-        panel.message = "选择要分享给手机访问的文件夹"
+        panel.message = "选择要广播到局域网的文件夹"
         if panel.runModal() == .OK, let url = panel.url {
             setFolder(url)
         }
