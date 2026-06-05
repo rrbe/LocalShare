@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>LanFileShare</string>
+    <string>LocalShare</string>
     <key>CFBundleDisplayName</key>
-    <string>局域网文件分享</string>
+    <string>LocalShare</string>
     <key>CFBundleExecutable</key>
     <string>LanFileShare</string>
     <key>CFBundleIdentifier</key>
-    <string>live.ezze.lanfileshare</string>
+    <string>live.ezze.localshare</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>

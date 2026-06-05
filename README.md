@@ -1,4 +1,4 @@
-# 局域网文件分享（LanFileShare）
+# LocalShare（局域网文件分享）
 
 一个 macOS 原生单窗口小工具：选一个文件夹，窗口里出现二维码，手机扫一下就能在浏览器里
 浏览/打开里面的 html 等文件。**不用终端、不装 Homebrew、不依赖任何动态库。**
@@ -18,15 +18,15 @@
 
 ```bash
 swift build -c release   # 编译（首次会拉取 Swifter 依赖）
-./build.sh               # 组装并 ad-hoc 签名 → dist/局域网文件分享.app
-open dist/局域网文件分享.app
+./build.sh               # 组装并 ad-hoc 签名 → dist/LocalShare.app
+open dist/LocalShare.app
 ```
 
 要求 macOS 13+、Xcode（含 Swift 工具链）。
 
 ## 发给同事
 
-把 `dist/局域网文件分享.app` 拷给同事。由于是 ad-hoc 签名而非 Apple 公证，**首次打开**可能被
+把 `dist/LocalShare.app` 拷给同事。由于是 ad-hoc 签名而非 Apple 公证，**首次打开**可能被
 Gatekeeper 拦截——由你帮他打开一次即可（「系统设置 → 隐私与安全性」点「仍要打开」），之后他双击就能用。
 
 ## 设计与范围

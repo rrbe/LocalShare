@@ -18,7 +18,7 @@ struct LanFileShareApp: App {
     @StateObject private var state = AppState()
 
     var body: some Scene {
-        Window("局域网文件分享", id: "main") {
+        Window("LocalShare", id: "main") {
             ContentView().environmentObject(state)
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：纸张背景铺到顶，红绿灯浮于内容之上

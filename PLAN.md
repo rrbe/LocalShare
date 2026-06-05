@@ -1,4 +1,4 @@
-# 局域网文件分享 · 设计与实现计划（PLAN）
+# LocalShare · 设计与实现计划（PLAN）
 
 > 一个 macOS 原生单窗口 app：不懂技术的同事打开它、选一个文件夹，窗口中央出现二维码，
 > 用 iPhone 扫一下就能在 Safari 里浏览/打开那个文件夹里的 html 等文件。
@@ -124,8 +124,8 @@ lan-file-share/
 ```bash
 cd lan-file-share
 swift build -c release          # 编译（首次会拉 Swifter）
-./build.sh                      # 组装并 ad-hoc 签名 → dist/局域网文件分享.app
-open dist/局域网文件分享.app     # 本机自测
+./build.sh                      # 组装并 ad-hoc 签名 → dist/LocalShare.app
+open dist/LocalShare.app     # 本机自测
 ```
 
 **发给同事**：把 `dist/*.app` 拷过去；**首次由你帮他打开一次**（双击若被 Gatekeeper 拦，去“系统设置 → 隐私与安全性”点“仍要打开”，仅此一次，之后他双击即用）。

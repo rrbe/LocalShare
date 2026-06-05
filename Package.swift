@@ -1,5 +1,5 @@
 // swift-tools-version:5.9
-// 局域网文件分享 —— macOS 原生单窗口 app。
+// LocalShare（局域网文件分享）—— macOS 原生单窗口 app。
 // 使用 Swift 5 语言模式（tools-version 5.9 默认）以放宽 Swift 6 的并发检查，
 // 因为 Swifter 的请求处理回调运行在后台线程，严格并发会带来大量噪音。
 import PackageDescription

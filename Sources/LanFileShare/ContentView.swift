@@ -34,7 +34,7 @@ struct ContentView: View {
                 Text("局域网 · 只读分享")
                     .font(.system(size: 11, weight: .semibold)).tracking(0.6)
                     .foregroundStyle(Palette.signal)
-                Text("局域网文件分享")
+                Text("LocalShare")
                     .font(.serif(25)).foregroundStyle(Palette.ink)
             }
             Spacer()

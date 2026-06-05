@@ -11,15 +11,15 @@ macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口�
 ```bash
 swift build                      # debug 编译（首次拉 Swifter）
 swift build -c release           # release 编译
-./build.sh                       # release 编译 → 组装 .app → ad-hoc 签名 → dist/局域网文件分享.app
-open "dist/局域网文件分享.app"    # 本机自测 GUI
+./build.sh                       # release 编译 → 组装 .app → ad-hoc 签名 → dist/LocalShare.app
+open "dist/LocalShare.app"    # 本机自测 GUI
 
 # 无头端到端测试（无 GUI，供脚本/curl 验证服务端逻辑）
 LFS_HEADLESS=1 LFS_FOLDER=/path/to/dir LFS_TOKEN=testtoken LFS_PORT=8099 .build/debug/LanFileShare &
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表或 index.html
 
 # 验证核心戒律：otool 过滤系统库后应无任何输出（零第三方 dylib）
-otool -L "dist/局域网文件分享.app/Contents/MacOS/LanFileShare" | grep -v "/usr/lib/\|/System/Library/"
+otool -L "dist/LocalShare.app/Contents/MacOS/LanFileShare" | grep -v "/usr/lib/\|/System/Library/"
 ```
 
 无测试框架（无 XCTest target）。验证靠无头模式 + `curl` 冒烟测：token 校验、防穿越、index.html、MIME、中文/空格文件名、流式发送。要求 macOS 13+ 与 Swift 工具链。
