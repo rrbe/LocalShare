@@ -1,8 +1,9 @@
 import Foundation
 
-// 浏览器端目录页（与原生 app 同源的「暖纸张 × 信号广播」语言，支持系统深色模式）：
-// 刊头 + 面包屑 + 账本式列表（目录在前、文件夹›导航 / 文件↓下载、套准角标）+ 只读版权条。
-// 只用系统字体栈，零外部依赖、局域网离线可渲染。所有 href 用绝对路径（请求路径 + 逐段编码条目名），不依赖 trailing slash。
+// 浏览器端目录页（与原生 app 同源的「暖纸张 × 信号广播」语言，支持系统深色模式 + 类型筛选）：
+// 刊头 + 面包屑 + 类型筛选条（网页/PDF/图片/Markdown/表格/目录…，纯前端即时过滤）
+// + 账本式列表（目录在前、文件夹›导航 / 文件↓下载、套准角标）+ 只读版权条。
+// 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 用绝对路径（请求路径 + 逐段编码条目名）。
 enum DirectoryListing {
     static func html(directory: URL, requestPath: String, rootName: String) -> String {
         let fm = FileManager.default
@@ -23,34 +24,49 @@ enum DirectoryListing {
         var rows = ""
         if requestPath != "/" {
             rows += row(href: encodePath(parentPath(of: requestPath)),
-                        icon: "⬑", name: "返回上一级", size: nil, dir: true, up: true)
+                        icon: "⬑", name: "返回上一级", size: nil, dir: true, type: "up", up: true)
         }
+        var counts: [String: Int] = [:]
         for url in sorted {
             let name = url.lastPathComponent
             let dir = isDirectory(url)
+            let cat = category(name: name, isDir: dir)
+            counts[cat, default: 0] += 1
             let href = encodePath(base + name + (dir ? "/" : ""))
             let size = dir ? nil : (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? nil
-            rows += row(href: href, icon: dir ? "📁" : fileIcon(name), name: name, size: size, dir: dir)
+            rows += row(href: href, icon: dir ? "📁" : fileIcon(name), name: name, size: size, dir: dir, type: cat)
         }
 
         let title = requestPath == "/" ? rootName : ((requestPath as NSString).lastPathComponent)
         let crumbs = breadcrumb(requestPath: requestPath, rootName: rootName)
-        return page(title: title, crumbs: crumbs, rows: rows, isEmpty: sorted.isEmpty, count: sorted.count)
+        let filters = filterBar(counts: counts, total: sorted.count)
+        return page(title: title, crumbs: crumbs, filters: filters, rows: rows, isEmpty: sorted.isEmpty, count: sorted.count)
     }
 
     // MARK: - 片段
 
-    private static func row(href: String, icon: String, name: String, size: Int?, dir: Bool, up: Bool = false) -> String {
+    private static func row(href: String, icon: String, name: String, size: Int?, dir: Bool, type: String, up: Bool = false) -> String {
         let sizeText = size.map { formatSize($0) } ?? ""
         let ch = up ? "" : (dir ? "›" : "↓")          // 目录导航 / 文件下载，暗示行为
         let liClass = up ? " class=\"up\"" : ""
         return """
-        <li\(liClass)><a class="row" href="\(htmlAttr(href))">\
+        <li\(liClass) data-type="\(type)"><a class="row" href="\(htmlAttr(href))">\
         <span class="ic">\(icon)</span>\
         <span class="nm">\(htmlText(name))</span>\
         <span class="sz">\(sizeText)</span>\
         <span class="ch">\(ch)</span></a></li>
         """
+    }
+
+    // 类型筛选条：只列出当前目录里真实出现的类别（≥2 类才显示，否则没必要筛选）。
+    private static func filterBar(counts: [String: Int], total: Int) -> String {
+        let present = catOrder.filter { (counts[$0] ?? 0) > 0 }
+        guard present.count >= 2 else { return "" }
+        var chips = "<button class=\"chip on\" data-type=\"all\">全部 <i>\(total)</i></button>"
+        for cat in present {
+            chips += "<button class=\"chip\" data-type=\"\(cat)\">\(catName[cat] ?? cat) <i>\(counts[cat] ?? 0)</i></button>"
+        }
+        return "<div class=\"filters\">\(chips)</div>"
     }
 
     // 面包屑：根(站名) / seg / seg …，末段为当前不可点。
@@ -72,7 +88,7 @@ enum DirectoryListing {
         return html
     }
 
-    private static func page(title: String, crumbs: String, rows: String, isEmpty: Bool, count: Int) -> String {
+    private static func page(title: String, crumbs: String, filters: String, rows: String, isEmpty: Bool, count: Int) -> String {
         let ledger = isEmpty
             ? #"<div class="empty"><span class="big">◍</span>这个文件夹是空的</div>"#
             : """
@@ -139,7 +155,18 @@ enum DirectoryListing {
           .crumbs .sep{opacity:.4;margin:0 6px}
           .crumbs .cur{color:var(--ink)}
 
-          .ledger{position:relative;margin-top:24px}
+          .filters{display:flex;gap:8px;margin-top:18px;overflow-x:auto;padding-bottom:3px;
+            scrollbar-width:none;-webkit-overflow-scrolling:touch}
+          .filters::-webkit-scrollbar{display:none}
+          .chip{flex:none;border:1px solid var(--line);background:transparent;color:var(--soft);
+            font:13px var(--sans);padding:6px 13px;border-radius:999px;cursor:pointer;
+            white-space:nowrap;display:flex;align-items:center;gap:6px;transition:all .15s}
+          .chip:hover{color:var(--ink);border-color:var(--soft)}
+          .chip.on{background:var(--signal);border-color:var(--signal);color:#fff}
+          .chip i{font-style:normal;font:11px var(--mono);opacity:.7}
+          .chip.on i{opacity:.9}
+
+          .ledger{position:relative;margin-top:18px}
           ul{list-style:none;margin:0;padding:0;background:var(--surface);
             border:1px solid var(--line);border-radius:16px;overflow:hidden;
             box-shadow:var(--shadow);animation:rise .5s ease both}
@@ -186,9 +213,30 @@ enum DirectoryListing {
             <h1>\(htmlText(title))</h1>
             <nav class="crumbs">\(crumbs)</nav>
           </header>
+          \(filters)
           <section class="ledger">\(ledger)</section>
-          <footer class="colophon"><span class="ro">● 只读浏览</span><span>\(count) 项</span></footer>
+          <footer class="colophon"><span class="ro">● 只读浏览</span><span class="count">\(count) 项</span></footer>
         </main>
+        <script>
+        (function(){
+          var chips=[].slice.call(document.querySelectorAll('.chip'));
+          var rows=[].slice.call(document.querySelectorAll('li[data-type]'));
+          var cnt=document.querySelector('.count');
+          if(!chips.length)return;
+          function apply(t){
+            var n=0;
+            rows.forEach(function(r){
+              var ty=r.getAttribute('data-type');
+              var show=(t==='all'||ty===t||ty==='up');
+              r.style.display=show?'':'none';
+              if(show&&ty!=='up')n++;
+            });
+            chips.forEach(function(c){c.classList.toggle('on',c.getAttribute('data-type')===t)});
+            if(cnt)cnt.textContent=n+' 项';
+          }
+          chips.forEach(function(c){c.addEventListener('click',function(){apply(c.getAttribute('data-type'))})});
+        })();
+        </script>
         </body></html>
         """
     }
@@ -197,6 +245,31 @@ enum DirectoryListing {
 
     private static func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+    }
+
+    // 类型分类（用于筛选）。顺序见 catOrder，名称见 catName。
+    private static let catOrder = ["dir", "html", "pdf", "image", "markdown", "excel", "doc", "slide", "video", "audio", "archive", "other"]
+    private static let catName: [String: String] = [
+        "dir": "目录", "html": "网页", "pdf": "PDF", "image": "图片", "markdown": "Markdown",
+        "excel": "表格", "doc": "文档", "slide": "幻灯片", "video": "视频", "audio": "音频",
+        "archive": "压缩包", "other": "其他",
+    ]
+
+    private static func category(name: String, isDir: Bool) -> String {
+        if isDir { return "dir" }
+        switch (name as NSString).pathExtension.lowercased() {
+        case "html", "htm": return "html"
+        case "pdf": return "pdf"
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "heif", "tiff", "tif", "ico", "avif": return "image"
+        case "md", "markdown", "mdown": return "markdown"
+        case "xls", "xlsx", "csv", "numbers": return "excel"
+        case "doc", "docx", "pages", "rtf", "txt": return "doc"
+        case "ppt", "pptx", "key": return "slide"
+        case "mp4", "mov", "webm", "mkv", "avi", "m4v": return "video"
+        case "mp3", "wav", "m4a", "aac", "flac", "ogg": return "audio"
+        case "zip", "rar", "7z", "gz", "tar", "bz2": return "archive"
+        default: return "other"
+        }
     }
 
     // 逐段百分号编码（保留 / 分隔符），空格/中文等转义，浏览器导航才不出错。
@@ -220,10 +293,14 @@ enum DirectoryListing {
         switch (name as NSString).pathExtension.lowercased() {
         case "html", "htm": return "🌐"
         case "pdf": return "📕"
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp": return "🖼️"
-        case "mp4", "mov", "webm": return "🎬"
-        case "mp3", "wav", "m4a": return "🎵"
-        case "zip": return "🗜️"
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "heif", "tiff", "tif", "avif": return "🖼️"
+        case "md", "markdown", "mdown": return "📝"
+        case "xls", "xlsx", "csv", "numbers": return "📊"
+        case "doc", "docx", "pages", "rtf", "txt": return "📄"
+        case "ppt", "pptx", "key": return "📽️"
+        case "mp4", "mov", "webm", "mkv", "avi", "m4v": return "🎬"
+        case "mp3", "wav", "m4a", "aac", "flac", "ogg": return "🎵"
+        case "zip", "rar", "7z", "gz", "tar", "bz2": return "🗜️"
         default: return "📄"
         }
     }

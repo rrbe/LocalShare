@@ -5,19 +5,25 @@ import Swifter
 // 全部逻辑放进单个 middleware 闭包（永远返回 response），绕开 router。
 // 安全：① token 鉴权（query 或 cookie）；② 防目录穿越（路径解析后必须仍在所选文件夹内）。
 final class FileServer {
+    // 分享对象：整个文件夹，或单个文件（扫码直接打开它，不暴露同目录其它文件）。
+    enum Share {
+        case directory(URL)
+        case file(URL)
+    }
+
     private let server = HttpServer()
     private let token: String
 
-    // root 可能在运行中被“更换文件夹”修改，故加锁；请求处理在后台 socket 线程读取。
+    // share 可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
     private let lock = NSLock()
-    private var _root: URL
-    var root: URL {
-        get { lock.lock(); defer { lock.unlock() }; return _root }
-        set { lock.lock(); _root = newValue; lock.unlock() }
+    private var _share: Share
+    var share: Share {
+        get { lock.lock(); defer { lock.unlock() }; return _share }
+        set { lock.lock(); _share = newValue; lock.unlock() }
     }
 
-    init(root: URL, token: String) {
-        self._root = root
+    init(share: Share, token: String) {
+        self._share = share
         self.token = token
         server.middleware.append { [weak self] req in
             self?.handle(req) ?? .internalServerError
@@ -57,9 +63,17 @@ final class FileServer {
             extra["Set-Cookie"] = "lfs_token=\(token); Path=/; Max-Age=86400; SameSite=Lax"
         }
 
+        // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件
+        if case .file(let fileURL) = share {
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
+            }
+            return fileResponse(fileURL, extra: extra)
+        }
+        guard case .directory(let rootURL) = share else { return .internalServerError }
+
         // 2. 防目录穿越：拼接后标准化，必须仍落在 root 内
         // 注意：Swifter 的 path 解析有 bug，req.path 仍保留一层百分号编码，需手动解码再落地到文件系统。
-        let rootURL = root
         let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
         let decodedPath = req.path.removingPercentEncoding ?? req.path
         let rel = String(decodedPath.drop { $0 == "/" })

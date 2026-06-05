@@ -1,7 +1,7 @@
 import SwiftUI
 
-// 单窗口 UI（暖纸张 × 信号广播）：刊头 + 信号源(二维码/频率/链接) + 文件夹底座。
-// 三态：未选文件夹 / 未接入局域网 / 广播中。视觉系统见 Theme.swift。
+// 单窗口 UI（暖纸张 × 信号广播）：刊头 + 信号源(二维码/频率/链接) + 分享对象底座。
+// 三态：未选分享对象 / 未接入局域网 / 广播中。分享对象可为文件夹或单个文件。视觉系统见 Theme.swift。
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @State private var appeared = false
@@ -59,7 +59,7 @@ struct ContentView: View {
     // MARK: - 主体（按状态切换）
 
     @ViewBuilder private var content: some View {
-        if state.folderURL == nil {
+        if state.sharedURL == nil {
             emptyFolderState
         } else if !state.hasNetwork {
             noNetworkState
@@ -73,13 +73,18 @@ struct ContentView: View {
         VStack(spacing: 16) {
             Spacer()
             Text("◐").font(.system(size: 64)).foregroundStyle(Palette.signal.opacity(0.85))
-            Text("选择一个文件夹，开始广播")
+            Text("选择要分享的内容，开始广播")
                 .font(.serif(21)).foregroundStyle(Palette.ink)
-            Text("同一网络下的任意设备——手机、电脑、平板——\n扫码或打开链接即可在浏览器里只读浏览。")
+            Text("可分享整个文件夹，或单独一个文件。同一网络下的任意设备\n——手机、电脑、平板——扫码或打开链接即可只读浏览。")
                 .font(.system(size: 13)).foregroundStyle(Palette.inkSoft)
                 .multilineTextAlignment(.center).lineSpacing(3)
-            Button("选择文件夹…") { state.pickFolder() }
-                .buttonStyle(SignalButtonStyle()).hoverLift().padding(.top, 4)
+            HStack(spacing: 10) {
+                Button("选择文件夹…") { state.pickFolder() }
+                    .buttonStyle(SignalButtonStyle()).hoverLift()
+                Button("选择单个文件…") { state.pickFile() }
+                    .buttonStyle(GhostButtonStyle()).hoverLift()
+            }
+            .padding(.top, 4)
             Spacer()
         }
     }
@@ -138,7 +143,7 @@ struct ContentView: View {
                 }
             }
             .frame(height: 250)
-            Text("扫码 · 或在任意设备的浏览器中打开")
+            Text(state.sharedIsFile ? "扫码 · 直接打开这个文件" : "扫码 · 或在任意设备的浏览器中打开")
                 .font(.mono(10)).tracking(0.3).foregroundStyle(Palette.inkSoft)
         }
     }
@@ -196,17 +201,22 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(spacing: 12) {
-            if let folder = state.folderURL {
+            if let shared = state.sharedURL {
                 HStack(spacing: 11) {
-                    Image(systemName: "shippingbox").font(.system(size: 15)).foregroundStyle(Palette.signal)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("正在广播").font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Palette.inkSoft)
-                        Text(folder.lastPathComponent)
+                    Image(systemName: state.sharedIsFile ? "doc.text" : "shippingbox")
+                        .font(.system(size: 15)).foregroundStyle(Palette.signal)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(state.sharedIsFile ? "正在分享文件" : "正在广播")
+                            .font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Palette.inkSoft)
+                        Text(shared.lastPathComponent)
                             .font(.serif(15, .medium)).foregroundStyle(Palette.ink)
                             .lineLimit(1).truncationMode(.middle)
+                        Text(shared.path)
+                            .font(.mono(10)).foregroundStyle(Palette.inkSoft.opacity(0.85))
+                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     }
                     Spacer(minLength: 6)
-                    Button("更换") { state.pickFolder() }.buttonStyle(GhostButtonStyle()).hoverLift()
+                    Button("更换") { state.pickAny() }.buttonStyle(GhostButtonStyle()).hoverLift()
                     Button(state.isRunning ? "停止" : "启动") { state.toggle() }
                         .buttonStyle(GhostButtonStyle()).hoverLift()
                 }

@@ -15,7 +15,11 @@ enum HeadlessServer {
         let token = env["LFS_TOKEN"] ?? "testtoken"
         let port = in_port_t(env["LFS_PORT"].flatMap { Int($0) } ?? 8080)
 
-        let server = FileServer(root: URL(fileURLWithPath: folder, isDirectory: true), token: token)
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: folder, isDirectory: &isDir)
+        let url = URL(fileURLWithPath: folder)
+        let share: FileServer.Share = isDir.boolValue ? .directory(url) : .file(url)
+        let server = FileServer(share: share, token: token)
         do {
             let bound = try server.start(preferredPorts: [port])
             print("LFS_URL http://127.0.0.1:\(bound)/?t=\(token)")
