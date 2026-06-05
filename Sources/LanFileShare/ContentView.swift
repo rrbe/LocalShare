@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @State private var appeared = false
+    @State private var showHelp = false
 
     var body: some View {
         ZStack {
@@ -230,17 +231,26 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 6) {
+            Button { showHelp.toggle() } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "questionmark.circle").font(.system(size: 11))
+                    Text("连不上？").font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(Palette.inkSoft)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .popover(isPresented: $showHelp, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 11) {
+                    Text("连不上？逐条排查")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink)
                     troubleshootRow("1", "确认两台设备连的是同一个 WiFi / 网络。")
                     troubleshootRow("2", "首次启动若弹出防火墙提示，请点「允许」。")
                     troubleshootRow("3", "公司 / 公共 WiFi 常开「设备隔离」，会阻止互访，换个网络试试。")
                 }
-                .padding(.top, 8)
-            } label: {
-                Text("连不上？").font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.inkSoft)
+                .padding(16)
+                .frame(width: 312)
             }
-            .tint(Palette.inkSoft)
         }
     }
 
