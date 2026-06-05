@@ -231,25 +231,30 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Button { showHelp.toggle() } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "questionmark.circle").font(.system(size: 11))
-                    Text("连不上？").font(.system(size: 12, weight: .medium))
+            HStack(spacing: 8) {
+                Button { showHelp.toggle() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "questionmark.circle").font(.system(size: 11))
+                        Text("连不上？").font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(Palette.inkSoft)
                 }
-                .foregroundStyle(Palette.inkSoft)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .popover(isPresented: $showHelp, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 11) {
-                    Text("连不上？逐条排查")
-                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink)
-                    troubleshootRow("1", "确认两台设备连的是同一个 WiFi / 网络。")
-                    troubleshootRow("2", "首次启动若弹出防火墙提示，请点「允许」。")
-                    troubleshootRow("3", "公司 / 公共 WiFi 常开「设备隔离」，会阻止互访，换个网络试试。")
+                .buttonStyle(.plain)
+                .popover(isPresented: $showHelp, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 11) {
+                        Text("连不上？逐条排查")
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink)
+                        troubleshootRow("1", "确认两台设备连的是同一个 WiFi / 网络。")
+                        troubleshootRow("2", "首次启动若弹出防火墙提示，请点「允许」。")
+                        troubleshootRow("3", "公司 / 公共 WiFi 常开「设备隔离」，会阻止互访，换个网络试试。")
+                    }
+                    .padding(16)
+                    .frame(width: 312)
                 }
-                .padding(16)
-                .frame(width: 312)
+                Spacer()
+                Text(appVersion)
+                    .font(.mono(9.5)).foregroundStyle(Palette.inkSoft.opacity(0.5))
+                    .textSelection(.enabled)
             }
         }
     }
@@ -273,5 +278,10 @@ struct ContentView: View {
 
     private func open(_ s: String) {
         if let url = URL(string: s) { NSWorkspace.shared.open(url) }
+    }
+
+    // 版本号取自 bundle（随 release/tag 自动同步）；swift run 裸二进制无 bundle，回退 dev。
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "v\($0)" } ?? "dev"
     }
 }
