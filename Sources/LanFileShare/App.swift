@@ -8,6 +8,11 @@ enum EntryPoint {
         if ProcessInfo.processInfo.environment["LFS_HEADLESS"] == "1" {
             HeadlessServer.run()
         } else {
+            // 关闭 macOS 窗口状态恢复：干净启动且无可恢复状态时，SwiftUI 的 Window 场景会偶发
+            // 不创建窗口（表现为「app 在 Dock 里却没有窗口、双击无响应」）。必须在 NSApplication
+            // 启动前同步写入，AppKit 早期读取该标志才生效。
+            CFPreferencesSetAppValue("ApplePersistenceIgnoreState" as CFString, kCFBooleanTrue, kCFPreferencesCurrentApplication)
+            CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
             LanFileShareApp.main()
         }
     }
