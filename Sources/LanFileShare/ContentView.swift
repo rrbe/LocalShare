@@ -32,8 +32,8 @@ struct ContentView: View {
     private var masthead: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("LAN · FILE BROADCAST")
-                    .font(.mono(9.5, .medium)).tracking(2.4)
+                Text("局域网 · 只读分享")
+                    .font(.system(size: 11, weight: .semibold)).tracking(0.6)
                     .foregroundStyle(Palette.signal)
                 Text("局域网文件分享")
                     .font(.serif(25)).foregroundStyle(Palette.ink)
@@ -47,8 +47,8 @@ struct ContentView: View {
         HStack(spacing: 7) {
             LiveDot(color: state.isRunning ? Palette.signal : Palette.inkSoft, live: state.isRunning)
             if state.isRunning {
-                Text("ON AIR").font(.mono(10, .semibold)).tracking(1.5).foregroundStyle(Palette.ink)
-                Text(":\(String(state.port))").font(.mono(10, .semibold)).foregroundStyle(Palette.signal)
+                Text("广播中").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.ink)
+                Text(":\(String(state.port))").font(.mono(11, .semibold)).foregroundStyle(Palette.signal)
             } else {
                 Text("待机").font(.mono(10, .medium)).tracking(1).foregroundStyle(Palette.inkSoft)
             }
@@ -147,7 +147,7 @@ struct ContentView: View {
     // 频率读数：IP 大字 + 端口强调
     private func frequency(_ iface: NetworkInterface) -> some View {
         VStack(spacing: 2) {
-            Text("调频至 · TUNE IN").font(.mono(8.5, .medium)).tracking(2.2).foregroundStyle(Palette.inkSoft)
+            Text("调频至").font(.system(size: 10, weight: .medium)).tracking(0.5).foregroundStyle(Palette.inkSoft)
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(iface.ip).font(.mono(26, .medium)).foregroundStyle(Palette.ink)
                 Text(":\(String(state.port))").font(.mono(26, .semibold)).foregroundStyle(Palette.signal)
@@ -201,7 +201,7 @@ struct ContentView: View {
                 HStack(spacing: 11) {
                     Image(systemName: "shippingbox").font(.system(size: 15)).foregroundStyle(Palette.signal)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("正在广播 · ON AIR").font(.mono(8, .medium)).tracking(1.6).foregroundStyle(Palette.inkSoft)
+                        Text("正在广播").font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Palette.inkSoft)
                         Text(folder.lastPathComponent)
                             .font(.serif(15, .medium)).foregroundStyle(Palette.ink)
                             .lineLimit(1).truncationMode(.middle)

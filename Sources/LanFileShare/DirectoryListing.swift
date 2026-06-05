@@ -1,7 +1,7 @@
 import Foundation
 
-// 浏览器端目录页（与原生 app 同源的「暖纸张 × 信号广播」语言）：
-// 刊头 + 面包屑 + 账本式列表（目录在前、文件夹›导航 / 文件↓下载、套准角标）+ READ ONLY 版权条。
+// 浏览器端目录页（与原生 app 同源的「暖纸张 × 信号广播」语言，支持系统深色模式）：
+// 刊头 + 面包屑 + 账本式列表（目录在前、文件夹›导航 / 文件↓下载、套准角标）+ 只读版权条。
 // 只用系统字体栈，零外部依赖、局域网离线可渲染。所有 href 用绝对路径（请求路径 + 逐段编码条目名），不依赖 trailing slash。
 enum DirectoryListing {
     static func html(directory: URL, requestPath: String, rootName: String) -> String {
@@ -88,11 +88,27 @@ enum DirectoryListing {
         <style>
           :root{
             --paper:#efe9dd;--paper2:#e6decb;--surface:#fbf8f1;
-            --ink:#1f1b16;--soft:#6f665a;--signal:#d23c17;--line:rgba(31,27,22,.12);
+            --ink:#1f1b16;--soft:#6f665a;--signal:#d23c17;
+            --line:rgba(31,27,22,.12);
+            --hover:rgba(210,60,23,.05);--active:rgba(210,60,23,.11);--upbg:rgba(210,60,23,.045);
+            --pulse:rgba(210,60,23,.45);
+            --grain:rgba(31,27,22,.05);
+            --shadow:0 22px 48px -30px rgba(31,27,22,.55);
             --serif:ui-serif,"Songti SC","Noto Serif CJK SC",Georgia,"Times New Roman",serif;
             --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
             --sans:-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif;
-            color-scheme:light;
+            color-scheme:light dark;
+          }
+          @media(prefers-color-scheme:dark){
+            :root{
+              --paper:#15120e;--paper2:#221c14;--surface:#201913;
+              --ink:#ece4d6;--soft:#9a9082;--signal:#ec5a2e;
+              --line:rgba(236,228,214,.13);
+              --hover:rgba(236,90,46,.12);--active:rgba(236,90,46,.2);--upbg:rgba(236,90,46,.1);
+              --pulse:rgba(236,90,46,.5);
+              --grain:rgba(255,255,255,.032);
+              --shadow:0 24px 50px -28px rgba(0,0,0,.62);
+            }
           }
           *{box-sizing:border-box}
           html,body{margin:0}
@@ -107,15 +123,15 @@ enum DirectoryListing {
             -webkit-text-size-adjust:100%;
           }
           body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.6;
-            background-image:radial-gradient(rgba(31,27,22,.05) .5px,transparent .6px);
+            background-image:radial-gradient(var(--grain) .5px,transparent .6px);
             background-size:13px 13px}
           main{max-width:680px;margin:0 auto;padding:30px 18px 36px}
-          .kicker{display:flex;align-items:center;gap:8px;font:600 10px/1 var(--mono);
-            letter-spacing:.22em;text-transform:uppercase;color:var(--signal)}
+          .kicker{display:flex;align-items:center;gap:8px;font:600 11px/1 var(--sans);
+            letter-spacing:.04em;color:var(--signal)}
           .kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--signal);
             animation:pulse 2s infinite}
-          @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(210,60,23,.45)}
-            70%{box-shadow:0 0 0 9px rgba(210,60,23,0)}100%{box-shadow:0 0 0 0 rgba(210,60,23,0)}}
+          @keyframes pulse{0%{box-shadow:0 0 0 0 var(--pulse)}
+            70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
           h1{margin:11px 0 0;font:600 27px/1.2 var(--serif);letter-spacing:.01em;word-break:break-word}
           .crumbs{margin-top:9px;font:12px/1.6 var(--mono);color:var(--soft);word-break:break-all}
           .crumbs a{color:var(--soft);text-decoration:none;border-bottom:1px solid transparent}
@@ -126,8 +142,7 @@ enum DirectoryListing {
           .ledger{position:relative;margin-top:24px}
           ul{list-style:none;margin:0;padding:0;background:var(--surface);
             border:1px solid var(--line);border-radius:16px;overflow:hidden;
-            box-shadow:0 22px 48px -30px rgba(31,27,22,.55);
-            animation:rise .5s ease both}
+            box-shadow:var(--shadow);animation:rise .5s ease both}
           @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
           li+li{border-top:1px solid var(--line)}
           a.row{position:relative;display:flex;align-items:center;gap:13px;
@@ -135,15 +150,15 @@ enum DirectoryListing {
             transition:background .15s}
           a.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:0;
             background:var(--signal);transition:width .15s}
-          a.row:hover{background:rgba(210,60,23,.05)}
+          a.row:hover{background:var(--hover)}
           a.row:hover::before{width:3px}
-          a.row:active{background:rgba(210,60,23,.11)}
+          a.row:active{background:var(--active)}
           .ic{flex:none;width:26px;text-align:center;font-size:20px;line-height:1}
           .nm{flex:1;min-width:0;font:15px/1.35 var(--sans);word-break:break-all}
           .sz{flex:none;font:11.5px var(--mono);color:var(--soft);white-space:nowrap}
           .ch{flex:none;width:14px;text-align:center;font-size:16px;color:var(--soft)}
-          li.up a.row{background:rgba(210,60,23,.045)}
-          li.up .nm{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--signal)}
+          li.up a.row{background:var(--upbg)}
+          li.up .nm{font:600 13px var(--sans);letter-spacing:.02em;color:var(--signal)}
           li.up .ic{color:var(--signal)}
 
           .empty{text-align:center;color:var(--soft);padding:66px 20px;font:15px var(--sans)}
@@ -162,18 +177,17 @@ enum DirectoryListing {
           .mark.br::before,.mark.br::after{top:auto;bottom:0;left:auto;right:0}
 
           .colophon{display:flex;justify-content:space-between;align-items:center;
-            margin:16px 4px 0;font:10px/1 var(--mono);letter-spacing:.12em;
-            text-transform:uppercase;color:var(--soft)}
+            margin:16px 4px 0;font:11px/1 var(--sans);letter-spacing:.02em;color:var(--soft)}
           .colophon .ro{color:var(--signal)}
         </style></head><body>
         <main>
           <header>
-            <div class="kicker"><span class="dot"></span>LAN · FILE BROADCAST</div>
+            <div class="kicker"><span class="dot"></span>局域网 · 只读分享</div>
             <h1>\(htmlText(title))</h1>
             <nav class="crumbs">\(crumbs)</nav>
           </header>
           <section class="ledger">\(ledger)</section>
-          <footer class="colophon"><span class="ro">● 只读浏览 · READ ONLY</span><span>\(count) 项</span></footer>
+          <footer class="colophon"><span class="ro">● 只读浏览</span><span>\(count) 项</span></footer>
         </main>
         </body></html>
         """
