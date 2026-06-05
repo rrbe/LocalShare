@@ -1,0 +1,67 @@
+name: Release
+
+# 推送 vX.Y.Z 标签即触发：编译 universal → 校验零 dylib → 打 DMG → 建 GitHub Release。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # 创建 Release 需要写权限
+
+jobs:
+  release:
+    runs-on: macos-latest   # Apple Silicon runner，自带 Xcode / Swift 工具链
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析版本号（去掉前缀 v）
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: 写入版本号到 Info.plist
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" bundle/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" bundle/Info.plist
+
+      - name: 编译并组装 .app（universal + ad-hoc 签名）
+        run: bash build.sh
+
+      - name: 校验零第三方 dylib（项目核心戒律）
+        run: |
+          LEAK=$(otool -L dist/LocalShare.app/Contents/MacOS/LanFileShare | grep -v -e /usr/lib/ -e /System/Library/ -e 'LocalShare.app' || true)
+          if [ -n "$LEAK" ]; then echo "::error::检测到非系统库依赖：$LEAK"; exit 1; fi
+
+      - name: 打包 DMG（含 Applications 软链，方便拖入）
+        run: |
+          STAGE="$(mktemp -d)"
+          cp -R dist/LocalShare.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname LocalShare -srcfolder "$STAGE" -ov -format UDZO "LocalShare-$VERSION.dmg"
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LocalShare ${{ env.VERSION }}
+          files: LocalShare-${{ env.VERSION }}.dmg
+          body: |
+            **LocalShare ${{ env.VERSION }}** · 局域网文件 / 文件夹只读分享，扫码即看。
+            Universal（Apple Silicon + Intel），要求 macOS 13+。
+
+            ## 安装
+            下载下方 `LocalShare-${{ env.VERSION }}.dmg`，双击打开，把 **LocalShare** 拖进 **Applications**。
+
+            ## ⚠️ 首次打开被「隐私与安全性」拦截怎么办
+            本包是 ad-hoc 签名、未经 Apple 公证，从网络下载会被 Gatekeeper 拦（提示「已损坏」或「无法打开」）。任选一种解除：
+
+            **方式 A（最简单）**：在访达里右键 `LocalShare.app` →「打开」，弹窗里再点一次「打开」，之后即可正常双击。
+
+            **方式 B**：「系统设置 → 隐私与安全性」，下滑找到被拦提示，点「仍要打开」。
+
+            **方式 C（终端一行）**：
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/LocalShare.app
+            ```
+            `-d` 删除属性、`-r` 递归整个 .app 包，`com.apple.quarantine` 是 macOS 给「网络下载文件」打的隔离标记——清掉即可。
+
+            ## 使用
+            打开 app → 选一个文件夹或单个文件 → 手机 / 电脑连同一 WiFi / 网络 → 扫码或打开链接，即可在浏览器里只读浏览。
