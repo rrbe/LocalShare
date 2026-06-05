@@ -21,8 +21,7 @@ struct ContentView: View {
             .padding(.top, 34)
             .padding(.bottom, 22)
         }
-        .frame(minWidth: 460, idealWidth: 500, maxWidth: 540,
-               minHeight: 680, idealHeight: 720, maxHeight: .infinity)
+        .frame(minWidth: 460, minHeight: 680)   // 背景填满整窗，宽度交给 defaultSize / 用户拖拽
         .preferredColorScheme(.light)
         .onAppear { appeared = true }
     }
