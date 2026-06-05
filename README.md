@@ -1,13 +1,19 @@
 # LocalShare（局域网文件分享）
 
-一个 macOS 原生单窗口小工具：选一个文件夹，窗口里出现二维码，手机扫一下就能在浏览器里
-浏览/打开里面的 html 等文件。**不用终端、不装 Homebrew、不依赖任何动态库。**
+一个 macOS 小工具，分享你电脑上的特定文件/文件夹，在同一个局域网下的其他设备中访问
 
-适合把电脑上的 html、PDF、图片等临时分享给同一 WiFi 下的手机查看（只读）。
+## 功能
+
+- 二维码分享，相机 app 扫一下浏览器中打开
+- 支持 html\pdf\视频\图片 等
+
+## 为什么有这个 app
+
+- iPhone 并不支持 html 文件直接在 Safari 中打开
 
 ## 使用
 
-1. 打开 app，点「选择文件夹…」。
+1. 打开 app，点「选择文件夹/单个文件」。
 2. 手机连上**与电脑相同的 WiFi**，用相机扫描窗口里的二维码。
 3. 首次启动若系统弹出防火墙提示，点「允许」。
 
@@ -24,11 +30,24 @@ open dist/LocalShare.app
 
 要求 macOS 13+、Xcode（含 Swift 工具链）。
 
-## 发给同事
+## 注意事项
 
-把 `dist/LocalShare.app` 拷给同事。由于是 ad-hoc 签名而非 Apple 公证，**首次打开**可能被
-Gatekeeper 拦截——由你帮他打开一次即可（「系统设置 → 隐私与安全性」点「仍要打开」），之后他双击就能用。
+由于是 ad-hoc 签名而非 Apple 公证，**首次打开**可能被 Gatekeeper 拦截（提示「已损坏」或「无法打开」），可任选其一：
 
-## 设计与范围
+右键 `LocalShare.app` →「打开」，在弹窗里再点一次「打开」：
 
-详见 [PLAN.md](PLAN.md)：完整的设计决策、Swifter API 要点、安全（token + 防目录穿越）与 v2 规划。
+- 在「系统设置 → 隐私与安全性」找到拦截提示，点「仍要打开」；
+- 或在终端执行下面这条去掉隔离属性，之后正常双击即可。
+
+```bash
+# 路径换成 .app 实际所在位置，例如拖进 /Applications 后即为 /Applications/LocalShare.app
+xattr -dr com.apple.quarantine /path/to/LocalShare.app
+```
+
+其中 `-d` 删除属性、`-r` 递归整个 `.app` 包，`com.apple.quarantine` 是 macOS 给「从网络下载的文件」打的隔离标记——清掉它，系统就不再拦截。
+
+## TODO
+
+- [ ] 加密
+- [ ] 拖动文件到 app 直接分享
+- [ ] 可以其他设备传送文件到 LocalShare 所在设备，限制 CRUD 权限
