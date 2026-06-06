@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 // 浏览器端目录页（与原生 app 同源的「暖纸张 × 信号广播」语言，支持系统深色模式 + 类型筛选）：
 // 刊头 + 面包屑 + 类型筛选条（网页/PDF/图片/Markdown/表格/目录…，纯前端即时过滤）
@@ -9,7 +10,7 @@ enum DirectoryListing {
         let fm = FileManager.default
         let entries = (try? fm.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentTypeKey],
             options: [.skipsHiddenFiles]
         )) ?? []
 
@@ -26,15 +27,16 @@ enum DirectoryListing {
             rows += row(href: encodePath(parentPath(of: requestPath)),
                         icon: "⬑", name: "返回上一级", size: nil, dir: true, type: "up", up: true)
         }
-        var counts: [String: Int] = [:]
+        var counts: [FileCategory: Int] = [:]
         for url in sorted {
             let name = url.lastPathComponent
             let dir = isDirectory(url)
-            let cat = category(name: name, isDir: dir)
+            let ct = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType   // 已随上面批量取出，命中缓存
+            let cat = FileType.category(isDir: dir, contentType: ct, name: name)
             counts[cat, default: 0] += 1
             let href = encodePath(base + name + (dir ? "/" : ""))
             let size = dir ? nil : (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? nil
-            rows += row(href: href, icon: dir ? "📁" : fileIcon(name), name: name, size: size, dir: dir, type: cat)
+            rows += row(href: href, icon: cat.emoji, name: name, size: size, dir: dir, type: cat.rawValue)
         }
 
         let title = requestPath == "/" ? rootName : ((requestPath as NSString).lastPathComponent)
@@ -59,12 +61,12 @@ enum DirectoryListing {
     }
 
     // 类型筛选条：只列出当前目录里真实出现的类别（≥2 类才显示，否则没必要筛选）。
-    private static func filterBar(counts: [String: Int], total: Int) -> String {
-        let present = catOrder.filter { (counts[$0] ?? 0) > 0 }
+    private static func filterBar(counts: [FileCategory: Int], total: Int) -> String {
+        let present = FileType.order.filter { (counts[$0] ?? 0) > 0 }
         guard present.count >= 2 else { return "" }
         var chips = "<button class=\"chip on\" data-type=\"all\">全部 <i>\(total)</i></button>"
         for cat in present {
-            chips += "<button class=\"chip\" data-type=\"\(cat)\">\(catName[cat] ?? cat) <i>\(counts[cat] ?? 0)</i></button>"
+            chips += "<button class=\"chip\" data-type=\"\(cat.rawValue)\">\(cat.displayName) <i>\(counts[cat] ?? 0)</i></button>"
         }
         return "<div class=\"filters\">\(chips)</div>"
     }
@@ -247,31 +249,6 @@ enum DirectoryListing {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
     }
 
-    // 类型分类（用于筛选）。顺序见 catOrder，名称见 catName。
-    private static let catOrder = ["dir", "html", "pdf", "image", "markdown", "excel", "doc", "slide", "video", "audio", "archive", "other"]
-    private static let catName: [String: String] = [
-        "dir": "目录", "html": "网页", "pdf": "PDF", "image": "图片", "markdown": "Markdown",
-        "excel": "表格", "doc": "文档", "slide": "幻灯片", "video": "视频", "audio": "音频",
-        "archive": "压缩包", "other": "其他",
-    ]
-
-    private static func category(name: String, isDir: Bool) -> String {
-        if isDir { return "dir" }
-        switch (name as NSString).pathExtension.lowercased() {
-        case "html", "htm": return "html"
-        case "pdf": return "pdf"
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "heif", "tiff", "tif", "ico", "avif": return "image"
-        case "md", "markdown", "mdown": return "markdown"
-        case "xls", "xlsx", "csv", "numbers": return "excel"
-        case "doc", "docx", "pages", "rtf", "txt": return "doc"
-        case "ppt", "pptx", "key": return "slide"
-        case "mp4", "mov", "webm", "mkv", "avi", "m4v": return "video"
-        case "mp3", "wav", "m4a", "aac", "flac", "ogg": return "audio"
-        case "zip", "rar", "7z", "gz", "tar", "bz2": return "archive"
-        default: return "other"
-        }
-    }
-
     // 逐段百分号编码（保留 / 分隔符），空格/中文等转义，浏览器导航才不出错。
     private static func encodePath(_ path: String) -> String {
         path.split(separator: "/", omittingEmptySubsequences: false)
@@ -287,22 +264,6 @@ enum DirectoryListing {
             return parent.isEmpty ? "/" : parent
         }
         return "/"
-    }
-
-    private static func fileIcon(_ name: String) -> String {
-        switch (name as NSString).pathExtension.lowercased() {
-        case "html", "htm": return "🌐"
-        case "pdf": return "📕"
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "heif", "tiff", "tif", "avif": return "🖼️"
-        case "md", "markdown", "mdown": return "📝"
-        case "xls", "xlsx", "csv", "numbers": return "📊"
-        case "doc", "docx", "pages", "rtf", "txt": return "📄"
-        case "ppt", "pptx", "key": return "📽️"
-        case "mp4", "mov", "webm", "mkv", "avi", "m4v": return "🎬"
-        case "mp3", "wav", "m4a", "aac", "flac", "ogg": return "🎵"
-        case "zip", "rar", "7z", "gz", "tar", "bz2": return "🗜️"
-        default: return "📄"
-        }
     }
 
     private static func formatSize(_ bytes: Int) -> String {
