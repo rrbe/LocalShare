@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // 单窗口 UI（暖纸张 × 信号广播）：刊头 + 信号源(二维码/频率/链接) + 分享对象底座。
 // 三态：未选分享对象 / 未接入局域网 / 广播中。分享对象可为文件夹或单个文件。视觉系统见 Theme.swift。
@@ -6,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject var state: AppState
     @State private var appeared = false
     @State private var showHelp = false
+    @State private var isDropTargeted = false   // 拖拽悬停态，驱动高亮蒙层
 
     var body: some View {
         ZStack {
@@ -22,9 +24,45 @@ struct ContentView: View {
             .padding(.top, 34)
             .padding(.bottom, 22)
         }
-        .frame(minWidth: 460, minHeight: 680)   // 背景填满整窗，宽度交给 defaultSize / 用户拖拽
+        .frame(minWidth: 460, minHeight: 700)   // 背景填满整窗，宽度交给 defaultSize / 用户拖拽
         .preferredColorScheme(.light)
         .onAppear { appeared = true }
+        // 整窗接收 Finder 拖拽：文件或文件夹拖进来即开始分享（无需点按钮）
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted.animation(.easeOut(duration: 0.15))) { handleDrop($0) }
+        .overlay { if isDropTargeted { dropOverlay } }
+    }
+
+    // 拖入时覆盖整窗的高亮提示：朱红实线套准框 + 引导文案（弃用虚线，更像「就位框」而非通用上传区）。
+    private var dropOverlay: some View {
+        ZStack {
+            Palette.paper.opacity(0.66)
+            VStack(spacing: 14) {
+                Image(systemName: "tray.and.arrow.down")
+                    .font(.system(size: 40, weight: .regular)).foregroundStyle(Palette.signal)
+                Text("松开即可分享").font(.serif(22)).foregroundStyle(Palette.ink)
+                Text("文件夹 → 列表浏览 · 单个文件 → 扫码直接打开")
+                    .font(.mono(10.5)).tracking(0.3).foregroundStyle(Palette.inkSoft)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Palette.signal, lineWidth: 2)
+                .padding(12)
+        )
+        .overlay(CropMarks(color: Palette.signal.opacity(0.55), arm: 18).padding(2))
+        .ignoresSafeArea()
+        .transition(.opacity)
+    }
+
+    // 取第一个能解析成 file URL 的拖拽项，交给 setShared（它自行判断文件/文件夹）。
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url, url.isFileURL else { return }
+            DispatchQueue.main.async { state.setShared(url) }
+        }
+        return true
     }
 
     // MARK: - 刊头
@@ -69,32 +107,42 @@ struct ContentView: View {
         }
     }
 
-    // 未选文件夹
+    // 未选分享对象：用印刷「套准角标」框出就位区（替代通用虚线框），暖纸微底 + 四角裁切线，
+    // 一眼读作「把东西摆进这个框」——与二维码的角标语言一致，去 AI 感。
     private var emptyFolderState: some View {
-        VStack(spacing: 16) {
+        VStack {
             Spacer()
-            Text("◐").font(.system(size: 64)).foregroundStyle(Palette.signal.opacity(0.85))
-            Text("选择要分享的内容，开始广播")
-                .font(.serif(21)).foregroundStyle(Palette.ink)
-            Text("可分享整个文件夹，或单独一个文件。同一网络下的任意设备\n——手机、电脑、平板——扫码或打开链接即可只读浏览。")
-                .font(.system(size: 13)).foregroundStyle(Palette.inkSoft)
-                .multilineTextAlignment(.center).lineSpacing(3)
-            HStack(spacing: 10) {
-                Button("选择文件夹…") { state.pickFolder() }
-                    .buttonStyle(SignalButtonStyle()).hoverLift()
-                Button("选择单个文件…") { state.pickFile() }
-                    .buttonStyle(GhostButtonStyle()).hoverLift()
+            VStack(spacing: 16) {
+                Text("◐").font(.system(size: 54)).foregroundStyle(Palette.signal.opacity(0.85))
+                VStack(spacing: 7) {
+                    Text("把文件 / 文件夹拖到这里")
+                        .font(.serif(20)).foregroundStyle(Palette.ink)
+                    Text("即可向同一网络下的手机、电脑、平板只读广播")
+                        .font(.system(size: 12.5)).foregroundStyle(Palette.inkSoft)
+                        .multilineTextAlignment(.center)
+                }
+                HStack(spacing: 10) {
+                    Button("选择文件夹…") { state.pickFolder() }
+                        .buttonStyle(SignalButtonStyle()).hoverLift()
+                    Button("选择单个文件…") { state.pickFile() }
+                        .buttonStyle(GhostButtonStyle()).hoverLift()
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48).padding(.horizontal, 30)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.surface.opacity(0.4)))
+            .overlay(CropMarks(color: Palette.inkSoft.opacity(0.5), arm: 16).padding(7))
             Spacer()
         }
     }
 
-    // 未接入局域网
+    // 未接入局域网（但已选好分享对象）：顶部仍突出分享对象（卡内含更换/启停），下面引导接入网络。
     private var noNetworkState: some View {
         VStack(spacing: 16) {
+            sharedCard
             Spacer()
-            Text("⌁").font(.system(size: 64)).foregroundStyle(Palette.inkSoft.opacity(0.7))
+            Text("⌁").font(.system(size: 58)).foregroundStyle(Palette.inkSoft.opacity(0.7))
             Text("未接入局域网").font(.serif(21)).foregroundStyle(Palette.ink)
             Text("先把这台 Mac 接入与目标设备相同的 WiFi /\n有线网络，再点下方刷新。")
                 .font(.system(size: 13)).foregroundStyle(Palette.inkSoft)
@@ -105,26 +153,80 @@ struct ContentView: View {
         }
     }
 
-    // 广播中
+    // 广播中：分享对象主卡(含更换/停止) → 二维码(渠道) → 频率 / 链接。
     private var runningState: some View {
         VStack(spacing: 16) {
-            signalCard.enter(appeared, 0.05)
+            sharedCard.enter(appeared, 0.02)
+            signalCard.enter(appeared, 0.08)
             if let iface = state.selectedInterface {
-                frequency(iface).enter(appeared, 0.13)
+                frequency(iface).enter(appeared, 0.14)
             }
             if let url = state.primaryURL {
-                linkBar(url).enter(appeared, 0.21)
+                linkBar(url).enter(appeared, 0.20)
             }
             if state.interfaces.count > 1 {
-                interfacePicker.enter(appeared, 0.27)
+                interfacePicker.enter(appeared, 0.26)
             }
             if let local = state.localURL {
                 Text("备用 · \(local)")
                     .font(.mono(10)).foregroundStyle(Palette.inkSoft.opacity(0.8))
                     .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    .enter(appeared, 0.31)
+                    .enter(appeared, 0.30)
             }
         }
+    }
+
+    // 分享对象主卡「广播单」：左侧信号脊条 + 类型印章 + 大字名 + 元数据，并就地集成「更换/停止」——
+    // 把「在分享什么」与「换成什么」合为一处。弃用淡红圆角卡（太通用），走印刷分发单语言：暖纸面 + 信号脊。
+    private var sharedCard: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                typeChip
+                Text(state.sharedURL?.lastPathComponent ?? "")
+                    .font(.serif(18, .semibold)).foregroundStyle(Palette.ink)
+                    .lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 5) {
+                    if let detail = state.sharedDetail {
+                        Text(detail).font(.mono(10, .medium)).foregroundStyle(Palette.inkSoft)
+                        Text("·").font(.mono(10)).foregroundStyle(Palette.inkSoft.opacity(0.45))
+                    }
+                    Text(prettyPath).font(.mono(10)).foregroundStyle(Palette.inkSoft.opacity(0.8))
+                        .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                Button("更换") { state.pickAny() }.buttonStyle(GhostButtonStyle()).hoverLift()
+                Button(state.isRunning ? "停止" : "启动") { state.toggle() }
+                    .buttonStyle(GhostButtonStyle()).hoverLift()
+            }
+        }
+        .padding(.leading, 16).padding(.trailing, 11).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Palette.surface))
+        .overlay(alignment: .leading) {                  // 信号脊条：竖向胶囊，像「正在播出」的频道索引
+            Capsule().fill(Palette.signal).frame(width: 4).padding(.vertical, 12).padding(.leading, 5)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.line, lineWidth: 1))
+        .shadow(color: Palette.ink.opacity(0.06), radius: 10, x: 0, y: 5)
+    }
+
+    // 类型印章：图标 + 中文类别，朱红描边小标签（替代原淡红卡的 eyebrow 文案）。
+    private var typeChip: some View {
+        HStack(spacing: 5) {
+            Image(systemName: state.sharedIsFile ? "doc.text" : "shippingbox")
+                .font(.system(size: 9, weight: .semibold))
+            Text(state.sharedIsFile ? "单个文件" : "文件夹")
+                .font(.mono(9.5, .semibold)).tracking(0.3)
+        }
+        .foregroundStyle(Palette.signal)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().stroke(Palette.signal.opacity(0.4), lineWidth: 1))
+    }
+
+    // 路径以 ~ 缩写家目录，更短更易读。
+    private var prettyPath: String {
+        guard let path = state.sharedURL?.path else { return "" }
+        return (path as NSString).abbreviatingWithTildeInPath
     }
 
     // 信号源卡片：电波环 + 二维码 + 套准角标
@@ -202,30 +304,6 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(spacing: 12) {
-            if let shared = state.sharedURL {
-                HStack(spacing: 11) {
-                    Image(systemName: state.sharedIsFile ? "doc.text" : "shippingbox")
-                        .font(.system(size: 15)).foregroundStyle(Palette.signal)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(state.sharedIsFile ? "正在分享文件" : "正在广播")
-                            .font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Palette.inkSoft)
-                        Text(shared.lastPathComponent)
-                            .font(.serif(15, .medium)).foregroundStyle(Palette.ink)
-                            .lineLimit(1).truncationMode(.middle)
-                        Text(shared.path)
-                            .font(.mono(10)).foregroundStyle(Palette.inkSoft.opacity(0.85))
-                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    }
-                    Spacer(minLength: 6)
-                    Button("更换") { state.pickAny() }.buttonStyle(GhostButtonStyle()).hoverLift()
-                    Button(state.isRunning ? "停止" : "启动") { state.toggle() }
-                        .buttonStyle(GhostButtonStyle()).hoverLift()
-                }
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Palette.surface.opacity(0.6)))
-                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.line, lineWidth: 1))
-            }
-
             if let err = state.lastError {
                 Text(err).font(.system(size: 11.5)).foregroundStyle(Palette.signal)
                     .frame(maxWidth: .infinity, alignment: .leading)

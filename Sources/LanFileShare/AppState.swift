@@ -7,6 +7,7 @@ import SwiftUI
 final class AppState: ObservableObject {
     @Published var sharedURL: URL?
     @Published var sharedIsFile = false   // true=分享单个文件，false=分享文件夹
+    @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹→顶层项数（口径同列表页）
     @Published var isRunning = false
     @Published var port: in_port_t = 0
     @Published var interfaces: [NetworkInterface] = []
@@ -28,6 +29,7 @@ final class AppState: ObservableObject {
             if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
                 sharedURL = URL(fileURLWithPath: path)
                 sharedIsFile = !isDir.boolValue
+                describeShared()
                 start()
             }
         }
@@ -91,11 +93,26 @@ final class AppState: ObservableObject {
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
         sharedURL = url
         sharedIsFile = !isDir.boolValue
+        describeShared()
         UserDefaults.standard.set(url.path, forKey: sharedDefaultsKey)
         if isRunning {
             server?.share = currentShare   // 运行中只换分享对象，不重启（token/cookie 保持有效）
         } else {
             start()
+        }
+    }
+
+    // 计算分享对象的元数据（设定/恢复分享对象时调用一次，不随渲染重算）：
+    // 单文件→格式化大小；文件夹→顶层可见项数（含 .skipsHiddenFiles，与列表页统计口径一致）。
+    private func describeShared() {
+        guard let url = sharedURL else { sharedDetail = nil; return }
+        if sharedIsFile {
+            let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            sharedDetail = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        } else {
+            let entries = (try? FileManager.default.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            sharedDetail = "\(entries.count) 项"
         }
     }
 

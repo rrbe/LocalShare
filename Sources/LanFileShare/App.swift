@@ -27,7 +27,7 @@ struct LanFileShareApp: App {
             ContentView().environmentObject(state)
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：纸张背景铺到顶，红绿灯浮于内容之上
-        .defaultSize(width: 500, height: 720) // 钉死初始尺寸（否则贪婪背景会把窗口撑得过宽）
+        .defaultSize(width: 500, height: 760) // 钉死初始尺寸（否则贪婪背景会把窗口撑得过宽）
         .windowResizability(.contentMinSize)
     }
 }
