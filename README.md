@@ -2,6 +2,10 @@
 
 一个 macOS 小工具，分享你电脑上的特定文件/文件夹，在同一个局域网下的其他设备中访问
 
+<p align="center">
+  <img src="LocalShare_Screenshot.png" alt="LocalShare 界面截图" width="380">
+</p>
+
 ## 功能
 
 - 二维码分享，相机 app 扫一下浏览器中打开
