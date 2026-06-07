@@ -48,8 +48,8 @@ lan-file-share/
   build.sh                 # swift build -c release → 组装 .app → ad-hoc 签名 → 输出 dist/
   bundle/Info.plist        # .app 的静态 Info.plist 模板（build.sh 拷入）
   .gitignore               # .build/ dist/ *.app .DS_Store
-  Sources/LanFileShare/
-    App.swift              # @main enum EntryPoint：分流 GUI/headless；含 LanFileShareApp 与 AppDelegate
+  Sources/LocalShare/
+    App.swift              # @main enum EntryPoint：分流 GUI/headless；含 LocalShareApp 与 AppDelegate
     AppState.swift         # ObservableObject：folder/server/urls/status/candidates，启停、选目录、持久化
     ContentView.swift      # 单窗口 SwiftUI：二维码 / URL / 文件夹 / 接口下拉 / 排错
     FileServer.swift       # Swifter 封装：token 中间件 + 防穿越 + index.html + MIME 流式
@@ -58,7 +58,7 @@ lan-file-share/
     QRCode.swift           # CoreImage 生成 QR → NSImage
     Token.swift            # 随机 url-safe token
     Mime.swift             # 扩展名 → MIME 映射（text 类带 charset=utf-8）
-    HeadlessServer.swift   # LFS_HEADLESS=1 无界面模式（测试/自动化用）
+    HeadlessServer.swift   # LS_HEADLESS=1 无界面模式（测试/自动化用）
 ```
 
 ---
@@ -75,7 +75,7 @@ lan-file-share/
 - 注意：`.raw` 的 body length 未知（-1）→ respond() 不会自动加 Content-Length、连接发完即关（无 keep-alive）。故 FileServer 对文件**主动在 headers 写入 `Content-Length`**（已知文件大小，让手机显示进度）；LAN 上一把静态文件无 keep-alive 也完全够用。
 
 ### FileServer 请求处理流程（单 middleware 闭包）
-1. **鉴权**：读 `?t=`，或读 cookie `lfs_token`。任一等于本会话 token 即放行；都没有 → 返回 403 小页面。若靠 `?t=` 放行，则在响应里加 `Set-Cookie: lfs_token=<token>; Path=/; Max-Age=86400; SameSite=Lax`。
+1. **鉴权**：读 `?t=`，或读 cookie `ls_token`。任一等于本会话 token 即放行；都没有 → 返回 403 小页面。若靠 `?t=` 放行，则在响应里加 `Set-Cookie: ls_token=<token>; Path=/; Max-Age=86400; SameSite=Lax`。
 2. **路径安全**（先解码，再防穿越）：
    ```
    decoded = request.path.removingPercentEncoding   // 修正上面的 Swifter 编码残留
@@ -106,11 +106,11 @@ lan-file-share/
 - token 每次 app 启动生成一次（QR 与校验共用）。
 
 ### App.swift / 入口
-- `@main enum EntryPoint`：`LFS_HEADLESS=1` 时走 `HeadlessServer.run()`（无界面，测试/自动化），否则 `LanFileShareApp.main()` 跑 SwiftUI。
+- `@main enum EntryPoint`：`LS_HEADLESS=1` 时走 `HeadlessServer.run()`（无界面，测试/自动化），否则 `LocalShareApp.main()` 跑 SwiftUI。
 - `AppDelegate`（`NSApplicationDelegateAdaptor`）：`applicationDidFinishLaunching` 里 `NSApp.setActivationPolicy(.regular)` + `activate(ignoringOtherApps:)`（裸跑也能前台）；`applicationShouldTerminateAfterLastWindowClosed → true`（关窗即退出 → 停服务）。
 
 ### HeadlessServer（测试/自动化）
-- `LFS_HEADLESS=1` 时仅起 `FileServer` 并 `RunLoop.main.run()`，不拉 GUI。环境变量：`LFS_FOLDER`（必填）、`LFS_TOKEN`（默认 `testtoken`）、`LFS_PORT`（默认 8080）；启动后打印 `LFS_URL …` 便于脚本读取。
+- `LS_HEADLESS=1` 时仅起 `FileServer` 并 `RunLoop.main.run()`，不拉 GUI。环境变量：`LS_FOLDER`（必填）、`LS_TOKEN`（默认 `testtoken`）、`LS_PORT`（默认 8080）；启动后打印 `LS_URL …` 便于脚本读取。
 
 ### 容错 UI
 - 无 WiFi / 无私网 IP → 不画死码，显示“请先连接 WiFi”。
@@ -152,7 +152,7 @@ open dist/LocalShare.app     # 本机自测
 ### 测试方法（无头模式）
 ```bash
 swift build
-LFS_HEADLESS=1 LFS_FOLDER=/path/to/dir LFS_TOKEN=testtoken LFS_PORT=8099 .build/debug/LanFileShare &
+LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debug/LocalShare &
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 ```
 

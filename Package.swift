@@ -5,7 +5,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "LanFileShare",
+    name: "LocalShare",
     platforms: [.macOS(.v13)],
     dependencies: [
         // 纯 Swift 的轻量 HTTP server，SPM 源码编译进 app，不引入任何动态库依赖。
@@ -13,7 +13,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "LanFileShare",
+            name: "LocalShare",
             dependencies: [.product(name: "Swifter", package: "swifter")]
         ),
     ]

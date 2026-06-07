@@ -28,7 +28,7 @@ jobs:
 
       - name: 校验零第三方 dylib（项目核心戒律）
         run: |
-          LEAK=$(otool -L dist/LocalShare.app/Contents/MacOS/LanFileShare | grep -v -e /usr/lib/ -e /System/Library/ -e 'LocalShare.app' || true)
+          LEAK=$(otool -L dist/LocalShare.app/Contents/MacOS/LocalShare | grep -v -e /usr/lib/ -e /System/Library/ -e 'LocalShare.app' || true)
           if [ -n "$LEAK" ]; then echo "::error::检测到非系统库依赖：$LEAK"; exit 1; fi
 
       - name: 打包 DMG（含 Applications 软链，方便拖入）

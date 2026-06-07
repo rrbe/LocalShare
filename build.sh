@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BINARY="LanFileShare"
+BINARY="LocalShare"
 APP_DISPLAY="LocalShare"
 APP="$ROOT/dist/$APP_DISPLAY.app"
 # 两个架构都编，cp 时合成 fat binary。纯 Swift（含 Swifter 源码）可在任一机型交叉编译。

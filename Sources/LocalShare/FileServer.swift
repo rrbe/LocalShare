@@ -53,14 +53,14 @@ final class FileServer {
     private func handle(_ req: HttpRequest) -> HttpResponse {
         // 1. 鉴权：query ?t= 或 cookie 任一匹配本会话 token
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
-        let viaCookie = cookieValue("lfs_token", in: req.headers["cookie"]) == token
+        let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
         guard viaQuery || viaCookie else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage)
         }
         // 经 query 放行且尚无 cookie 时，种 cookie，后续资源请求免带 token
         var extra: [String: String] = [:]
         if viaQuery, !viaCookie {
-            extra["Set-Cookie"] = "lfs_token=\(token); Path=/; Max-Age=86400; SameSite=Lax"
+            extra["Set-Cookie"] = "ls_token=\(token); Path=/; Max-Age=86400; SameSite=Lax"
         }
 
         // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件

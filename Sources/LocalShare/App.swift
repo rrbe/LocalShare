@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-// 入口：默认跑 SwiftUI GUI；设 LFS_HEADLESS=1 时只起服务（供测试/自动化，无窗口）。
+// 入口：默认跑 SwiftUI GUI；设 LS_HEADLESS=1 时只起服务（供测试/自动化，无窗口）。
 @main
 enum EntryPoint {
     static func main() {
-        if ProcessInfo.processInfo.environment["LFS_HEADLESS"] == "1" {
+        if ProcessInfo.processInfo.environment["LS_HEADLESS"] == "1" {
             HeadlessServer.run()
         } else {
             // 关闭 macOS 窗口状态恢复：干净启动且无可恢复状态时，SwiftUI 的 Window 场景会偶发
@@ -13,12 +13,12 @@ enum EntryPoint {
             // 启动前同步写入，AppKit 早期读取该标志才生效。
             CFPreferencesSetAppValue("ApplePersistenceIgnoreState" as CFString, kCFBooleanTrue, kCFPreferencesCurrentApplication)
             CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
-            LanFileShareApp.main()
+            LocalShareApp.main()
         }
     }
 }
 
-struct LanFileShareApp: App {
+struct LocalShareApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var state = AppState()
 
@@ -26,9 +26,16 @@ struct LanFileShareApp: App {
         Window("LocalShare", id: "main") {
             ContentView().environmentObject(state)
         }
-        .windowStyle(.hiddenTitleBar) // 全幅出血：纸张背景铺到顶，红绿灯浮于内容之上
-        .defaultSize(width: 500, height: 760) // 钉死初始尺寸（否则贪婪背景会把窗口撑得过宽）
+        .windowStyle(.hiddenTitleBar) // 全幅出血：暖底铺到顶，红绿灯浮于内容之上
+        .defaultSize(width: 410, height: 720) // 票据风竖窗（设计稿 400×720）
         .windowResizability(.contentMinSize)
+        .commands {
+            // 设置入口移到 macOS 应用菜单（About 下方那一格），标准 ⌘, 打开应用内「分享设置」屏。
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { state.openSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 }
 

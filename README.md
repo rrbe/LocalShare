@@ -46,8 +46,3 @@ xattr -dr com.apple.quarantine /path/to/LocalShare.app
 
 其中 `-d` 删除属性、`-r` 递归整个 `.app` 包，`com.apple.quarantine` 是 macOS 给「从网络下载的文件」打的隔离标记——清掉它，系统就不再拦截。
 
-## TODO
-
-- [ ] 加密
-- [ ] 拖动文件到 app 直接分享
-- [ ] 可以其他设备传送文件到 LocalShare 所在设备，限制 CRUD 权限

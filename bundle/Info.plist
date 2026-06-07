@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>LocalShare</string>
     <key>CFBundleExecutable</key>
-    <string>LanFileShare</string>
+    <string>LocalShare</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
