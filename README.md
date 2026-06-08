@@ -2,8 +2,8 @@
 
 一个 macOS 小工具，分享你电脑上的特定文件/文件夹，在同一个局域网下的其他设备中访问
 
-<p align="center">
-  <img src="LocalShare_Screenshot.png" alt="LocalShare 界面截图" width="380">
+<p align="left">
+  <img src="screenshot.png" alt="LocalShare 界面截图" width="380">
 </p>
 
 ## 功能
@@ -49,4 +49,3 @@ xattr -dr com.apple.quarantine /path/to/LocalShare.app
 ```
 
 其中 `-d` 删除属性、`-r` 递归整个 `.app` 包，`com.apple.quarantine` 是 macOS 给「从网络下载的文件」打的隔离标记——清掉它，系统就不再拦截。
-
