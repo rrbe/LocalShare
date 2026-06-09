@@ -29,7 +29,8 @@ struct LocalShareApp: App {
             ContentView().environmentObject(state)
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：暖底铺到顶，红绿灯浮于内容之上
-        .defaultSize(width: 410, height: 720) // 票据风竖窗（设计稿 400×720）
+        // 票据风竖窗（设计稿 400×720）。数字与「恢复默认尺寸」共用 AppState 的常量。
+        .defaultSize(width: AppState.defaultWindowWidth, height: AppState.defaultWindowHeight)
         .windowResizability(.contentMinSize)
         .commands {
             // 「检查更新…」放进应用菜单的 About 下方，与系统 app 惯例一致。

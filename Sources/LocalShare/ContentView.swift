@@ -452,6 +452,17 @@ private struct SettingsScreen: View {
                     appearanceSeg("浅色", .light)
                     appearanceSeg("深色", .dark)
                 }
+
+                // 窗口
+                SectionLabel(t: t, text: "窗口").padding(.top, 24).padding(.bottom, 8)
+                HStack(spacing: 12) {
+                    Text("恢复默认窗口尺寸").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                    Spacer(minLength: 8)
+                    GhostButton(t: t, title: "恢复默认", systemImage: "arrow.counterclockwise") {
+                        state.resetWindowSize()
+                    }
+                }
+                .padding(.vertical, 4)
             }
         }
         .onAppear { portText = String(state.configuredPort) }

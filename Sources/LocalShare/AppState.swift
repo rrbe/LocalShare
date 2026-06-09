@@ -9,6 +9,11 @@ final class AppState: ObservableObject {
     enum Screen { case share, settings, history }
     enum AppearancePref: String { case system, light, dark }
 
+    // 设计默认窗口尺寸（票据风竖窗，设计稿 400×720）。供 App 的 .defaultSize 与
+    // 「恢复默认尺寸」共用同一处真相，避免两边各写一份数字漂移。
+    static let defaultWindowWidth: CGFloat = 410
+    static let defaultWindowHeight: CGFloat = 720
+
     @Published var sharedURL: URL?
     @Published var sharedIsFile = false   // true=分享单个文件，false=分享文件夹
     @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹→顶层项数
@@ -256,6 +261,17 @@ final class AppState: ObservableObject {
     func setAppearance(_ a: AppearancePref) {
         appearance = a
         UserDefaults.standard.set(a.rawValue, forKey: appearanceKey)
+    }
+
+    // 把主窗口恢复到设计默认尺寸：锚定左上角不动（macOS 原点在左下，故顶随高变），带动画回弹。
+    // 用 canBecomeMain 过滤掉弹层/面板（popover、NSPanel 均为 false），单窗口 app 只会命中主窗。
+    func resetWindowSize() {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { return }
+        let target = NSSize(width: AppState.defaultWindowWidth, height: AppState.defaultWindowHeight)
+        var frame = window.frame
+        frame.origin.y = frame.maxY - target.height
+        frame.size = target
+        window.setFrame(frame, display: true, animate: true)
     }
 }
 
