@@ -134,18 +134,23 @@ struct StatusPill: View {
     var body: some View {
         HStack(spacing: 8) {
             StatusDot(color: running ? t.accent : t.inkFaint, live: running)
-            Text(address)
-                .font(.mono(12.5, .semibold)).foregroundStyle(t.ink).lineLimit(1)
+            address
+                .font(.mono(12.5, .semibold)).lineLimit(1)
+                .textSelection(.enabled)   // 整串 IP:端口 可拖选复制
         }
         .frame(height: 32).padding(.horizontal, 12)
         .background(Capsule().fill(t.surface))
         .overlay(Capsule().strokeBorder(t.line, lineWidth: 1))
     }
-    // 运行且已知 IP → 「IP:端口」（如 192.168.31.18:8080）；否则退回「:端口」。
-    // 不再写「服务中/已停止」文字，状态只靠左侧圆点颜色区分（亮 accent=服务中 / 灰=停止）。
-    private var address: String {
-        if running, let host { return "\(host):\(port)" }
-        return ":\(port == 0 ? "—" : String(port))"
+    // 运行且已知 IP → 「IP:端口」（如 192.168.31.18:8080），端口段染主色凸显「活」读数；
+    // 否则退回「:端口」。状态另由左侧圆点颜色区分（亮 accent=服务中 / 灰=停止）。
+    private var address: Text {
+        let portStr = port == 0 ? "—" : String(port)
+        if running, let host {
+            return Text("\(host):").foregroundColor(t.ink)
+                 + Text(portStr).foregroundColor(t.accent)
+        }
+        return Text(":\(portStr)").foregroundColor(t.ink)
     }
 }
 
