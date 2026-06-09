@@ -48,7 +48,7 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            if state.sharedURL == nil {
+            if state.sharedItems.isEmpty {
                 EmptyScreen(t: t, dragging: isDropTargeted)
             } else if !state.hasNetwork {
                 NoNetworkScreen(t: t)
@@ -65,7 +65,7 @@ struct ContentView: View {
             VStack(spacing: 14) {
                 Image(systemName: "tray.and.arrow.down").font(.system(size: 40)).foregroundStyle(t.accent)
                 Text("松开即可分享").font(.display(22)).foregroundStyle(t.ink)
-                Text("文件夹 → 列表浏览 · 单个文件 → 扫码直接打开")
+                Text("文件夹 / 多项 → 列表浏览 · 单个文件 → 扫码直接打开")
                     .font(.mono(10.5)).foregroundStyle(t.inkMute)
             }
         }
@@ -75,10 +75,25 @@ struct ContentView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url, url.isFileURL else { return }
-            DispatchQueue.main.async { state.setShared(url) }
+        let loadable = providers.filter { $0.canLoadObject(ofClass: URL.self) }
+        guard !loadable.isEmpty else { return false }
+        // 收齐所有拖入项的 fileURL（回调异步、顺序不保证），全部回来后一次性按拖入顺序提交。
+        // 回调可能并发，故对收集字典的写入串行化到 sync 队列。
+        var byIndex = [Int: URL]()
+        let sync = DispatchQueue(label: "localshare.drop.collect")
+        let group = DispatchGroup()
+        for (i, provider) in loadable.enumerated() {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                sync.async {
+                    if let url, url.isFileURL { byIndex[i] = url }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            let urls = loadable.indices.compactMap { byIndex[$0] }
+            if !urls.isEmpty { state.setShared(urls) }
         }
         return true
     }
@@ -195,7 +210,7 @@ private struct ShareScreen: View {
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile {
-                    RecentSharesView(t: t, items: state.recents.filter { $0.exists && $0.path != state.sharedURL?.path },
+                    RecentSharesView(t: t, items: state.recents.filter { $0.exists && Set($0.paths) != state.currentSharePaths },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
                 }
             }
@@ -204,10 +219,39 @@ private struct ShareScreen: View {
 
     private func ticket(_ ps: PermSummary) -> some View {
         TicketCard(t: t) {
-            state.sharedIsFile ? AnyView(fileStub(ps)) : AnyView(folderStub(ps))
+            if state.isMultiple { AnyView(multipleStub(ps)) }
+            else if state.sharedIsFile { AnyView(fileStub(ps)) }
+            else { AnyView(folderStub(ps)) }
         } pass: {
             qrPass
         }
+    }
+
+    // 多项存根：叠放印章 + 「正在分享 N 项」+ 文件/文件夹分项概要 + 前几项名称预览。
+    private func multipleStub(_ ps: PermSummary) -> some View {
+        let items = state.sharedItems
+        let dirCount = items.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }.count
+        let fileCount = items.count - dirCount
+        var parts: [String] = []
+        if fileCount > 0 { parts.append("\(fileCount) 个文件") }
+        if dirCount > 0 { parts.append("\(dirCount) 个文件夹") }
+        let preview = items.prefix(3).map(\.lastPathComponent).joined(separator: "、")
+            + (items.count > 3 ? " 等" : "")
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 12) {
+                MultiGlyph(t: t, size: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("正在分享 · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                    Text("\(items.count) 项").font(.sans(16, .bold)).foregroundStyle(t.ink)
+                    Text(parts.joined(separator: " · ")).font(.mono(11.5)).foregroundStyle(t.inkMute)
+                }
+                Spacer(minLength: 8)
+                ClearButton(t: t) { state.clearShare() }
+            }
+            Text(preview).font(.sans(11.5)).foregroundStyle(t.inkFaint)
+                .lineLimit(2).truncationMode(.tail)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 16)
     }
 
     // 单文件存根
@@ -266,7 +310,8 @@ private struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.sharedIsFile ? "扫码查看 · 同一 Wi-Fi" : "扫码浏览全部文件 · 同一 Wi-Fi"
+        let caption = state.isMultiple ? "扫码浏览已选项目 · 同一 Wi-Fi"
+            : (state.sharedIsFile ? "扫码查看 · 同一 Wi-Fi" : "扫码浏览全部文件 · 同一 Wi-Fi")
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
             Text(running ? caption : "已停止广播").font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
@@ -622,14 +667,16 @@ private struct RecentSharesView: View {
     }
 }
 
-// 历史 / 最近行用的图标：文件夹→FolderGlyph，文件→类型方块。
+// 历史 / 最近行用的图标：多项→叠放方块，单文件夹→FolderGlyph，单文件→类型方块。
 private struct RecentGlyph: View {
     let t: Theme
     var item: RecentShare
     var size: CGFloat
     var body: some View {
-        if item.isFile {
-            let url = URL(fileURLWithPath: item.path)
+        if item.isMultiple {
+            MultiGlyph(t: t, size: size)
+        } else if item.isFile, let path = item.paths.first {
+            let url = URL(fileURLWithPath: path)
             TypeGlyph(t: t, category: FileType.category(of: url, isDir: false),
                       ext: url.pathExtension.lowercased(), size: size)
         } else {

@@ -222,6 +222,18 @@ struct FolderGlyph: View {
     }
 }
 
+// 多项图标：圆角方块 + accentSoft 底 + accent 叠放方块形，表示「多个文件/目录」。
+struct MultiGlyph: View {
+    let t: Theme
+    var size: CGFloat = 40
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(t.accentSoft)
+            .frame(width: size, height: size)
+            .overlay(Image(systemName: "square.stack.3d.up.fill").font(.system(size: size * 0.42)).foregroundStyle(t.accent))
+    }
+}
+
 // 文件类型图标：圆角方块 + 类型底色 + 类型 SF Symbol + 小写扩展名(mono)。
 struct TypeGlyph: View {
     let t: Theme

@@ -25,7 +25,7 @@
 | 网络 | 仅同一 WiFi（LAN），无隧道/无公网/无账号 |
 | 技术栈 | Swift / SwiftUI，只链接系统框架，零 dylib 风险 |
 | HTTP 服务 | Swifter（SPM 源码编译进 app），只读静态服务 |
-| 服务模型 | 选一个文件夹 → 移动端友好目录列表；目录含 `index.html` 则直接显示它；**防目录穿越**，所有路径锁死在所选文件夹内 |
+| 服务模型 | 三种分享形态：① 单文件夹 → 移动端友好目录列表（含 `index.html` 则直接显示它）；② 单文件 → 扫码直接打开、不暴露同目录其它文件；③ 多文件/目录 → 合成**虚拟根**列出这批选中项，首段路径映射到对应真实 URL、再落到该项内部。三者**均防目录穿越**，每个目录项各自为根锁死路径 |
 | 鉴权 | 每次 app 启动生成随机 token，内嵌进二维码 URL（`?t=…`）；首访校验后种 cookie，后续资源自动放行；猜 `IP:端口` 的路人被 403 |
 | 协议 | 明文 http（纯静态内容，无需 https/证书） |
 | 二维码地址 | 裸 LAN IP（智能选接口、多候选给下拉）；窗口另显 `.local` 备选链接 + 可复制 URL |
@@ -90,6 +90,8 @@ lan-file-share/
    `standardizedFileURL` 解掉 `..`，杜绝 `GET /../../etc/passwd`；编码点点（`%2e%2e`）也因「先解码后标准化」被一并挡住。
 3. **目录**：① 若请求的目录路径不以 `/` 结尾 → 先 301 加斜杠（让 `index.html` 里的相对资源能正确解析）；② 含 `index.html` → 发该文件；③ 否则发 DirectoryListing 列表页。列表 href 为**绝对路径并逐段百分号编码**（`encodePath`，保留 `/` 分隔符）；隐藏文件（`.` 开头）不列。
 4. **文件**：按扩展名查 MIME（text 类加 `; charset=utf-8`，关键——中文 html 才不乱码），`FileHandle` 分块（64KB）`writer.write(Data)` 流式发。
+
+> 单文件夹的 2~4 步抽成 `serveTree(rootURL:relPath:…)` 复用。**单文件**直接发那一个文件。**多选**（`Share.multiple([Item])`，`Item` 持 `key`/`url`/`isDir`，`makeItems` 由选中 URL 构造、key 取 lastPathComponent 并对极少数重名做 `-2` 后缀兜底）：空路径 → 合成虚拟根列表页（`DirectoryListing.html(items:rootName:)`，rootName=「分享内容」）；否则拆首段 `key` 查项——文件项仅当无子路径才发、目录项以 `item.url` 为根走 `serveTree`（`relPath`=去掉 key 段后的剩余，面包屑天然渲染成「分享内容 / key / …」）。未知 key / 文件项带子路径 → 404；穿越判据每项独立。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔）。
 
 ### NetworkInfo
 - `getifaddrs` 遍历；取 `IFF_UP && !IFF_LOOPBACK && AF_INET`；`getnameinfo(NI_NUMERICHOST)` 拿 IP。

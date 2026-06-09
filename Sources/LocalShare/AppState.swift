@@ -14,9 +14,9 @@ final class AppState: ObservableObject {
     static let defaultWindowWidth: CGFloat = 410
     static let defaultWindowHeight: CGFloat = 720
 
-    @Published var sharedURL: URL?
-    @Published var sharedIsFile = false   // true=分享单个文件，false=分享文件夹
-    @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹→顶层项数
+    @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
+    @Published var sharedIsFile = false   // 仅单项有意义：true=单个文件，false=单个文件夹
+    @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹/多选→项数
     @Published var isRunning = false
     @Published var port: in_port_t = 0    // 实际绑定端口（可能因占用回退而异于 configuredPort）
     @Published var interfaces: [NetworkInterface] = []
@@ -33,7 +33,8 @@ final class AppState: ObservableObject {
     let token = Token.generate()
     private var server: FileServer?
 
-    private let sharedDefaultsKey = "lastFolderPath"   // 沿用旧键，存文件或文件夹路径
+    private let sharedDefaultsKey = "lastFolderPath"   // 旧版单值键（迁移回退用，新写入走 sharedPathsKey）
+    private let sharedPathsKey = "lastSharedPaths"      // 当前分享的项路径数组（支持多选）
     private let portKey = "configuredPort"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
@@ -46,24 +47,33 @@ final class AppState: ObservableObject {
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         loadRecents()
         refreshNetwork()
-        // 恢复上次分享对象并自动启动，让同事开 app 就能看到二维码
-        if let path = UserDefaults.standard.string(forKey: sharedDefaultsKey) {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
-                sharedURL = URL(fileURLWithPath: path)
-                sharedIsFile = !isDir.boolValue
-                describeShared()
-                start()
-            }
+        // 恢复上次分享对象并自动启动，让同事开 app 就能看到二维码。
+        // 多选存为路径数组（新键）；读不到再回退旧单值键（迁移）。缺失的项自动剔除，剩 ≥1 即恢复。
+        var restorePaths = UserDefaults.standard.stringArray(forKey: sharedPathsKey)
+            ?? UserDefaults.standard.string(forKey: sharedDefaultsKey).map { [$0] }
+            ?? []
+        restorePaths = restorePaths.filter { FileManager.default.fileExists(atPath: $0) }
+        if !restorePaths.isEmpty {
+            sharedItems = restorePaths.map { URL(fileURLWithPath: $0) }
+            updateSharedIsFile()
+            describeShared()
+            start()
         }
     }
 
+    // MARK: - 选择态派生
+
+    var isEmpty: Bool { sharedItems.isEmpty }
+    var isMultiple: Bool { sharedItems.count > 1 }
+    var sharedURL: URL? { sharedItems.first }   // 单项便利访问；UI 仅在单项时使用
+    var currentSharePaths: Set<String> { Set(sharedItems.map(\.path)) }
+
     // MARK: - 派生 URL / 二维码
 
-    // 文件夹模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
+    // 文件夹/多选模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
     private func makeURL(host: String) -> String {
         let q = "?t=\(token)"
-        if sharedIsFile, let name = sharedURL?.lastPathComponent,
+        if sharedIsFile, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
             return "http://\(host):\(port)/\(enc)\(q)"
         }
@@ -83,10 +93,11 @@ final class AppState: ObservableObject {
     // 仅展示用的「主机:端口/尾部」短地址（隐去 token 与 http://，超长由 UI 中段省略）。
     var displayAddress: String? {
         guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
-        if sharedIsFile, let name = sharedURL?.lastPathComponent {
+        if isMultiple { return "\(ip):\(port)/" }
+        if sharedIsFile, let name = sharedItems.first?.lastPathComponent {
             return "\(ip):\(port)/\(name)"
         }
-        let folder = sharedURL?.lastPathComponent ?? ""
+        let folder = sharedItems.first?.lastPathComponent ?? ""
         return "\(ip):\(port)/\(folder)/"
     }
 
@@ -110,25 +121,28 @@ final class AppState: ObservableObject {
 
     func pickFolder() { pick(files: false, directories: true, message: "选择要广播到局域网的文件夹") }
     func pickFile()   { pick(files: true, directories: false, message: "选择要单独分享的文件（扫码直接打开它）") }
-    func pickAny()    { pick(files: true, directories: true, message: "选择文件夹，或单个文件") }
+    func pickAny()    { pick(files: true, directories: true, message: "选择文件或文件夹，可多选") }
 
     private func pick(files: Bool, directories: Bool, message: String) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = files
         panel.canChooseDirectories = directories
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true   // 允许一次选多个文件/目录
         panel.prompt = "分享"
         panel.message = message
-        if panel.runModal() == .OK, let url = panel.url { setShared(url) }
+        if panel.runModal() == .OK, !panel.urls.isEmpty { setShared(panel.urls) }
     }
 
-    func setShared(_ url: URL) {
-        var isDir: ObjCBool = false
-        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-        sharedURL = url
-        sharedIsFile = !isDir.boolValue
+    // 单项便利入口（拖入单个 / 重新分享单条历史）转调数组版。
+    func setShared(_ url: URL) { setShared([url]) }
+
+    func setShared(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        sharedItems = urls
+        updateSharedIsFile()
         describeShared()
-        UserDefaults.standard.set(url.path, forKey: sharedDefaultsKey)
+        UserDefaults.standard.set(urls.map(\.path), forKey: sharedPathsKey)
+        UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)   // 清理旧单值键
         recordRecent()
         screen = .share
         if isRunning {
@@ -138,28 +152,41 @@ final class AppState: ObservableObject {
         }
     }
 
-    // 计算分享对象元数据：单文件→格式化大小；文件夹→顶层可见项数（口径同列表页）。
+    // 仅单项时判定文件/文件夹；多选时 sharedIsFile 无意义、置 false。
+    private func updateSharedIsFile() {
+        guard sharedItems.count == 1 else { sharedIsFile = false; return }
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: sharedItems[0].path, isDirectory: &isDir)
+        sharedIsFile = !isDir.boolValue
+    }
+
+    // 计算分享对象元数据：单文件→格式化大小；文件夹→顶层可见项数；多选→项数（口径同列表页）。
     private func describeShared() {
-        guard let url = sharedURL else { sharedDetail = nil; return }
-        if sharedIsFile {
-            let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard let first = sharedItems.first else { sharedDetail = nil; return }
+        if isMultiple {
+            sharedDetail = "\(sharedItems.count) 项"
+        } else if sharedIsFile {
+            let bytes = (try? first.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             sharedDetail = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         } else {
             let entries = (try? FileManager.default.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+                at: first, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
             sharedDetail = "\(entries.count) 项"
         }
     }
 
     private var currentShare: FileServer.Share {
-        let url = sharedURL ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return sharedIsFile ? .file(url) : .directory(url)
+        switch sharedItems.count {
+        case 0:  return .directory(URL(fileURLWithPath: NSTemporaryDirectory()))
+        case 1:  return sharedIsFile ? .file(sharedItems[0]) : .directory(sharedItems[0])
+        default: return .multiple(FileServer.Share.makeItems(sharedItems))
+        }
     }
 
     // MARK: - 启停 / 端口
 
     func start() {
-        guard sharedURL != nil else { return }
+        guard !sharedItems.isEmpty else { return }
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
         do {
@@ -187,9 +214,10 @@ final class AppState: ObservableObject {
     // 清除当前分享：停服务 + 清空选择，回到空状态（初始拖拽屏）。历史里仍保留该条，可一键重新分享。
     func clearShare() {
         stop()
-        sharedURL = nil
+        sharedItems = []
         sharedIsFile = false
         sharedDetail = nil
+        UserDefaults.standard.removeObject(forKey: sharedPathsKey)
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
         screen = .share
     }
@@ -198,7 +226,7 @@ final class AppState: ObservableObject {
     func applyPort(_ p: in_port_t) {
         configuredPort = p
         UserDefaults.standard.set(Int(p), forKey: portKey)
-        guard isRunning, sharedURL != nil else { return }
+        guard isRunning, !sharedItems.isEmpty else { return }
         stop()
         start()
         if isRunning && port != p {
@@ -209,35 +237,42 @@ final class AppState: ObservableObject {
     // MARK: - 最近分享 / 历史
 
     private func recordRecent() {
-        guard let url = sharedURL else { return }
-        let entry = RecentShare(path: url.path, isFile: sharedIsFile,
+        guard !sharedItems.isEmpty else { return }
+        let entry = RecentShare(paths: sharedItems.map(\.path), isFile: sharedIsFile,
                                 detail: sharedDetail ?? "", date: Date())
-        recents.removeAll { $0.path == entry.path }
+        recents.removeAll { $0.id == entry.id }
         recents.insert(entry, at: 0)
         if recents.count > 12 { recents = Array(recents.prefix(12)) }
         saveRecents()
     }
 
-    // 重新分享某条历史：等价于重新选中它。
+    // 重新分享某条历史：等价于重新选中它。多选时过滤掉已不存在的项，全缺失才移除该条。
     func reshare(_ r: RecentShare) {
-        guard r.exists else {
-            recents.removeAll { $0.path == r.path }; saveRecents()
-            lastError = "该文件已不存在，已从历史移除。"
+        let fm = FileManager.default
+        let existing = r.paths.filter { fm.fileExists(atPath: $0) }
+        guard !existing.isEmpty else {
+            recents.removeAll { $0.id == r.id }; saveRecents()
+            lastError = "该分享的文件已不存在，已从历史移除。"
             return
         }
-        setShared(URL(fileURLWithPath: r.path))
+        recents.removeAll { $0.id == r.id }   // 路径子集变化时，避免残留旧记录
+        setShared(existing.map { URL(fileURLWithPath: $0) })
+        if existing.count < r.paths.count {
+            lastError = "有 \(r.paths.count - existing.count) 项已不存在，已自动跳过。"
+        }
     }
 
     // 清空历史，但保留当前正在分享的那条。
     func clearRecents() {
-        if let cur = sharedURL?.path { recents.removeAll { $0.path != cur } }
+        let cur = currentSharePaths
+        if !cur.isEmpty { recents.removeAll { Set($0.paths) != cur } }
         else { recents.removeAll() }
         saveRecents()
     }
 
     // 是否为当前正在广播的那条历史。
     func isLive(_ r: RecentShare) -> Bool {
-        isRunning && sharedURL?.path == r.path
+        isRunning && Set(r.paths) == currentSharePaths
     }
 
     private func loadRecents() {
@@ -275,15 +310,50 @@ final class AppState: ObservableObject {
     }
 }
 
-// 一条最近分享记录（持久化到 UserDefaults）。
+// 一条最近分享记录（持久化到 UserDefaults）。paths 支持多选（1=单项、N=多选）。
 struct RecentShare: Codable, Identifiable, Equatable {
-    let path: String
-    let isFile: Bool
+    let paths: [String]
+    let isFile: Bool       // 仅单项有意义
     let detail: String
     let date: Date
-    var id: String { path }
-    var name: String { (path as NSString).lastPathComponent }
-    var exists: Bool { FileManager.default.fileExists(atPath: path) }
+
+    var isMultiple: Bool { paths.count > 1 }
+    var id: String { paths.joined(separator: "\n") }
+    var name: String {
+        if isMultiple { return "\(paths.count) 个项目" }
+        return paths.first.map { ($0 as NSString).lastPathComponent } ?? ""
+    }
+    // 多选：只要还有一项存在即可重新分享（reshare 时再剔除缺失项）。
+    var exists: Bool {
+        let fm = FileManager.default
+        return paths.contains { fm.fileExists(atPath: $0) }
+    }
+
+    init(paths: [String], isFile: Bool, detail: String, date: Date) {
+        self.paths = paths; self.isFile = isFile; self.detail = detail; self.date = date
+    }
+
+    // 兼容旧记录：旧版用单 `path` 字段，迁移为 `paths = [path]`。
+    enum CodingKeys: String, CodingKey { case paths, path, isFile, detail, date }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let arr = try? c.decode([String].self, forKey: .paths) {
+            paths = arr
+        } else {
+            paths = [try c.decode(String.self, forKey: .path)]
+        }
+        isFile = (try? c.decode(Bool.self, forKey: .isFile)) ?? false
+        detail = (try? c.decode(String.self, forKey: .detail)) ?? ""
+        date = (try? c.decode(Date.self, forKey: .date)) ?? Date(timeIntervalSince1970: 0)
+    }
+    // 显式 encode（CodingKeys 含迁移用的 .path，会阻断合成）：只写 paths 等当前字段。
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(paths, forKey: .paths)
+        try c.encode(isFile, forKey: .isFile)
+        try c.encode(detail, forKey: .detail)
+        try c.encode(date, forKey: .date)
+    }
 }
 
 // MARK: - 端口实时校验（DESIGN.md §6.3）

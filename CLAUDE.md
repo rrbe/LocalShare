@@ -31,9 +31,9 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 入口在 `App.swift` 的 `@main enum EntryPoint`：`LS_HEADLESS=1` 走 `HeadlessServer`（裸起服务），否则跑 `LocalShareApp`（SwiftUI）。GUI 与测试共用同一个 `FileServer`，这是两条路径不分叉的关键。
 
-数据流单向：`AppState`（`@MainActor ObservableObject`，唯一真相源）持有 `FileServer`、网络候选、派生出 `primaryURL` → `qrImage`；`ContentView` 只读渲染。`AppState` 负责生命周期——init 时从 `UserDefaults` 恢复上次文件夹并**自动 start**（同事开 app 即见码）；选目录用 `NSOpenPanel`。
+数据流单向：`AppState`（`@MainActor ObservableObject`，唯一真相源）持有 `FileServer`、网络候选、派生出 `primaryURL` → `qrImage`；`ContentView` 只读渲染。真相源是 `sharedItems: [URL]`（0=空、1=单项、N=多选），派生 `isMultiple`/`isEmpty`/`sharedURL`(首项便利)。`AppState` 负责生命周期——init 时从 `UserDefaults` 恢复上次分享（多选存 `lastSharedPaths` 数组、旧单值键 `lastFolderPath` 作迁移回退，缺失项剔除）并**自动 start**（同事开 app 即见码）；选文件/夹用 `NSOpenPanel`（`allowsMultipleSelection = true`），拖拽收齐所有 provider 后一次提交。`RecentShare` 用 `paths: [String]` 记录多选、自定义 `init(from:)` 兼容旧单 `path` 记录。
 
-`FileServer` 是核心，全部请求逻辑塞在**单个 Swifter middleware 闭包**里（永远返回 response，绕开 router）。每个请求依次过：① token 鉴权（`?t=` 或 cookie `ls_token`，靠 query 放行时种 cookie）→ ② 防目录穿越 → ③ 目录（无斜杠先 301、有 `index.html` 发它、否则 `DirectoryListing` 列表页）→ ④ 文件 64KB 分块流式。
+`FileServer` 是核心，全部请求逻辑塞在**单个 Swifter middleware 闭包**里（永远返回 response，绕开 router）。`Share` 三态 `.directory` / `.file` / `.multiple([Item])`。请求先过 ① token 鉴权（`?t=` 或 cookie `ls_token`，靠 query 放行时种 cookie），再按形态分流：单文件直接发那一个文件、不暴露同目录其它；单文件夹与多选里的每个目录项共用 `serveTree(rootURL:relPath:…)`——② 防目录穿越（每项各自为根）→ ③ 目录（无斜杠先 301、有 `index.html` 发它、否则 `DirectoryListing` 列表页）→ ④ 文件 64KB 分块流式。**多选**无共同磁盘根，合成**虚拟根**：空路径发 `DirectoryListing.html(items:rootName:)` 列出选中项，其余请求拆**首段 `key`** 映射到真实 URL（`Share.makeItems` 以 lastPathComponent 为 key、跨目录拖拽重名以 `-2` 兜底）；未知 key 或文件项带子路径 → 404。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔）。
 
 辅助模块各自单一职责：`NetworkInfo`（`getifaddrs` 枚举 → 只留私网 IPv4、过滤 VPN/bridge/回环、en0 优先排序）、`QRCode`（CoreImage `CIQRCodeGenerator`）、`Token`、`Mime`（text 类带 `charset=utf-8`）、`DirectoryListing`（移动端友好 HTML，href 逐段编码、隐藏文件不列）。
 

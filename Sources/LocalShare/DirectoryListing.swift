@@ -15,48 +15,67 @@ enum DirectoryListing {
         return f
     }()
 
+    // 真实目录页：枚举目录 → 目录在前/名称序 → 交给渲染核心（href 基路径 = 请求路径）。
     static func html(directory: URL, requestPath: String, rootName: String) -> String {
         let fm = FileManager.default
-        let entries = (try? fm.contentsOfDirectory(
+        let urls = (try? fm.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentTypeKey, .creationDateKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles]
         )) ?? []
 
-        let sorted = entries.sorted { a, b in
+        let sorted = urls.sorted { a, b in
             let ad = isDirectory(a), bd = isDirectory(b)
             if ad != bd { return ad } // 目录排在文件前
             return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
         }
 
         let base = requestPath.hasSuffix("/") ? requestPath : requestPath + "/"
+        let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
+        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName)
+    }
+
+    // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
+    // href 基路径为根 `/`，请求路径为 `/`（面包屑只显根名）；同样目录在前/名称序。
+    static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String) -> String {
+        let sorted = items.sorted { a, b in
+            if a.isDir != b.isDir { return a.isDir }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName)
+    }
+
+    // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
+    // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
+    private static func render(entries: [(name: String, url: URL, isDir: Bool)],
+                               base: String, requestPath: String, rootName: String) -> String {
+        let fm = FileManager.default
         var rows = ""
         var folderCount = 0
         var counts: [FileCategory: Int] = [:]
-        for (idx, url) in sorted.enumerated() {
-            let name = url.lastPathComponent
-            let dir = isDirectory(url)
-            let vals = try? url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey])
-            let cat = FileType.category(isDir: dir, contentType: vals?.contentType, name: name)
+        for (idx, e) in entries.enumerated() {
+            let dir = e.isDir
+            let vals = try? e.url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey])
+            let cat = FileType.category(isDir: dir, contentType: vals?.contentType, name: e.url.lastPathComponent)
             if dir { folderCount += 1 } else { counts[cat, default: 0] += 1 }
-            let href = encodePath(base + name + (dir ? "/" : ""))
+            let href = encodePath(base + e.name + (dir ? "/" : ""))
             let date = vals?.creationDate ?? vals?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
             let meta: String
             if dir {
-                let n = (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]).count) ?? 0
+                let n = (try? fm.contentsOfDirectory(at: e.url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]).count) ?? 0
                 meta = "\(n) 项"
             } else {
                 let size = vals?.fileSize ?? 0
                 meta = "\(cat.displayName) · \(formatSize(size))"
             }
-            rows += row(href: href, name: name, meta: meta, dir: dir, cat: cat, date: date, idx: idx)
+            rows += row(href: href, name: e.name, meta: meta, dir: dir, cat: cat, date: date, idx: idx)
         }
 
+        let total = entries.count
         let title = requestPath == "/" ? rootName : ((requestPath as NSString).lastPathComponent)
         let crumbs = breadcrumb(requestPath: requestPath, rootName: rootName)
-        let chips = filterChips(folderCount: folderCount, counts: counts, total: sorted.count)
-        return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
-                    isEmpty: sorted.isEmpty, total: sorted.count)
+        let chips = filterChips(folderCount: folderCount, counts: counts, total: total)
+        return page(title: title, crumbs: crumbs, chips: chips, rows: rows, isEmpty: entries.isEmpty, total: total)
     }
 
     // MARK: - 片段
