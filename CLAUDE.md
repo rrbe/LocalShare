@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目本质
 
-macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口出现二维码 → 同 WiFi 下的手机扫码即可在浏览器里只读浏览该文件夹。核心约束是**零外部动态依赖**——最终 `.app` 只链接系统框架，第三方库（Swifter）以 SPM 源码形式静态编进二进制。这条戒律的由来与全部设计决策见 `PLAN.md`（权威交接文档，跟随 git）。
+macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口出现二维码 → 同 WiFi 下的手机扫码即可在浏览器里只读浏览该文件夹。核心约束是**不依赖任何包外动态库**——dufs 当年死于运行时缺失的 Homebrew dylib（`/opt/homebrew/...liblzma.5.dylib`，换台机器就没）。因此戒律的**精神**是「换任何机器都不会缺库」：系统框架照常链接；纯 Swift 第三方库（Swifter）以 SPM 源码静态编进二进制；**二进制 framework（Sparkle）以 `@rpath` 内置进 `.app/Contents/Frameworks/`、随包走、永不缺失**——这是 0.3 起放宽后的边界。绝对路径包外 dylib（`/opt/homebrew`、`/usr/local`）一律禁止。由来与全部设计决策见 `PLAN.md`（权威交接文档，跟随 git）。
 
 ## 常用命令
 
@@ -18,8 +18,11 @@ open "dist/LocalShare.app"    # 本机自测 GUI
 LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debug/LocalShare &
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表或 index.html
 
-# 验证核心戒律：otool 过滤系统库后应无任何输出（零第三方 dylib）
+# 验证核心戒律：过滤系统库后，剩余依赖只能是 @rpath 引用、且对应 framework 确在包内
+# Contents/Frameworks（如 Sparkle.framework）；出现任何绝对路径包外 dylib 即违规。
+# build.sh / CI 已内置同款逐条校验，这里是手动复核：
 otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/System/Library/"
+# 期望：仅 @rpath/Sparkle.framework/... ；ls dist/LocalShare.app/Contents/Frameworks 应见 Sparkle.framework
 ```
 
 无测试框架（无 XCTest target）。验证靠无头模式 + `curl` 冒烟测：token 校验、防穿越、index.html、MIME、中文/空格文件名、流式发送。要求 macOS 13+ 与 Swift 工具链。
@@ -34,9 +37,11 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 辅助模块各自单一职责：`NetworkInfo`（`getifaddrs` 枚举 → 只留私网 IPv4、过滤 VPN/bridge/回环、en0 优先排序）、`QRCode`（CoreImage `CIQRCodeGenerator`）、`Token`、`Mime`（text 类带 `charset=utf-8`）、`DirectoryListing`（移动端友好 HTML，href 逐段编码、隐藏文件不列）。
 
+`Updater.swift` 封装 Sparkle 自动更新：`UpdaterController` 持 `SPUStandardUpdaterController`，仅 GUI 路径（`LocalShareApp`）构造，headless 完全不碰。配置全在 `bundle/Info.plist`（`SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks`）。信任链走 EdDSA（私钥签更新包、app 内嵌公钥校验），与 ad-hoc 代码签名无关，故未公证也能安全自更新；`Info.plist` 的 `SUPublicEDKey` 还是占位值时 `UpdaterController` 不启动 updater。CI 发布时用 `sign_update` 签 DMG 并把 `appcast.xml` 提交回 `master`（feed 走 raw.githubusercontent）。详见 `PLAN.md` 的「自动更新」一节。
+
 ## 跨文件的关键约束（改动前必读）
 
-- **零 dylib 戒律不可破**：新依赖必须是纯 Swift 源码包，不能引入任何 `.dylib`。改完用上面的 `otool` 命令验证。这是项目存在的理由（dufs 当年就死在运行时缺 `liblzma.5.dylib`）。
+- **不依赖包外 dylib（戒律的精神，不可破）**：判据是「换任何机器都不会缺库」。纯 Swift 依赖优先以 SPM 源码静态编进二进制；确需二进制 framework（如 Sparkle）时，必须 `@rpath` 引用并由 `build.sh` 内置进 `Contents/Frameworks/`、深度签名、且通过依赖校验（见 build.sh 末尾与 CI）。**绝对路径包外 dylib（`/opt/homebrew`、`/usr/local` 等）一律禁止**——这正是 dufs 当年崩在运行时缺 `liblzma.5.dylib` 的坑。新增/改依赖后务必跑上面的 `otool` 复核 + 确认 framework 已随包。
 - **Swifter 1.5.0 的 path 二次编码 bug**：`req.path` 落地文件系统前**仍残留一层百分号编码**，必须 `removingPercentEncoding` 解码（见 `FileServer.handle`）。纯 ASCII 路径无 `%` 故 `a.html` 正常，但 `b%20c.txt`、中文名不解码会 404。防穿越用的也是解码后的路径，所以 `%2e%2e` 同样被挡。
 - **防穿越逻辑**（`FileServer.handle` 第 2 步）：拼接后 `standardizedFileURL.resolvingSymlinksInPath`，结果必须 `== rootPath` 或 `hasPrefix(rootPath + "/")`。动这段务必重跑穿越用例（`../`、`%2e%2e`、`..%2f`）。
 - **线程模型**：Swifter 请求回调跑在后台 socket 线程，`AppState` 在 `@MainActor`。两者唯一共享的可变状态是 `FileServer.root`（运行中“更换文件夹”会改它），已用 `NSLock` 保护——换文件夹时**不重启 server**，token/cookie 保持有效。Package 用 Swift 5 语言模式正是为放宽这里的并发检查。

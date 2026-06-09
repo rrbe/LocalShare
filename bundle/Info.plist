@@ -28,5 +28,23 @@
     <string>NSApplication</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
+
+    <!-- ===== Sparkle 自动更新 ===== -->
+    <!-- appcast 源：CI 每次发布会重写 appcast.xml 并提交回 master，raw 链接稳定可达。 -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/rrbe/LocalShare/master/appcast.xml</string>
+    <!-- EdDSA 公钥：更新包用对应私钥签名、此处校验。⚠️ 发布前必须用 Sparkle 的 generate_keys
+         生成并替换占位值（私钥进 GitHub secret SPARKLE_ED_PRIVATE_KEY）。占位时 app 不启动 updater。 -->
+    <key>SUPublicEDKey</key>
+    <string>yF0fhsSuotJutGHezmoAFb3+M7nA6gcOln5aEWycXp8=</string>
+    <!-- 自动后台检查：跳过首启「是否自动检查更新」询问，直接启用。 -->
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <!-- 检查间隔（秒）：每天一次。 -->
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <!-- 不静默安装：发现新版只弹提示，由用户确认后再下载安装。 -->
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
 </dict>
 </plist>

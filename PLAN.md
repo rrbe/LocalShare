@@ -12,7 +12,8 @@
 
 - 起因：要让小白同事在手机上看电脑里的 html。iOS Safari 不能直接开本地文件，AirDrop 过去也打不开，必须有一个**本机进程监听端口**对外提供 HTTP。
 - 纯浏览器技术栈做不到（无法 listen 端口 / 接受入站连接），所以必须是原生 app。
-- **核心戒律**：dufs 的崩溃根因是 arm64 二进制**运行时缺失动态库**（动态链接了 Homebrew 的 `liblzma.5.dylib`）。因此最终产物必须**零外部动态依赖**——只链接系统框架 + 第三方库以源码形式静态编进 app。Swift/SwiftUI + SPM 源码依赖天然满足。
+- **核心戒律**：dufs 的崩溃根因是 arm64 二进制**运行时缺失动态库**（动态链接了 Homebrew 的 `liblzma.5.dylib`，指向 `/opt/homebrew/...`，换台机器就没）。因此戒律的精神是**「换任何机器都不会缺库」**：只链接系统框架；纯 Swift 第三方库以 SPM 源码静态编进 app。Swift/SwiftUI + SPM 源码依赖天然满足。
+  - **0.3 放宽**：自动更新需要 Sparkle，而 Sparkle 只以二进制 framework 分发（含动态库 + XPC 服务 + helper app），无法源码静态编进。结论：**允许把二进制 framework 以 `@rpath` 内置进 `.app/Contents/Frameworks/`**——它随包走、自包含、运行时永不缺失，完全规避 dufs 那种「包外缺库」的失败模式。判据据此从「零第三方 dylib」收紧为更准确的一条：**禁止任何位于 `.app` 包外的 dylib（绝对路径如 `/opt/homebrew`、`/usr/local` 一律禁止）；只接受 `@rpath` 引用、且已验证存在于 `Contents/Frameworks/` 的内置 framework**。`build.sh` 与 CI 均按此逐条校验（见下）。
 
 ---
 
@@ -33,6 +34,7 @@
 | 生命周期 | 记住上次文件夹 · 开 app 自动起服务 · 端口自动选（占用则换）· 退出停服务 |
 | 容错 | 检测无 WiFi/无 IP 并提示 · 首启引导点防火墙“允许” · 常驻排错提示 · 空文件夹友好态 |
 | 分发 | Xcode ad-hoc 签名 · 你首次帮同事过一次 Gatekeeper（放行被持久记住） |
+| 自动更新 | Sparkle（二进制 framework，`@rpath` 内置进 `Contents/Frameworks/`）· 自动后台检查、发现新版弹提示由用户确认 · 信任链走 **EdDSA 签名**（与 ad-hoc 代码签名无关，故未公证也安全）· appcast 托管在 `raw.githubusercontent.com/.../master/appcast.xml`，CI 每次发布重写并提交回 master |
 | 沙盒 | **不开 App Sandbox**（内部手发、不上 App Store），省掉沙盒对“读任意文件夹”的限制 |
 
 ---
@@ -59,6 +61,7 @@ lan-file-share/
     Token.swift            # 随机 url-safe token
     Mime.swift             # 扩展名 → MIME 映射（text 类带 charset=utf-8）
     HeadlessServer.swift   # LS_HEADLESS=1 无界面模式（测试/自动化用）
+    Updater.swift          # Sparkle 自动更新封装（仅 GUI 构造，headless 不碰）
 ```
 
 ---
@@ -112,6 +115,21 @@ lan-file-share/
 ### HeadlessServer（测试/自动化）
 - `LS_HEADLESS=1` 时仅起 `FileServer` 并 `RunLoop.main.run()`，不拉 GUI。环境变量：`LS_FOLDER`（必填）、`LS_TOKEN`（默认 `testtoken`）、`LS_PORT`（默认 8080）；启动后打印 `LS_URL …` 便于脚本读取。
 
+### 自动更新（Sparkle）
+- **依赖形态**：Sparkle 以二进制 framework 经 SPM `binaryTarget` 引入（`Package.swift` 里 `from: "2.6.0"`，实测解析到 2.9.3）。`swift build` 会把 `Sparkle.framework` 解到 `.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/`（单切片已含 arm64+x86_64），同目录 `bin/` 还带 `sign_update` / `generate_keys` / `generate_appcast`。
+- **内置与 rpath**：`Package.swift` 给 executableTarget 加了 `-rpath @executable_path/../Frameworks`；`build.sh` 用 `ditto` 把 framework 拷进 `Contents/Frameworks/`，于是 `Contents/MacOS/LocalShare` 经该 rpath 即能加载包内 framework（脱离 `.build` 也成立，已实测 headless 启动无 dyld 错误）。
+- **签名**：`build.sh` inside-out 深度 ad-hoc 签名（`--deep` 签 framework 内的 XPCServices/Updater.app/Autoupdate/dylib → 再签整个 app），随后 `codesign --verify --deep --strict` 校验。
+- **依赖校验**（`build.sh` 末尾 + CI）：逐条过滤主二进制依赖，系统库放行、`@rpath/X.framework` 必须对应 `Contents/Frameworks/X.framework` 存在、其余包外 dylib 判失败。
+- **代码集成**：`Updater.swift` 的 `UpdaterController`（`@MainActor`）持 `SPUStandardUpdaterController`，在 `LocalShareApp` 以 `@StateObject` 构造（headless 路径不触及）；菜单 About 下方加「检查更新…」。配置全在 `Info.plist`：`SUFeedURL`、`SUPublicEDKey`、`SUEnableAutomaticChecks=true`、`SUScheduledCheckInterval=86400`、`SUAutomaticallyUpdate=false`（发现新版只提示、不静默装）。
+- **信任链**：走 EdDSA（Ed25519）——更新包用私钥签名、app 内嵌 `SUPublicEDKey` 校验，**与代码签名/公证无关**，所以 ad-hoc + 未公证也能安全自更新。且 Sparkle 安装的更新不带 `com.apple.quarantine`，首次装好后续升级不再触发 Gatekeeper。
+- **CI 链路**（`.github/workflows/release.yml`）：build → 依赖闸门 → 打 DMG → 建 Release → 用 `sign_update` 对 DMG 做 EdDSA 签名 → 生成单条 `<item>` 的 `appcast.xml`（enclosure 指向 Release 里的 DMG URL）→ `git checkout -f -B master` 后提交回 master。feed 即 `raw.githubusercontent.com/rrbe/LocalShare/master/appcast.xml`。
+
+#### ⚠️ 发布前一次性配置（必做，否则自动更新不生效）
+1. 本地装 Sparkle 工具后生成 EdDSA 密钥对：`./bin/generate_keys`（私钥进登录钥匙串，终端打印 base64 **公钥**）。
+2. 把公钥填进 `bundle/Info.plist` 的 `SUPublicEDKey`，替换占位值 `REPLACE_WITH_REAL_SUPublicEDKey`，提交。（公钥非机密，直接进仓库。）
+3. 导出私钥：`./bin/generate_keys -x private_key.pem`（或从钥匙串导出），把内容存为 GitHub 仓库 secret **`SPARKLE_ED_PRIVATE_KEY`**。**私钥绝不入仓库**。
+   - 未配 secret 时 CI 会跳过 appcast 生成（仅出 DMG，发 `::warning::`）；`Info.plist` 仍是占位公钥时 app 不启动 updater。两道保险让「未配置」状态显式可见。
+
 ### 容错 UI
 - 无 WiFi / 无私网 IP → 不画死码，显示“请先连接 WiFi”。
 - 首次 start 触发 macOS 防火墙“是否允许接受传入连接”——UI 文案引导点**允许**（误点拒绝是现实中“扫了码却打不开”头号原因）。
@@ -145,6 +163,7 @@ open dist/LocalShare.app     # 本机自测
 - [x] 安全：目录穿越（字面 `..`、编码 `%2e%2e`、混合 `..%2f`）全部 403，`/etc/passwd` 不可达
 - [x] 组装 `.app`：codesign 有效；`otool -L` 确认**零第三方 dylib**（仅 /usr/lib 与系统 Frameworks）
 - [x] GUI 端到端：启动 → 读记住的文件夹 → 自动起服务 → 监听端口生效
+- [x] 自动更新（Sparkle）：framework `@rpath` 内置进 `Contents/Frameworks/` + 深度签名；放宽后依赖闸门（build.sh/CI）只许内置 framework；`Updater.swift` + Info.plist 配置；CI 走 EdDSA 签名 + appcast 提交回 master。**发布前需一次性配置 EdDSA 密钥**（见 §3「发布前一次性配置」）。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -160,4 +179,5 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 
 ## 6. 明确不做（v1 范围外，留给 v2）
 
-- Apple 公证（要 $99/年开发者号）；https + 自签证书（仅当 html 用到 secure-context API 才需要）；跨网络隧道（cloudflared/ngrok/tailscale）；手机上传回电脑（双向）；自动更新；菜单栏常驻形态。
+- Apple 公证（要 $99/年开发者号）；https + 自签证书（仅当 html 用到 secure-context API 才需要）；跨网络隧道（cloudflared/ngrok/tailscale）；手机上传回电脑（双向）；菜单栏常驻形态。
+- （自动更新已在 0.3 落地，见 §3「自动更新（Sparkle）」。）

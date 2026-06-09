@@ -10,11 +10,25 @@ let package = Package(
     dependencies: [
         // 纯 Swift 的轻量 HTTP server，SPM 源码编译进 app，不引入任何动态库依赖。
         .package(url: "https://github.com/httpswift/swifter.git", from: "1.5.0"),
+        // Sparkle 自动更新。注意：它不是纯源码包，而是二进制 framework（binaryTarget），
+        // 会以 Sparkle.framework 内置进 .app/Contents/Frameworks（随包走、运行时不缺失），
+        // 不依赖任何包外 dylib——这正是放宽「零 dylib」戒律的边界（见 PLAN.md §0）。
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [
         .executableTarget(
             name: "LocalShare",
-            dependencies: [.product(name: "Swifter", package: "swifter")]
+            dependencies: [
+                .product(name: "Swifter", package: "swifter"),
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            linkerSettings: [
+                // 让主二进制能在 .app 内找到内置 framework：
+                //   Contents/MacOS/LocalShare → ../Frameworks = Contents/Frameworks
+                // build.sh 会把 Sparkle.framework 拷进 Contents/Frameworks。
+                // （swift run/test 时 SPM 另有指向 .build/artifacts 的 rpath，故本地裸跑也能加载。）
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
+            ]
         ),
     ]
 )

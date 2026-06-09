@@ -4,3 +4,7 @@ dist/
 *.app
 .DS_Store
 AppIcon.iconset/
+# Sparkle EdDSA 私钥导出（机密，绝不入仓库；贴进 GitHub secret 后即删）
+private_key.txt
+# 编辑器临时文件
+*.swp

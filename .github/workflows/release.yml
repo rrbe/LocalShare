@@ -1,19 +1,22 @@
 name: Release
 
-# 推送 vX.Y.Z 标签即触发：编译 universal → 校验零 dylib → 打 DMG → 建 GitHub Release。
+# 推送 vX.Y.Z 标签即触发：编译 universal → 校验依赖（仅许内置 framework）→ 打 DMG →
+# 建 GitHub Release → EdDSA 签名 + 生成 appcast.xml 提交回 master（供 Sparkle 自动更新）。
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write   # 创建 Release 需要写权限
+  contents: write   # 创建 Release、推送 appcast.xml 到 master 都需要写权限
 
 jobs:
   release:
     runs-on: macos-latest   # Apple Silicon runner，自带 Xcode / Swift 工具链
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要 master 历史，发布末尾把 appcast.xml 提交回 master
 
       - name: 解析版本号（去掉前缀 v）
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -23,13 +26,31 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" bundle/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" bundle/Info.plist
 
-      - name: 编译并组装 .app（universal + ad-hoc 签名）
+      - name: 编译并组装 .app（universal + 内置 Sparkle + ad-hoc 签名）
         run: bash build.sh
 
-      - name: 校验零第三方 dylib（项目核心戒律）
+      - name: 校验依赖（仅允许内置 @rpath framework，禁止包外 dylib）
         run: |
-          LEAK=$(otool -L dist/LocalShare.app/Contents/MacOS/LocalShare | grep -v -e /usr/lib/ -e /System/Library/ -e 'LocalShare.app' || true)
-          if [ -n "$LEAK" ]; then echo "::error::检测到非系统库依赖：$LEAK"; exit 1; fi
+          # 放宽后的核心戒律：dufs 死于运行时缺失的包外 dylib（/opt/homebrew）。这里逐条核对——
+          # 系统库放行；@rpath 引用必须对应包内 Contents/Frameworks 里存在的 framework；
+          # 其余绝对路径包外 dylib 一律失败。build.sh 已做同样检查，这里在 CI 再设一道可见闸门。
+          BIN=dist/LocalShare.app/Contents/MacOS/LocalShare
+          FAIL=0
+          while IFS= read -r dep; do
+            [ -z "$dep" ] && continue
+            case "$dep" in
+              /usr/lib/*|/System/Library/*) ;;
+              @rpath/*)
+                fw="${dep#@rpath/}"; fw="${fw%%/*}"
+                if [ -e "dist/LocalShare.app/Contents/Frameworks/$fw" ]; then
+                  echo "ok 内置依赖: $dep"
+                else
+                  echo "::error::@rpath 依赖未随包: $dep（缺 Contents/Frameworks/$fw）"; FAIL=1
+                fi ;;
+              *) echo "::error::检测到包外 dylib 依赖: $dep"; FAIL=1 ;;
+            esac
+          done < <(otool -L "$BIN" | grep '^[[:space:]]' | awk '{print $1}' | sort -u)
+          [ "$FAIL" -eq 0 ] || { echo "依赖校验失败，违反核心戒律"; exit 1; }
 
       - name: 打包 DMG（含 Applications 软链，方便拖入）
         run: |
@@ -49,6 +70,7 @@ jobs:
 
             ## 安装
             下载下方 `LocalShare-${{ env.VERSION }}.dmg`，双击打开，把 **LocalShare** 拖进 **Applications**。
+            装好后会自动检查更新，之后升级无需再走 Gatekeeper（Sparkle 安装的更新不带隔离标记）。
 
             ## ⚠️ 首次打开被「隐私与安全性」拦截怎么办
             本包是 ad-hoc 签名、未经 Apple 公证，从网络下载会被 Gatekeeper 拦（提示「已损坏」或「无法打开」）。任选一种解除：
@@ -65,3 +87,55 @@ jobs:
 
             ## 使用
             打开 app → 选一个文件夹或单个文件 → 手机 / 电脑连同一 WiFi / 网络 → 扫码或打开链接，即可在浏览器里只读浏览。
+
+      - name: EdDSA 签名 DMG + 生成 appcast.xml 提交回 master
+        env:
+          ED_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          # 未配置私钥则跳过（首次发布、或暂未启用自动更新时）。DMG 已发布，仅缺自动更新喂源。
+          if [ -z "$ED_KEY" ]; then
+            echo "::warning::未配置 secret SPARKLE_ED_PRIVATE_KEY，跳过 appcast 生成（本次发布不提供自动更新）"
+            exit 0
+          fi
+
+          # sign_update 工具随 Sparkle 的 SPM artifact 一并下载，版本与 app 内 framework 严格一致。
+          SIGN_UPDATE="$(find .build/artifacts -name sign_update -path '*bin*' 2>/dev/null | head -1)"
+          [ -x "$SIGN_UPDATE" ] || { echo "::error::未找到 sign_update 工具"; exit 1; }
+
+          # 用私钥对 DMG 做 EdDSA 签名；不带 -p 时直接输出 enclosure 需要的整串属性：
+          #   sparkle:edSignature="..." length="12345"
+          # 私钥来自 secret（即 generate_keys -x 导出的文件内容），经 --ed-key-file 传入。
+          printf '%s' "$ED_KEY" > /tmp/sparkle_ed_key
+          SIG_ATTRS="$("$SIGN_UPDATE" --ed-key-file /tmp/sparkle_ed_key "LocalShare-$VERSION.dmg")"
+          rm -f /tmp/sparkle_ed_key
+          echo "签名结果: $SIG_ATTRS"
+
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/LocalShare-$VERSION.dmg"
+          PUBDATE="$(date "+%a, %d %b %Y %H:%M:%S %z")"
+
+          # 切到 master 再生成，避免被 checkout 覆盖；appcast 只保留最新一项即可触发更新比对。
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # -f 丢弃 build 期对 Info.plist 的版本号改写（master 保留占位版本，不需要该临时改动）。
+          git checkout -f -B master origin/master
+
+          cat > appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>LocalShare</title>
+              <item>
+                <title>$VERSION</title>
+                <sparkle:version>${{ github.run_number }}</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+                <pubDate>$PUBDATE</pubDate>
+                <enclosure url="$DMG_URL" $SIG_ATTRS type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+          git add appcast.xml
+          git commit -m "chore: 更新 appcast 至 $VERSION" || { echo "appcast 无变化，跳过提交"; exit 0; }
+          git push origin master
