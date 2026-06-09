@@ -414,9 +414,25 @@ private struct SettingsScreen: View {
                 }
                 .padding(.top, 8)
 
-                if pv.state != .invalid && changed {
-                    PrimaryButton(t: t, title: "应用新端口（重启服务）", systemImage: "arrow.clockwise") {
-                        apply(pv, changed: changed)
+                // 改了才出现这排操作：放弃（还原成当前生效端口，无效输入也可退回）+ 应用。
+                // 用纯色文字而非实心全宽块——重启服务不是破坏性动作，不必视觉吓人。
+                if changed {
+                    HStack(spacing: 18) {
+                        Spacer()
+                        Button { portText = String(state.configuredPort) } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
+                                Text("放弃修改").font(.sans(13, .semibold))
+                            }
+                            .foregroundStyle(t.inkMute)
+                        }
+                        .buttonStyle(.plain)
+                        if pv.state != .invalid {
+                            Button { apply(pv, changed: changed) } label: {
+                                Text("应用并重启").font(.sans(13, .semibold)).foregroundStyle(t.accent)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(.top, 12)
                 }
