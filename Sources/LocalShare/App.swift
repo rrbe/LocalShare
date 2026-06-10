@@ -43,6 +43,29 @@ struct LocalShareApp: App {
                     .keyboardShortcut(",", modifiers: .command)
             }
         }
+
+        // 菜单栏常驻图标：关窗后 app（与分享服务）继续活着，从这里唤回窗口或彻底退出。
+        MenuBarExtra("LocalShare", systemImage: "qrcode") {
+            MenuBarMenu()
+        }
+    }
+}
+
+private struct MenuBarMenu: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("显示 LocalShare") {
+            NSApp.activate(ignoringOtherApps: true)
+            // 窗口已关闭时重建；最小化时唤回。
+            openWindow(id: "main")
+            for window in NSApp.windows where window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+        }
+        Divider()
+        Button("退出") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
     }
 }
 
@@ -53,8 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // 关闭窗口即退出，进而停止服务（避免后台残留监听端口）。
+    // 关窗不退出：菜单栏图标常驻，服务继续广播；退出走菜单栏「退出」或 ⌘Q。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 }
