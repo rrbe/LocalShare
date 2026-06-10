@@ -51,3 +51,10 @@ ad-hoc 签名，**打开**可能被 Gatekeeper 拦截（提示「已损坏」或
 ```bash
 xattr -dr com.apple.quarantine /Applications/LocalShare.app
 ```
+
+## 参考项目
+
+本项目受到如下项目的启发
+
+- [localsend](https://github.com/localsend/localsend)
+- [dufs](https://github.com/sigoden/dufs)
