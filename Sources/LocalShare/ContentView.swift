@@ -539,9 +539,57 @@ private struct SettingsScreen: View {
                     }
                 }
                 .padding(.vertical, 4)
+
+                // 命令行工具。裸二进制（swift run）没有 .app 可指：不给安装按钮，状态/卸载照常。
+                SectionLabel(t: t, text: "命令行工具").padding(.top, 24).padding(.bottom, 8)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("localshare").font(.mono(13.5, .bold)).foregroundStyle(t.ink)
+                        Text(cliHint).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    if state.cliStatus != .notInstalled {
+                        Button { state.uninstallCLI() } label: {
+                            Text("卸载").font(.sans(13, .semibold)).foregroundStyle(t.inkMute)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 4)
+                    }
+                    if state.cliStatus == .installed {
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
+                            Text("已安装").font(.sans(11.5, .bold))
+                        }
+                        .foregroundStyle(t.ok)
+                    } else if CLIInstaller.binaryPath() != nil {
+                        GhostButton(t: t,
+                                    title: state.cliStatus == .notInstalled ? "安装" : "重新安装",
+                                    systemImage: "terminal") {
+                            state.installCLI()
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
             }
         }
-        .onAppear { portText = String(state.configuredPort) }
+        .onAppear {
+            portText = String(state.configuredPort)
+            state.refreshCLIStatus()
+        }
+    }
+
+    // 命令行工具状态行：已安装显示链接路径；链接归属不了当前进程（裸跑/指向别处）时
+    // 直接亮出实际指向，让人自己判断；未装时一句话点明用途或受限原因。
+    private var cliHint: String {
+        switch state.cliStatus {
+        case .installed:
+            return CLIInstaller.linkPath
+        case .stale(let dest):
+            return "→ " + (dest as NSString).abbreviatingWithTildeInPath
+        case .notInstalled:
+            return CLIInstaller.binaryPath() != nil ? "在终端用 localshare 分享文件" : "以 app 包运行时可安装"
+        }
     }
 
     private func appearanceSeg(_ label: String, _ pref: AppState.AppearancePref) -> some View {

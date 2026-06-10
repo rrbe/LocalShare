@@ -1,12 +1,15 @@
 import AppKit
 import SwiftUI
 
-// 入口：默认跑 SwiftUI GUI；设 LS_HEADLESS=1 时只起服务（供测试/自动化，无窗口）。
+// 入口三层分流：LS_HEADLESS=1 只起服务（供测试/自动化）；argv 命中命令行调用
+// （`localshare <路径>…` / --headless）走 CLI；否则跑 SwiftUI GUI。
 @main
 enum EntryPoint {
     static func main() {
         if ProcessInfo.processInfo.environment["LS_HEADLESS"] == "1" {
             HeadlessServer.run()
+        } else if let mode = CLI.parse(CommandLine.arguments) {
+            CLI.run(mode)
         } else {
             // 关闭 macOS 窗口状态恢复：干净启动且无可恢复状态时，SwiftUI 的 Window 场景会偶发
             // 不创建窗口（表现为「app 在 Dock 里却没有窗口、双击无响应」）。必须在 NSApplication
@@ -45,9 +48,39 @@ struct LocalShareApp: App {
         }
 
         // 菜单栏常驻图标：关窗后 app（与分享服务）继续活着，从这里唤回窗口或彻底退出。
-        MenuBarExtra("LocalShare", systemImage: "qrcode") {
+        // label 视图常驻菜单栏（主窗关闭后唯一活着的 SwiftUI 环境），借它监听唤窗通知
+        // 拿 openWindow 重建窗口——CLI 转发的 open 事件靠这条链在「只剩菜单栏」时弹回主窗。
+        MenuBarExtra {
             MenuBarMenu()
+        } label: {
+            MenuBarIcon()
         }
+    }
+}
+
+// 菜单栏图标本体：声明 openWindow 环境并监听唤窗通知。
+private struct MenuBarIcon: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: "qrcode")
+            .onReceive(NotificationCenter.default.publisher(for: .lsShowMainWindow)) { _ in
+                showMainWindow(openWindow)
+            }
+    }
+}
+
+extension Notification.Name {
+    // AppState 等无法触达 openWindow 的地方用它请求唤回主窗。
+    static let lsShowMainWindow = Notification.Name("lsShowMainWindow")
+}
+
+// 唤回主窗口：激活 app、重建已关闭的窗口、唤回最小化的窗口。
+@MainActor func showMainWindow(_ openWindow: OpenWindowAction) {
+    NSApp.activate(ignoringOtherApps: true)
+    openWindow(id: "main")
+    for window in NSApp.windows where window.isMiniaturized {
+        window.deminiaturize(nil)
     }
 }
 
@@ -55,21 +88,19 @@ private struct MenuBarMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("显示 LocalShare") {
-            NSApp.activate(ignoringOtherApps: true)
-            // 窗口已关闭时重建；最小化时唤回。
-            openWindow(id: "main")
-            for window in NSApp.windows where window.isMiniaturized {
-                window.deminiaturize(nil)
-            }
-        }
+        Button("显示 LocalShare") { showMainWindow(openWindow) }
         Divider()
         Button("退出") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // open 事件可能早于 AppState 构造（@StateObject 时机由 SwiftUI 决定），先缓冲，
+    // AppState.init 末尾消费——否则 CLI 冷启动会偶发丢掉首次分享。
+    static var pendingOpenURLs: [URL] = []
+
     // 即使以裸二进制（swift run）启动也强制前台并激活，确保窗口可见。
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -79,5 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // 关窗不退出：菜单栏图标常驻，服务继续广播；退出走菜单栏「退出」或 ⌘Q。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    // CLI 转发（NSWorkspace open）落地处：换分享项并唤回窗口。
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !existing.isEmpty else { return }
+        if let state = AppState.shared {
+            state.setShared(existing)
+            state.showMainWindow()
+        } else {
+            Self.pendingOpenURLs += existing
+        }
     }
 }

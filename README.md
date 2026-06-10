@@ -24,6 +24,16 @@
 二维码地址形如 `http://192.168.x.x:8080/?t=随机令牌`：链接里带一次性令牌，扫码者无感进入，
 单纯知道 IP:端口 的人无法访问。
 
+## 终端用法
+
+在「设置 → 命令行工具」里点「安装」，之后可以在终端一键分享：
+
+```bash
+localshare a.html b.pdf        # 唤起 LocalShare 窗口分享这些文件
+localshare ~/Documents/报告    # 文件夹同理，可混合多选
+localshare --headless ./dist   # 不开窗口，直接在终端打印链接和二维码（Ctrl-C 停止）
+```
+
 ## 开发 / 构建
 
 ```bash

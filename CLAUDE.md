@@ -18,6 +18,12 @@ open "dist/LocalShare.app"    # 本机自测 GUI
 LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debug/LocalShare &
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表或 index.html
 
+# 命令行调用（argv 路径；改 CLI/HeadlessServer 后务必用 release 复测，有已注释的 -O 编译器坑）
+.build/debug/LocalShare --headless /path/a.html /path/dir   # 前台起服务，打印 LS_URL + 终端二维码
+.build/debug/LocalShare a.html b.pdf                        # 转发给 GUI app（拉起或复用实例）
+ln -s "$PWD/dist/LocalShare.app/Contents/MacOS/LocalShare" /tmp/localshare  # symlink 冒烟
+/tmp/localshare --version                                   # 不崩 = dyld 经 realpath 找到包内 Sparkle
+
 # 验证核心戒律：过滤系统库后，剩余依赖只能是 @rpath 引用、且对应 framework 确在包内
 # Contents/Frameworks（如 Sparkle.framework）；出现任何绝对路径包外 dylib 即违规。
 # build.sh / CI 已内置同款逐条校验，这里是手动复核：
@@ -29,7 +35,7 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 ## 架构
 
-入口在 `App.swift` 的 `@main enum EntryPoint`：`LS_HEADLESS=1` 走 `HeadlessServer`（裸起服务），否则跑 `LocalShareApp`（SwiftUI）。GUI 与测试共用同一个 `FileServer`，这是两条路径不分叉的关键。
+入口在 `App.swift` 的 `@main enum EntryPoint`，三层分流：`LS_HEADLESS=1` 走 `HeadlessServer`（裸起服务）→ `CLI.parse` 命中 argv（`localshare <路径>…` / `--headless`）走 `CLI.run` → 否则跑 `LocalShareApp`（SwiftUI）。三条路径共用同一个 `FileServer`，这是逻辑不分叉的关键。CLI 默认把路径经 `NSWorkspace.open(urls, withApplicationAt:)` 转发给 GUI（`AppDelegate.application(_:open:)` 接收 → `AppState.setShared` 热切换；open 事件早于 `AppState` 构造时缓冲在 `pendingOpenURLs`）；`--headless` 则本进程前台起服务并打印终端二维码。`localshare` 命令本体是设置面板安装的 symlink（`CLIInstaller`），指向包内主二进制——dyld 解析 `@executable_path` 前会 realpath，故包内 Sparkle 照常加载；但 CLI 进程内**不可用 `Bundle.main`** 定位 .app（详见 `PLAN.md`「命令行启动」与 `HeadlessServer.runForeground` 上方注释的 release 编译器坑）。
 
 数据流单向：`AppState`（`@MainActor ObservableObject`，唯一真相源）持有 `FileServer`、网络候选、派生出 `primaryURL` → `qrImage`；`ContentView` 只读渲染。真相源是 `sharedItems: [URL]`（0=空、1=单项、N=多选），派生 `isMultiple`/`isEmpty`/`sharedURL`(首项便利)。`AppState` 负责生命周期——init 时从 `UserDefaults` 恢复上次分享（多选存 `lastSharedPaths` 数组、旧单值键 `lastFolderPath` 作迁移回退，缺失项剔除）并**自动 start**（同事开 app 即见码）；选文件/夹用 `NSOpenPanel`（`allowsMultipleSelection = true`），拖拽收齐所有 provider 后一次提交。`RecentShare` 用 `paths: [String]` 记录多选、自定义 `init(from:)` 兼容旧单 `path` 记录。
 

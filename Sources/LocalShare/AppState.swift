@@ -30,6 +30,10 @@ final class AppState: ObservableObject {
     @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
+    @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
+
+    // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
+    static private(set) var shared: AppState?
 
     let token = Token.generate()
     private var server: FileServer?
@@ -64,6 +68,13 @@ final class AppState: ObservableObject {
             updateSharedIsFile()
             describeShared()
             start()
+        }
+        AppState.shared = self
+        // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达），覆盖上面恢复的旧分享。
+        if !AppDelegate.pendingOpenURLs.isEmpty {
+            let urls = AppDelegate.pendingOpenURLs
+            AppDelegate.pendingOpenURLs = []
+            setShared(urls)
         }
     }
 
@@ -307,6 +318,40 @@ final class AppState: ObservableObject {
     func setShowRecents(_ on: Bool) {
         showRecents = on
         UserDefaults.standard.set(on, forKey: showRecentsKey)
+    }
+
+    // 请求唤回主窗口（已关闭则重建）。openWindow 只能在活着的视图环境里拿，
+    // 故发通知给常驻菜单栏的图标视图代为执行（见 App.swift 的 MenuBarIcon）。
+    func showMainWindow() {
+        NotificationCenter.default.post(name: .lsShowMainWindow, object: nil)
+    }
+
+    // MARK: - 命令行工具
+
+    func refreshCLIStatus() {
+        cliStatus = CLIInstaller.status()
+    }
+
+    // 安装/修复或卸载 symlink。提权对话框会阻塞，放后台线程跑完再回主线程刷状态。
+    func installCLI()   { cliTask("安装") { try CLIInstaller.install() } }
+    func uninstallCLI() { cliTask("卸载") { try CLIInstaller.uninstall() } }
+
+    private func cliTask(_ verb: String, _ work: @escaping @Sendable () throws -> Void) {
+        Task.detached { [weak self] in
+            var failure: String?
+            do {
+                try work()
+            } catch is CLIInstaller.Cancelled {
+                // 用户在授权框点了取消，不当作错误
+            } catch {
+                failure = "\(verb)命令行工具失败：\(error.localizedDescription)"
+            }
+            await MainActor.run { [weak self, failure] in
+                guard let self else { return }
+                self.refreshCLIStatus()
+                if let failure { self.lastError = failure }
+            }
+        }
     }
 
     // 把主窗口恢复到设计默认尺寸：锚定左上角不动（macOS 原点在左下，故顶随高变），带动画回弹。

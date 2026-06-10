@@ -60,7 +60,9 @@ lan-file-share/
     QRCode.swift           # CoreImage 生成 QR → NSImage
     Token.swift            # 随机 url-safe token
     Mime.swift             # 扩展名 → MIME 映射（text 类带 charset=utf-8）
-    HeadlessServer.swift   # LS_HEADLESS=1 无界面模式（测试/自动化用）
+    HeadlessServer.swift   # LS_HEADLESS=1 无界面模式（测试/自动化用）+ CLI 前台模式
+    CLI.swift              # 命令行入口：argv 解析、转发 GUI（NSWorkspace）、--headless 分流
+    CLIInstaller.swift     # /usr/local/bin/localshare symlink 的检测/安装（含 osascript 提权）
     Updater.swift          # Sparkle 自动更新封装（仅 GUI 构造，headless 不碰）
 ```
 
@@ -111,11 +113,21 @@ lan-file-share/
 - token 每次 app 启动生成一次（QR 与校验共用）。
 
 ### App.swift / 入口
-- `@main enum EntryPoint`：`LS_HEADLESS=1` 时走 `HeadlessServer.run()`（无界面，测试/自动化），否则 `LocalShareApp.main()` 跑 SwiftUI。
-- `AppDelegate`（`NSApplicationDelegateAdaptor`）：`applicationDidFinishLaunching` 里 `NSApp.setActivationPolicy(.regular)` + `activate(ignoringOtherApps:)`（裸跑也能前台）；`applicationShouldTerminateAfterLastWindowClosed → true`（关窗即退出 → 停服务）。
+- `@main enum EntryPoint` 三层分流：`LS_HEADLESS=1` 走 `HeadlessServer.run()`（无界面，测试/自动化）→ `CLI.parse(CommandLine.arguments)` 命中则走 `CLI.run`（命令行调用，见下「命令行启动」）→ 否则 `LocalShareApp.main()` 跑 SwiftUI。
+- `AppDelegate`（`NSApplicationDelegateAdaptor`，`@MainActor`）：`applicationDidFinishLaunching` 里 `NSApp.setActivationPolicy(.regular)` + `activate(ignoringOtherApps:)`（裸跑也能前台）；`applicationShouldTerminateAfterLastWindowClosed → false`（关窗不退出，菜单栏图标常驻）；`application(_:open:)` 接 CLI 转发的文件 → `AppState.setShared` + 唤窗。open 事件可能早于 `AppState` 构造（`@StateObject` 时机由 SwiftUI 决定），先存 `pendingOpenURLs` 缓冲、`AppState.init` 末尾消费。
+- 唤窗链路：主窗已关时 `openWindow` 只能从活着的视图环境拿——`MenuBarExtra` 的 label 视图（`MenuBarIcon`）常驻菜单栏、监听 `.lsShowMainWindow` 通知代为 `openWindow(id: "main")`；`AppState.showMainWindow()` 只发通知。
 
-### HeadlessServer（测试/自动化）
-- `LS_HEADLESS=1` 时仅起 `FileServer` 并 `RunLoop.main.run()`，不拉 GUI。环境变量：`LS_FOLDER`（必填）、`LS_TOKEN`（默认 `testtoken`）、`LS_PORT`（默认 8080）；启动后打印 `LS_URL …` 便于脚本读取。
+### HeadlessServer（测试/自动化 + CLI 前台）
+- `LS_HEADLESS=1` 时仅起 `FileServer` 并 `RunLoop.main.run()`，不拉 GUI。环境变量：`LS_FOLDER` / `LS_FOLDERS`（二选一）、`LS_TOKEN`（默认 `testtoken`）、`LS_PORT`（默认 8080）；启动后打印 `LS_URL …` 便于脚本读取。
+- `runForeground(urls:preferredPorts:)` 是 `localshare --headless` 的前台模式：随机 token（`Token.generate()`，GUI 同款安全模型）、URL 用局域网 IP（`NetworkInfo`，手机要扫）、交互终端（isatty）下追加 ANSI 半块字符二维码（`QRCode.ansi`，黑码白底写死、深浅终端均可扫）、管道场景只输出 `LS_URL` 行。
+- ⚠️ **编译器坑**：Swift 6.2.4 的 `-O` 在「枚举载荷里的 `Optional<in_port_t>` → 函数内构造 `[in_port_t]` → 传入 `FileServer.start`」这条链上会错编出垃圾数组指针（release 必崩 `Fatal error: failed to allocate …`，debug 正常，加 print 即消失的 heisenbug）。规避：`runForeground` 直接收具体 `preferredPorts: [in_port_t]`，Optional 的展开留在调用方 `CLI.run`。动这段必须用 **release** 构建重跑 `--headless` 带/不带 `--port` 的冒烟。
+
+### 命令行启动（CLI，0.4）
+- 形态：`localshare a.html b.pdf`（唤起/复用 GUI 分享这些路径）；`localshare --headless [--port N] <路径>…`（前台起服务不开窗）；`localshare` 不带参数仅唤起窗口；`--help` / `--version`。
+- 安装物是 **symlink** `/usr/local/bin/localshare → LocalShare.app/Contents/MacOS/LocalShare`。可行性关键：dyld 解析 `@executable_path`（Sparkle 的 rpath）前会对主二进制 realpath，故经 symlink 启动包内 framework 照常加载（Sublime `subl` 同款机制，已实测 universal 包不崩）。
+- argv 判定（`CLI.parse`，保证 Finder/LaunchServices 启动永不误入）：丢弃 `-psn_*`、`-NSDocumentRevisionsDebugMode` 噪音；识别 flag 与非 `-` 开头的路径参数；有 flag 或路径才算 CLI；未知 `-` 选项在 argv[0] 是 `localshare`（经 symlink）时报错 exit 2，否则视为 AppKit 噪音走 GUI。
+- 转发 GUI：CLI 进程**不可用 `Bundle.main`**（经 symlink 启动时它可能按链接路径解析）——自取 `_NSGetExecutablePath` → 解 symlink → 上溯三级拿 `.app`，裸跑回退按 bundle id 查已安装 app；然后 `NSWorkspace.open(urls, withApplicationAt:)`（显式指定目标 app，无需 `CFBundleDocumentTypes`，运行中实例默认复用、热切换不重启 server、token/cookie 不失效）。CLI 进程只跑 `RunLoop` 等回调，**不碰 NSApplication**（否则 Dock 闪幽灵图标）。
+- 安装器（`CLIInstaller`，设置面板「命令行工具」节）：状态三态 notInstalled / installed / stale（两侧 `resolvingSymlinksInPath` 后比对，stale 时面板直接亮出实际指向）；安装先直接 `createSymbolicLink`，权限不足转 `osascript … with administrator privileges`（路径双层转义；stderr 含 `-128` = 用户取消，静默返回）；卸载只删 symlink、同名真实文件不动。GUI 进程内 `Bundle.main` 可靠（永远由真实 .app 路径拉起）；但裸二进制（`swift run`）没有 .app 可指，`binaryPath()` 返回 nil → 面板收起「安装」按钮（状态/卸载照常），避免装出指向 `.build` 构建产物的链接（曾导致 CLI 定位不到 .app、转发落到旧版实例）。
 
 ### 自动更新（Sparkle）
 - **依赖形态**：Sparkle 以二进制 framework 经 SPM `binaryTarget` 引入（`Package.swift` 里 `from: "2.6.0"`，实测解析到 2.9.3）。`swift build` 会把 `Sparkle.framework` 解到 `.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/`（单切片已含 arm64+x86_64），同目录 `bin/` 还带 `sign_update` / `generate_keys` / `generate_appcast`。
@@ -166,6 +178,9 @@ open dist/LocalShare.app     # 本机自测
 - [x] 组装 `.app`：codesign 有效；`otool -L` 确认**零第三方 dylib**（仅 /usr/lib 与系统 Frameworks）
 - [x] GUI 端到端：启动 → 读记住的文件夹 → 自动起服务 → 监听端口生效
 - [x] 自动更新（Sparkle）：framework `@rpath` 内置进 `Contents/Frameworks/` + 深度签名；放宽后依赖闸门（build.sh/CI）只许内置 framework；`Updater.swift` + Info.plist 配置；CI 走 EdDSA 签名 + appcast 提交回 master。**发布前需一次性配置 EdDSA 密钥**（见 §3「发布前一次性配置」）。
+- [x] 命令行启动：`localshare <路径>…` 转发 GUI / `--headless` 前台模式 / 设置面板安装 symlink；
+      已验证 symlink 经 dyld realpath 加载包内 Sparkle、冷启动 open 事件缓冲、热切换实例复用、
+      终端二维码 Vision 实扫解码通过；release 编译器坑已规避并注释（见 §3「命令行启动」）。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
