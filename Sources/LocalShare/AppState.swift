@@ -29,6 +29,7 @@ final class AppState: ObservableObject {
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
+    @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
 
     let token = Token.generate()
     private var server: FileServer?
@@ -38,6 +39,7 @@ final class AppState: ObservableObject {
     private let portKey = "configuredPort"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
+    private let showRecentsKey = "showRecentShares"
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
@@ -45,6 +47,10 @@ final class AppState: ObservableObject {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
+        // bool(forKey:) 对未写入的键返回 false，会把默认「展示」误判成关闭，故先探键存在性。
+        if UserDefaults.standard.object(forKey: showRecentsKey) != nil {
+            showRecents = UserDefaults.standard.bool(forKey: showRecentsKey)
+        }
         loadRecents()
         refreshNetwork()
         // 恢复上次分享对象并自动启动，让同事开 app 就能看到二维码。
@@ -296,6 +302,11 @@ final class AppState: ObservableObject {
     func setAppearance(_ a: AppearancePref) {
         appearance = a
         UserDefaults.standard.set(a.rawValue, forKey: appearanceKey)
+    }
+
+    func setShowRecents(_ on: Bool) {
+        showRecents = on
+        UserDefaults.standard.set(on, forKey: showRecentsKey)
     }
 
     // 把主窗口恢复到设计默认尺寸：锚定左上角不动（macOS 原点在左下，故顶随高变），带动画回弹。

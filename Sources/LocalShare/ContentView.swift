@@ -160,8 +160,10 @@ private struct EmptyScreen: View {
         } content: {
             VStack(spacing: 0) {
                 dropZone
-                RecentSharesView(t: t, items: state.recents.filter { $0.exists },
-                                 onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
+                if state.showRecents {
+                    RecentSharesView(t: t, items: state.recents.filter { $0.exists },
+                                     onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
+                }
             }
         }
     }
@@ -209,7 +211,7 @@ private struct ShareScreen: View {
                 ticket(ps)
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
-                if state.sharedIsFile {
+                if state.sharedIsFile && state.showRecents {
                     RecentSharesView(t: t, items: state.recents.filter { $0.exists && Set($0.paths) != state.currentSharePaths },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
                 }
@@ -505,6 +507,19 @@ private struct SettingsScreen: View {
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
                 .padding(.top, 12)
+
+                // 最近分享
+                SectionLabel(t: t, text: "最近分享").padding(.top, 24).padding(.bottom, 4)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("在主界面展示").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                        Text("关闭后主界面不再列出最近分享").font(.sans(11.5)).foregroundStyle(t.inkMute)
+                    }
+                    Spacer()
+                    ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
+                }
+                .padding(.vertical, 13)
+                .overlay(alignment: .top) { Rectangle().fill(t.line).frame(height: 1) }
 
                 // 外观
                 SectionLabel(t: t, text: "外观").padding(.top, 24).padding(.bottom, 8)
