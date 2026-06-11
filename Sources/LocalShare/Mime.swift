@@ -7,6 +7,7 @@ enum Mime {
         "html": "text/html", "htm": "text/html", "css": "text/css",
         "js": "text/javascript", "mjs": "text/javascript", "json": "application/json",
         "txt": "text/plain", "csv": "text/csv", "xml": "text/xml", "md": "text/markdown",
+        "markdown": "text/markdown", "tsv": "text/tab-separated-values", "geojson": "application/json",
         "svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
         "gif": "image/gif", "webp": "image/webp", "ico": "image/x-icon", "bmp": "image/bmp",
         "pdf": "application/pdf", "zip": "application/zip", "wasm": "application/wasm",
