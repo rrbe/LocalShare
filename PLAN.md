@@ -181,6 +181,11 @@ open dist/LocalShare.app     # 本机自测
 - [x] 命令行启动：`localshare <路径>…` 转发 GUI / `--headless` 前台模式 / 设置面板安装 symlink；
       已验证 symlink 经 dyld realpath 加载包内 Sparkle、冷启动 open 事件缓冲、热切换实例复用、
       终端二维码 Vision 实扫解码通过；release 编译器坑已规避并注释（见 §3「命令行启动」）。
+- [x] 在线感知「N 人正在浏览」：FileServer 按客户端 IP 记 lastSeen（45s 窗口，复用 share 同一把
+      NSLock），listing 页 JS 每 15s 打 `/ls/ping`（保留路径，先于分享内容命中）回 `{"viewers":n}`；
+      GUI 由 AppState 2s 轮询展示（0 人隐藏），网页端 ≥2 人才显示（自己即 1 人）。
+      已知缺口：用户自带 index.html 无法注入心跳，只能靠请求时间近似。
+      已验证：双 IP 计 2、同 IP 多请求计 1、无 token 403、中文名/防穿越无回归、release 冒烟通过。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -196,5 +201,32 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 
 ## 6. 明确不做（v1 范围外，留给 v2）
 
-- Apple 公证（要 $99/年开发者号）；https + 自签证书（仅当 html 用到 secure-context API 才需要）；跨网络隧道（cloudflared/ngrok/tailscale）；手机上传回电脑（双向）；菜单栏常驻形态。
-- （自动更新已在 0.3 落地，见 §3「自动更新（Sparkle）」。）
+- Apple 公证（要 $99/年开发者号）；https + 自签证书（仅当 html 用到 secure-context API 才需要）；跨网络隧道（cloudflared/ngrok/tailscale）；菜单栏常驻形态。
+- （自动更新已在 0.3 落地，见 §3「自动更新（Sparkle）」；手机上传回电脑已转入 §7 规划。）
+
+---
+
+## 7. 规划中（v0.6+）
+
+### 访客上传（互传文件，v1 只做上传）
+
+把「双向互传」的范围切成**访客上传**：上传解决手机照片/文档传到 Mac 这 90% 的诉求；在线编辑
+在手机浏览器体验差、覆盖丢数据风险大，删除误删风险高，均往后放。`Permission.swift` 的
+`add/edit/del` 开关与 `PermSummary` 全局措辞派生早已建好，后续放开开关即可全局联动，不动架构。
+
+1. **权限默认关**：GUI 加「允许上传」开关（即 `Permission.add`），每次更换分享内容时重置为关。
+2. **上传落点**：传到访客当前浏览的子目录（浏览到哪传到哪）。单文件与多选分享无自然落点，
+   v1 限定**仅分享文件夹时可上传**，开关置灰。
+3. **协议**：DirectoryListing 页加上传按钮（支持整页拖拽），fetch POST multipart 到当前路径。
+   Swifter 1.5.0 自带 `parseMultiPartFormData()`，开箱可用。
+4. **最大技术坑**：Swifter 请求体一次性整段读进内存（`HttpParser.swift:38`），multipart 解析再拷贝
+   一份，大文件会爆内存。对策分级：v1 设大小上限（如 500MB，超限 413）；v1.5 做前端分片上传
+   （每片 16–32MB、服务端按序 append，顺带断点续传的底子，**推荐最终走到这步**）；不 fork Swifter。
+5. **安全清单**：token 照旧；文件名只取 lastPathComponent 并清洗（防 `../`、空名）；目标路径过同
+   一套防穿越校验；重名加 `-2` 后缀（同 `makeItems` 策略）；先写临时文件再原子 rename。
+6. **Mac 端反馈**：轻量提示最近收到的文件（点击 Reveal in Finder），不堆文案；写文件在 socket
+   线程做，通知 `AppState` 时 hop 回 MainActor。Headless 由 `LS_*` 环境变量决定是否开上传。
+
+### 在线感知后续
+
+- IP 反查 mDNS 主机名，显示「Shawn 的 iPhone 正在浏览」；查不到名兜底显示 IP 尾号。

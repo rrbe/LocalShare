@@ -326,8 +326,18 @@ private struct ShareScreen: View {
                 }
                 .padding(.top, 7).padding(.leading, 12)
             }
+            // 在线访客：小绿点 + 人数，0 人时整行隐藏（不占位、不留空文案）。
+            if running && state.viewerCount > 0 {
+                HStack(spacing: 6) {
+                    Circle().fill(t.ok).frame(width: 6, height: 6)
+                    Text("\(state.viewerCount) 人正在浏览").font(.sans(11.5)).foregroundStyle(t.inkMute)
+                }
+                .padding(.top, 12)
+                .transition(.opacity)
+            }
         }
         .padding(.horizontal, 18).padding(.bottom, 18)
+        .animation(.easeInOut(duration: 0.2), value: state.viewerCount > 0)
     }
 
     @ViewBuilder private var actions: some View {

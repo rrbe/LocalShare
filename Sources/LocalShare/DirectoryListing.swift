@@ -181,7 +181,11 @@ enum DirectoryListing {
         .crumbs a:hover{color:var(--accent);border-bottom-color:var(--accent)}
         .crumbs .sep{opacity:.4;margin:0 6px}
         .crumbs .cur{color:var(--ink)}
-        .count{margin-top:6px;font:13px var(--mono);color:var(--inkMute)}
+        .countline{margin-top:6px;display:flex;align-items:center;gap:12px}
+        .count{font:13px var(--mono);color:var(--inkMute)}
+        .vw{display:none;align-items:center;gap:6px;font:13px var(--mono);color:var(--ok)}
+        .vw.on{display:inline-flex}
+        .vw i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
 
         .toolbar{display:flex;gap:10px;margin-top:22px;align-items:center}
         .search{display:flex;align-items:center;gap:9px;flex:1;min-width:0;height:44px;padding:0 14px;
@@ -285,7 +289,7 @@ enum DirectoryListing {
           <div class="kicker"><span class="dot"></span><span>局域网 · 只读分享</span></div>
           <h1>\(htmlText(title))</h1>
           <nav class="crumbs">\(crumbs)</nav>
-          <div class="count" data-total="\(total)">\(total) 项</div>
+          <div class="countline"><span class="count" data-total="\(total)">\(total) 项</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span></div>
 
           <div class="toolbar">
             <div class="search" id="search">
@@ -317,6 +321,18 @@ enum DirectoryListing {
         </main>
         <script>
         (function(){
+          // 在线心跳：每 15s ping 一次，刷新本机活跃时间并取回在线数；
+          // 自己即 1 人，独自浏览不提示，≥2 人才显示。鉴权走已种下的 cookie。
+          var vw=document.getElementById('vw'),vwn=document.getElementById('vwn');
+          function ping(){
+            fetch('/ls/ping'+location.search,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+              var n=d.viewers||0;
+              vwn.textContent=n+' 人正在浏览';
+              vw.classList.toggle('on',n>=2);
+            }).catch(function(){});
+          }
+          ping();setInterval(ping,15000);
+
           var list=document.querySelector('.list'); if(!list)return;
           var all=[].slice.call(list.querySelectorAll('.row'));
           var chips=[].slice.call(document.querySelectorAll('.chip'));

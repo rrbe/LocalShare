@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var selectedInterface: NetworkInterface?
     @Published var localHost: String?
     @Published var lastError: String?
+    @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
 
     @Published var permission = Permission()        // v1 恒只读；保留以驱动全局措辞
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
@@ -37,6 +38,7 @@ final class AppState: ObservableObject {
 
     let token = Token.generate()
     private var server: FileServer?
+    private var viewerTimer: Timer?
 
     private let sharedDefaultsKey = "lastFolderPath"   // 旧版单值键（迁移回退用，新写入走 sharedPathsKey）
     private let sharedPathsKey = "lastSharedPaths"      // 当前分享的项路径数组（支持多选）
@@ -213,6 +215,7 @@ final class AppState: ObservableObject {
             server = fs
             isRunning = true
             lastError = nil
+            startViewerPolling()
         } catch {
             lastError = "启动服务失败：\(error.localizedDescription)"
             isRunning = false
@@ -220,10 +223,24 @@ final class AppState: ObservableObject {
     }
 
     func stop() {
+        viewerTimer?.invalidate()
+        viewerTimer = nil
+        viewerCount = 0
         server?.stop()
         server = nil
         isRunning = false
         port = 0
+    }
+
+    // 轮询活跃访客数（activeViewers 锁内取快照，保持 server → state → view 的单向数据流）。
+    private func startViewerPolling() {
+        viewerTimer?.invalidate()
+        viewerTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning else { return }
+                self.viewerCount = self.server?.activeViewers() ?? 0
+            }
+        }
     }
 
     func toggle() { isRunning ? stop() : start() }

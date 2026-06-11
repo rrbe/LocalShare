@@ -60,6 +60,27 @@ final class FileServer {
         set { lock.lock(); _share = newValue; lock.unlock() }
     }
 
+    // MARK: - 在线感知
+    // 「正在浏览」近似为：最近 presenceWindow 内有过任何请求的客户端 IP（页面心跳、点开文件、
+    // 下载大文件都算）。局域网内一台设备一个 IP，无须 cookie 标识；同设备多 tab 算一个人。
+    // 心跳由 DirectoryListing 页内嵌 JS 每 15s 打一次 /ls/ping；用户自带 index.html 无法注入
+    // 心跳，只能靠请求时间近似（可接受的已知缺口）。
+    private static let presenceWindow: TimeInterval = 45
+    private var lastSeen: [String: Date] = [:]   // ip → 最近请求时间（同 lock 保护）
+
+    private func touchPresence(_ ip: String?) {
+        guard let ip, !ip.isEmpty else { return }
+        lock.lock(); lastSeen[ip] = Date(); lock.unlock()
+    }
+
+    // 活跃访客数。GUI 定时轮询 + 心跳响应均走这里；顺手剔除窗口外条目，字典不会无限增长。
+    func activeViewers() -> Int {
+        let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
+        lock.lock(); defer { lock.unlock() }
+        lastSeen = lastSeen.filter { $0.value > cutoff }
+        return lastSeen.count
+    }
+
     init(share: Share, token: String) {
         self._share = share
         self.token = token
@@ -99,6 +120,19 @@ final class FileServer {
         var extra: [String: String] = [:]
         if viaQuery, !viaCookie {
             extra["Set-Cookie"] = "ls_token=\(token); Path=/; Max-Age=86400; SameSite=Lax"
+        }
+
+        // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。
+        touchPresence(req.address)
+
+        // 心跳/在线数端点（保留路径，优先于分享内容命中；分享里恰好有 ls/ping 的概率可忽略）。
+        // req.path 不含 query（Swifter 用 URLComponents.path），精确比较即可。
+        if req.path == "/ls/ping" {
+            var headers = extra
+            headers["Content-Type"] = "application/json"
+            headers["Cache-Control"] = "no-store"
+            let body = Data("{\"viewers\":\(activeViewers())}".utf8)
+            return .raw(200, "OK", headers) { writer in try? writer.write(body) }
         }
 
         // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件
