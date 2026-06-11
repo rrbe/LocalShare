@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 // → 类型筛选 chips(真实过滤) → 取景框列表(目录在前、类型着色方块图标、日期列) → 只读署名。
 // 关键行为(纯前端 JS)：① 搜索按文件名实时过滤；② 排序 5 档(默认/名称 A→Z·Z→A/时间 新→旧·旧→新)，
 // 文件夹始终分组在前；③ 类型 chips 真实过滤；④ 计数随过滤显示 N / total。无 emoji、无彩色填充图标。
+// 导航：非根列表首行固定「返回上一级」（.row.back，不参与搜索/排序/过滤，空目录也保留）；
+// 目录行原地进入，文件行新标签打开(target=_blank，与行尾外开箭头图标一致，列表不丢)。
 // 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 用绝对路径并逐段编码。
 enum DirectoryListing {
     private static let dateFmt: DateFormatter = {
@@ -77,7 +79,8 @@ enum DirectoryListing {
         let crumbs = breadcrumb(requestPath: requestPath, rootName: rootName)
         let chips = filterChips(folderCount: folderCount, counts: counts, total: total)
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
-                    isEmpty: entries.isEmpty, total: total, canUpload: canUpload)
+                    isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
+                    backHref: parentHref(of: requestPath))
     }
 
     // MARK: - 片段
@@ -95,9 +98,11 @@ enum DirectoryListing {
         let chev = dir
             ? #"<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>"#
             : #"<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h-2.5v9.5h9.5V10"/><path d="M8.5 2.5H13V7"/><path d="M13 2.5L7 8.5"/></svg>"#
+        // 文件行新标签打开（与外开箭头图标语义一致，浏览/下载不丢列表页）；目录行原地进入。
+        let target = dir ? "" : " target=\"_blank\" rel=\"noopener\""
         return """
         <li class="row" data-kind="\(kind)" data-type="\(type)" data-name="\(htmlAttr(name.lowercased()))" data-ts="\(ts)" data-idx="\(idx)">\
-        <a href="\(htmlAttr(href))">\
+        <a href="\(htmlAttr(href))"\(target)>\
         <span class="ic \(icClass)">\(icInner)</span>\
         <span class="meta"><span class="nm">\(htmlText(name))</span>\
         <span class="sub2">\(htmlText(meta))<span class="d-in"> · \(dateShort)</span></span></span>\
@@ -121,6 +126,13 @@ enum DirectoryListing {
         return "<div class=\"chips\">\(s)</div>"
     }
 
+    // 上一级 href：根列表无上一级返回 nil；"/归档/sub/" → "/归档/"，"/归档/" → "/"。逐段编码同 encodePath。
+    private static func parentHref(of requestPath: String) -> String? {
+        let segs = requestPath.split(separator: "/").map(String.init)
+        guard !segs.isEmpty else { return nil }
+        return encodePath("/" + segs.dropLast().map { $0 + "/" }.joined())
+    }
+
     // 面包屑：根(站名) / seg / …，末段当前不可点。
     private static func breadcrumb(requestPath: String, rootName: String) -> String {
         let segs = requestPath.split(separator: "/").map(String.init)
@@ -141,7 +153,7 @@ enum DirectoryListing {
     }
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
-                             isEmpty: Bool, total: Int, canUpload: Bool) -> String {
+                             isEmpty: Bool, total: Int, canUpload: Bool, backHref: String?) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI），网页端只有「上传」一个写权限会出现
         let ps = permSummary(Permission(add: canUpload))
         let uploadButton = canUpload ? """
@@ -153,9 +165,20 @@ enum DirectoryListing {
         let dropMask = canUpload ? """
         <div class="dropmask" id="dropmask"><div class="dropcard">松手上传到这里</div></div>
         """ : ""
-        let listInner = isEmpty
-            ? #"<div class="empty"><span class="big">○</span>这个文件夹是空的</div>"#
-            : #"<ul class="list">\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">未找到匹配的文件</div><div class="nr-s">试试其他关键词</div></div>"#
+        // 非根列表首行固定「返回上一级」：静态 first(免双描边)，JS 不将其纳入搜索/排序/过滤。
+        let backRow = backHref.map { """
+        <li class="row back first"><a href="\(htmlAttr($0))">\
+        <span class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 7.5L8.5 3.5l-4 4"/><path d="M16.5 16.5h-5a3 3 0 0 1-3-3v-10"/></svg></span>\
+        <span class="meta"><span class="nm">返回上一级</span></span></a></li>
+        """ } ?? ""
+        let emptyHint = #"<div class="empty"><span class="big">○</span>这个文件夹是空的</div>"#
+        let listInner: String
+        if isEmpty {
+            // 空目录也保留返回行，访客不至于走进死胡同
+            listInner = (backRow.isEmpty ? "" : "<ul class=\"list\">\(backRow)</ul>") + emptyHint
+        } else {
+            listInner = #"<ul class="list">\#(backRow)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">未找到匹配的文件</div><div class="nr-s">试试其他关键词</div></div>"#
+        }
         return """
         <!doctype html><html lang="zh"><head>
         <meta charset="utf-8">
@@ -191,7 +214,7 @@ enum DirectoryListing {
         .kicker span{font:700 12px/1 var(--sans);letter-spacing:.05em;color:var(--accent)}
         h1{margin:0;font:600 44px/1 var(--serif);letter-spacing:-.02em;word-break:break-word}
         .crumbs{margin-top:9px;font:12px/1.6 var(--mono);color:var(--inkMute);word-break:break-all}
-        .crumbs a{color:var(--inkMute);text-decoration:none;border-bottom:1px solid transparent}
+        .crumbs a{color:var(--inkMute);text-decoration:none;border-bottom:1px dotted var(--inkFaint)}
         .crumbs a:hover{color:var(--accent);border-bottom-color:var(--accent)}
         .crumbs .sep{opacity:.4;margin:0 6px}
         .crumbs .cur{color:var(--ink)}
@@ -272,6 +295,10 @@ enum DirectoryListing {
         .row>a::before{content:"";position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);transition:width .15s}
         .row>a:hover{background:var(--surfaceAlt)}
         .row>a:hover::before{width:3px}
+        .row.back>a{padding-top:11px;padding-bottom:11px}
+        .row.back .ic{width:34px;height:34px;background:transparent;border:1px dashed var(--lineStrong)}
+        .row.back .ic svg{width:17px;height:17px}
+        .row.back .nm{font:500 14px var(--sans);color:var(--inkMute)}
         .ic{flex:none;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
           font:700 9.5px var(--mono);letter-spacing:.02em;text-transform:lowercase;
           background:var(--surfaceAlt);color:var(--inkMute);overflow:hidden}
@@ -370,7 +397,9 @@ enum DirectoryListing {
           ping();setInterval(ping,15000);
 
           var list=document.querySelector('.list'); if(!list)return;
-          var all=[].slice.call(list.querySelectorAll('.row'));
+          // 返回行不参与搜索/排序/过滤，始终钉在首行（render 只 appendChild 内容行，它天然留在最前）
+          var all=[].slice.call(list.querySelectorAll('.row:not(.back)'));
+          var hasBack=!!list.querySelector('.row.back');
           var chips=[].slice.call(document.querySelectorAll('.chip'));
           var q=document.getElementById('q'), search=document.getElementById('search'), clr=document.getElementById('clr');
           var sortbtn=document.getElementById('sortbtn'), menu=document.getElementById('menu'), sortlbl=document.getElementById('sortlbl');
@@ -404,7 +433,7 @@ enum DirectoryListing {
             var vis=all.filter(function(r){return matchType(r) && (!query || r.dataset.name.indexOf(query)>=0)});
             vis=sortRows(vis);
             all.forEach(function(r){r.style.display='none';r.classList.remove('first');});
-            vis.forEach(function(r,i){r.style.display='';if(i===0)r.classList.add('first');list.appendChild(r);});
+            vis.forEach(function(r,i){r.style.display='';if(i===0&&!hasBack)r.classList.add('first');list.appendChild(r);});
             if(noresult)noresult.style.display=vis.length?'none':'';
             var filtering=query!==''||active!=='__all';
             countEl.textContent=(filtering? vis.length+' / '+total : total)+' 项';
