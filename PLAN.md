@@ -26,8 +26,8 @@
 | 技术栈 | Swift / SwiftUI，只链接系统框架，零 dylib 风险 |
 | HTTP 服务 | Swifter（SPM 源码编译进 app），只读静态服务 |
 | 服务模型 | 三种分享形态：① 单文件夹 → 移动端友好目录列表（含 `index.html` 则直接显示它）；② 单文件 → 扫码直接打开、不暴露同目录其它文件；③ 多文件/目录 → 合成**虚拟根**列出这批选中项，首段路径映射到对应真实 URL、再落到该项内部。三者**均防目录穿越**，每个目录项各自为根锁死路径 |
-| 鉴权 | 每次 app 启动生成随机 token，内嵌进二维码 URL（`?t=…`）；首访校验后种 cookie，后续资源自动放行；猜 `IP:端口` 的路人被 403 |
-| 协议 | 明文 http（纯静态内容，无需 https/证书） |
+| 鉴权 | 每次「分享」动作生成随机 token（0.7 起；换分享/停止即轮换，旧链接、旧 cookie、拍走的旧二维码即刻作废，权限不跨分享延续），内嵌进二维码 URL（`?t=…`）；首访校验后种会话 cookie，后续资源自动放行；猜 `IP:端口` 的路人被 403 |
+| 协议 | 明文 http。威胁模型：防「猜地址的路人」（52 bit token），不防同网嗅探与持链者转发——后者的风险窗口随 token 轮换收敛到单次分享内。自签证书会把扫码进门变成手机上的证书警告页，伤害核心体验，不做（0.6 加入上传后内容不再纯静态，重新评估过，结论不变） |
 | 二维码地址 | 裸 LAN IP（智能选接口、多候选给下拉）；窗口另显 `.local` 备选链接 + 可复制 URL |
 | 二维码生成 | CoreImage `CIQRCodeGenerator`，无第三方库 |
 | GUI | 单窗口：大二维码居中 + 可点/复制 URL + 当前文件夹/更换 + 启停状态 + 接口下拉 + “打不开?”排错行 |
@@ -80,7 +80,7 @@ lan-file-share/
 - 注意：`.raw` 的 body length 未知（-1）→ respond() 不会自动加 Content-Length、连接发完即关（无 keep-alive）。故 FileServer 对文件**主动在 headers 写入 `Content-Length`**（已知文件大小，让手机显示进度）；LAN 上一把静态文件无 keep-alive 也完全够用。
 
 ### FileServer 请求处理流程（单 middleware 闭包）
-1. **鉴权**：读 `?t=`，或读 cookie `ls_token`。任一等于本会话 token 即放行；都没有 → 返回 403 小页面。若靠 `?t=` 放行，则在响应里加 `Set-Cookie: ls_token=<token>; Path=/; Max-Age=86400; SameSite=Lax`。
+1. **鉴权**：读 `?t=`，或读 cookie `ls_token`。任一等于当前分享的 token 即放行（每请求取一次快照，轮换瞬间不串）；都没有 → 返回 403 小页面。若靠 `?t=` 放行，则在响应里加 `Set-Cookie: ls_token=<token>; Path=/; SameSite=Lax; HttpOnly`（会话 cookie，不设 Max-Age——token 轮换后旧值反正立即失效；页面 JS 不读它）。
 2. **路径安全**（先解码，再防穿越）：
    ```
    decoded = request.path.removingPercentEncoding   // 修正上面的 Swifter 编码残留
@@ -109,8 +109,8 @@ lan-file-share/
 - 启动时若有记住的文件夹 → 自动 start。
 - 端口选择：偏好列表 `[8080, 8000, 8888, 9000]` 逐个 try start，全失败再随机 49152–65535。
 - 选目录用 `NSOpenPanel`（`canChooseDirectories = true`）。
-- folder 变更：不重启 server，加锁更新 FileServer 的 root（token/cookie 保持有效）。
-- token 每次 app 启动生成一次（QR 与校验共用）。
+- 分享变更：不重启 server（端口不变），加锁更新 FileServer 的 share 与 token——先换钥匙再换内容，杜绝旧 token 瞬间可读新分享。
+- token 每次「分享」动作生成（QR 与校验共用）：`setShared` 与 `stop` 均轮换，旧链接/cookie/二维码即刻作废；在线感知记录随轮换清零。窗口里的地址条显示与复制同一字符串（完整 URL 含 `?t=`，超长仅 UI 中段省略），无「隐 token 的展示地址」。
 
 ### App.swift / 入口
 - `@main enum EntryPoint` 三层分流：`LS_HEADLESS=1` 走 `HeadlessServer.run()`（无界面，测试/自动化）→ `CLI.parse(CommandLine.arguments)` 命中则走 `CLI.run`（命令行调用，见下「命令行启动」）→ 否则 `LocalShareApp.main()` 跑 SwiftUI。

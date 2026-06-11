@@ -50,14 +50,21 @@ final class FileServer {
     static let multipleRootName = "分享内容"
 
     private let server = HttpServer()
-    private let token: String
 
-    // share 可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
+    // share 与 token 都可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
     private let lock = NSLock()
     private var _share: Share
     var share: Share {
         get { lock.lock(); defer { lock.unlock() }; return _share }
         set { lock.lock(); _share = newValue; lock.unlock() }
+    }
+
+    // 访问令牌随每次「分享」动作轮换（AppState 负责生成）：旧 ?t= 链接与旧 cookie 即刻失效，
+    // 不重启 server、端口不变。换钥匙=换观众，在线记录一并清零（旧访客的下一次心跳将被 403）。
+    private var _token: String
+    var token: String {
+        get { lock.lock(); defer { lock.unlock() }; return _token }
+        set { lock.lock(); _token = newValue; lastSeen = [:]; lock.unlock() }
     }
 
     // MARK: - 访客上传（Permission.add，v1 仅单文件夹分享）
@@ -97,7 +104,7 @@ final class FileServer {
 
     init(share: Share, token: String) {
         self._share = share
-        self.token = token
+        self._token = token
         server.middleware.append { [weak self] req in
             self?.handle(req) ?? .internalServerError
         }
@@ -124,16 +131,19 @@ final class FileServer {
     // MARK: - 请求处理
 
     private func handle(_ req: HttpRequest) -> HttpResponse {
-        // 1. 鉴权：query ?t= 或 cookie 任一匹配本会话 token
+        // 1. 鉴权：query ?t= 或 cookie 任一匹配当前分享的 token（每请求取一次快照，
+        //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
+        let token = self.token
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
         let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
         guard viaQuery || viaCookie else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage)
         }
-        // 经 query 放行且尚无 cookie 时，种 cookie，后续资源请求免带 token
+        // 经 query 放行且尚无（有效）cookie 时，种会话 cookie，后续资源请求免带 token。
+        // 不设 Max-Age：随浏览器会话走；token 轮换后旧值反正立即失效。页面 JS 不读它，HttpOnly。
         var extra: [String: String] = [:]
         if viaQuery, !viaCookie {
-            extra["Set-Cookie"] = "ls_token=\(token); Path=/; Max-Age=86400; SameSite=Lax"
+            extra["Set-Cookie"] = "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly"
         }
 
         // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。

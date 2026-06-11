@@ -339,7 +339,7 @@ private struct ShareScreen: View {
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
             Text(running ? caption : "已停止广播").font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, value: state.primaryURL ?? "", display: state.displayAddress ?? "—",
+            CopyPill(t: t, value: state.primaryURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)
             if let local = state.localURL {
                 // 备用地址（主机名 / .local）紧贴主地址、归入卡内，保持内聚。左缩进对齐上方地址文字。

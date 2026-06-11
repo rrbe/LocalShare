@@ -39,7 +39,7 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 数据流单向：`AppState`（`@MainActor ObservableObject`，唯一真相源）持有 `FileServer`、网络候选、派生出 `primaryURL` → `qrImage`；`ContentView` 只读渲染。真相源是 `sharedItems: [URL]`（0=空、1=单项、N=多选），派生 `isMultiple`/`isEmpty`/`sharedURL`(首项便利)。`AppState` 负责生命周期——init 时从 `UserDefaults` 恢复上次分享（多选存 `lastSharedPaths` 数组、旧单值键 `lastFolderPath` 作迁移回退，缺失项剔除）并**自动 start**（同事开 app 即见码）；选文件/夹用 `NSOpenPanel`（`allowsMultipleSelection = true`），拖拽收齐所有 provider 后一次提交。`RecentShare` 用 `paths: [String]` 记录多选、自定义 `init(from:)` 兼容旧单 `path` 记录。
 
-`FileServer` 是核心，全部请求逻辑塞在**单个 Swifter middleware 闭包**里（永远返回 response，绕开 router）。`Share` 三态 `.directory` / `.file` / `.multiple([Item])`。请求先过 ① token 鉴权（`?t=` 或 cookie `ls_token`，靠 query 放行时种 cookie），鉴权后顺手按客户端 IP 记 lastSeen（在线感知：45s 窗口内活跃 IP 数即「N 人正在浏览」；`/ls/ping` 为保留心跳路径、先于分享内容命中，listing 页 JS 每 15s 打一次；GUI 由 `AppState` 2s 轮询 `activeViewers()` 展示），再按形态分流：单文件直接发那一个文件、不暴露同目录其它；单文件夹与多选里的每个目录项共用 `serveTree(rootURL:relPath:…)`——② 防目录穿越（每项各自为根）→ ③ 目录（无斜杠先 301、有 `index.html` 发它、否则 `DirectoryListing` 列表页）→ ④ 文件 64KB 分块流式。**多选**无共同磁盘根，合成**虚拟根**：空路径发 `DirectoryListing.html(items:rootName:)` 列出选中项，其余请求拆**首段 `key`** 映射到真实 URL（`Share.makeItems` 以 lastPathComponent 为 key、跨目录拖拽重名以 `-2` 兜底）；未知 key 或文件项带子路径 → 404。**访客上传**（`Permission.add`，0.6）：`uploadEnabled` 开关（与 share 同锁，仅单文件夹分享可开、换分享自动回只读），POST multipart 写到当前浏览目录——落点过同一套防穿越校验、文件名只取末段清洗、重名 -2、临时文件原子换名、500MB 上限 413（注意 Swifter 进 middleware 前已把 body 整段读进内存，上限只能事后拒绝；分片上传留给 v1.5）；`onUpload` 回调在 socket 线程，GUI hop 回 MainActor 出「新收到」卡片。网页措辞（kicker/colophon）经 `permSummary` 派生，绝不硬编码。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔），开上传加 `LS_UPLOAD=1`。
+`FileServer` 是核心，全部请求逻辑塞在**单个 Swifter middleware 闭包**里（永远返回 response，绕开 router）。`Share` 三态 `.directory` / `.file` / `.multiple([Item])`。请求先过 ① token 鉴权（`?t=` 或 cookie `ls_token`，靠 query 放行时种会话 cookie；**token 随每次「分享」动作轮换**——`setShared`/`stop` 即作废旧链接与旧 cookie，权限不跨分享延续），鉴权后顺手按客户端 IP 记 lastSeen（在线感知：45s 窗口内活跃 IP 数即「N 人正在浏览」；`/ls/ping` 为保留心跳路径、先于分享内容命中，listing 页 JS 每 15s 打一次；GUI 由 `AppState` 2s 轮询 `activeViewers()` 展示），再按形态分流：单文件直接发那一个文件、不暴露同目录其它；单文件夹与多选里的每个目录项共用 `serveTree(rootURL:relPath:…)`——② 防目录穿越（每项各自为根）→ ③ 目录（无斜杠先 301、有 `index.html` 发它、否则 `DirectoryListing` 列表页）→ ④ 文件 64KB 分块流式。**多选**无共同磁盘根，合成**虚拟根**：空路径发 `DirectoryListing.html(items:rootName:)` 列出选中项，其余请求拆**首段 `key`** 映射到真实 URL（`Share.makeItems` 以 lastPathComponent 为 key、跨目录拖拽重名以 `-2` 兜底）；未知 key 或文件项带子路径 → 404。**访客上传**（`Permission.add`，0.6）：`uploadEnabled` 开关（与 share 同锁，仅单文件夹分享可开、换分享自动回只读），POST multipart 写到当前浏览目录——落点过同一套防穿越校验、文件名只取末段清洗、重名 -2、临时文件原子换名、500MB 上限 413（注意 Swifter 进 middleware 前已把 body 整段读进内存，上限只能事后拒绝；分片上传留给 v1.5）；`onUpload` 回调在 socket 线程，GUI hop 回 MainActor 出「新收到」卡片。网页措辞（kicker/colophon）经 `permSummary` 派生，绝不硬编码。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔），开上传加 `LS_UPLOAD=1`。
 
 辅助模块各自单一职责：`NetworkInfo`（`getifaddrs` 枚举 → 只留私网 IPv4、过滤 VPN/bridge/回环、en0 优先排序）、`QRCode`（CoreImage `CIQRCodeGenerator`）、`Token`、`Mime`（text 类带 `charset=utf-8`）、`DirectoryListing`（移动端友好 HTML，href 逐段编码、隐藏文件不列）。
 
@@ -50,13 +50,8 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 - **不依赖包外 dylib（戒律的精神，不可破）**：判据是「换任何机器都不会缺库」。纯 Swift 依赖优先以 SPM 源码静态编进二进制；确需二进制 framework（如 Sparkle）时，必须 `@rpath` 引用并由 `build.sh` 内置进 `Contents/Frameworks/`、深度签名、且通过依赖校验（见 build.sh 末尾与 CI）。**绝对路径包外 dylib（`/opt/homebrew`、`/usr/local` 等）一律禁止**——这正是 dufs 当年崩在运行时缺 `liblzma.5.dylib` 的坑。新增/改依赖后务必跑上面的 `otool` 复核 + 确认 framework 已随包。
 - **Swifter 1.5.0 的 path 二次编码 bug**：`req.path` 落地文件系统前**仍残留一层百分号编码**，必须 `removingPercentEncoding` 解码（见 `FileServer.handle`）。纯 ASCII 路径无 `%` 故 `a.html` 正常，但 `b%20c.txt`、中文名不解码会 404。防穿越用的也是解码后的路径，所以 `%2e%2e` 同样被挡。
 - **防穿越逻辑**（`FileServer.handle` 第 2 步）：拼接后 `standardizedFileURL.resolvingSymlinksInPath`，结果必须 `== rootPath` 或 `hasPrefix(rootPath + "/")`。动这段务必重跑穿越用例（`../`、`%2e%2e`、`..%2f`）。
-- **线程模型**：Swifter 请求回调跑在后台 socket 线程，`AppState` 在 `@MainActor`。两者唯一共享的可变状态是 `FileServer.root`（运行中“更换文件夹”会改它），已用 `NSLock` 保护——换文件夹时**不重启 server**，token/cookie 保持有效。Package 用 Swift 5 语言模式正是为放宽这里的并发检查。
+- **线程模型**：Swifter 请求回调跑在后台 socket 线程，`AppState` 在 `@MainActor`。两者共享的可变状态是 `FileServer` 的 `share` / `token` / `uploadEnabled` / `lastSeen`（运行中「更换分享」会改前两者），同一把 `NSLock` 保护——换分享时**不重启 server**（端口不变），但 **token 即刻轮换**：先换钥匙再换内容（杜绝旧 token 瞬间可读新分享），旧链接/cookie 作废、访客需重扫新码。Package 用 Swift 5 语言模式正是为放宽这里的并发检查。
 - **`.raw` 响应无 keep-alive**（body length 未知，发完即关），所以文件响应主动写 `Content-Length`（让手机显示进度）。LAN 静态分发无 keep-alive 足够。
-
-
-## Git 工作流
-
-当前阶段所有新功能/改动**直接提交到 `master`**，不开分支、不走 PR（覆盖全局 `~/.claude/CLAUDE.md` 的分支/PR 规则）。提交信息仍遵循 Conventional Commits（`feat:` / `fix:` / `docs:` …）。
 
 ## 强约束
 

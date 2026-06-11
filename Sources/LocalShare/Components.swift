@@ -303,11 +303,11 @@ struct HoverIcon: View {
     }
 }
 
-// 可复制地址条：field 底，左 mono 地址（超长中段省略），右复制（成功显示绿 check 1.3s）+ 浏览器打开。
+// 可复制地址条：field 底，左 mono 地址，右复制（成功显示绿 check 1.3s）+ 浏览器打开。
+// 显示与复制是同一字符串（完整 URL，含 token），超长仅由 UI 中段省略——所见即所复制。
 struct CopyPill: View {
     let t: Theme
     var value: String
-    var display: String
     var withOpen = true
     var compact = false
     var onOpen: (() -> Void)? = nil
@@ -315,7 +315,7 @@ struct CopyPill: View {
     var body: some View {
         HStack(spacing: 4) {
             // 不开放文本选择：点按会触发选区、把中段省略的地址撑成整条，遮住右侧按钮。复制走右侧按钮即可。
-            Text(display).font(.mono(13)).foregroundStyle(t.ink)
+            Text(value).font(.mono(13)).foregroundStyle(t.ink)
                 .lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 12)
@@ -323,7 +323,7 @@ struct CopyPill: View {
                       color: copied ? t.ok : t.inkMute, help: "复制") { copy() }
             if withOpen {
                 HoverIcon(t: t, systemImage: "arrow.up.forward.square",
-                          color: t.inkMute, help: "在本机浏览器打开（自测）") { onOpen?() }
+                          color: t.inkMute, help: "在浏览器打开") { onOpen?() }
             }
         }
         .frame(height: compact ? 42 : 48)
@@ -340,13 +340,14 @@ struct CopyPill: View {
 }
 
 // 备用地址行：主地址条下方的次级地址（主机名 / .local）。无字段底，但与主地址同样可用——
-// 右侧两枚小钮：复制完整 URL（含 token，成功显示绿 check）+ 在本机浏览器打开（自测）。
+// 右侧两枚小钮：复制完整 URL（含 token，成功显示绿 check）+ 在浏览器打开。
+// 「备用 ·」是行标签；其后展示的 URL 与复制结果逐字一致，超长仅由 UI 中段省略。
 struct BackupAddressRow: View {
     let t: Theme
-    let full: String          // 完整 http URL（含 token），复制/打开都用它
+    let full: String          // 完整 http URL（含 token），显示/复制/打开都用它
     let onOpen: () -> Void
     @State private var copied = false
-    private var display: String { "备用 · " + full.replacingOccurrences(of: "http://", with: "") }
+    private var display: String { "备用 · " + full }
     var body: some View {
         HStack(spacing: 4) {
             Text(display).font(.mono(10)).foregroundStyle(t.inkFaint)
@@ -355,7 +356,7 @@ struct BackupAddressRow: View {
             MiniIconButton(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
                            tint: copied ? t.ok : t.inkFaint, help: "复制备用地址") { copyURL() }
             MiniIconButton(t: t, systemImage: "arrow.up.forward.square",
-                           tint: t.inkFaint, help: "在本机浏览器打开（自测）", action: onOpen)
+                           tint: t.inkFaint, help: "在浏览器打开", action: onOpen)
         }
     }
     private func copyURL() {
