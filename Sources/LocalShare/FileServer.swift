@@ -161,18 +161,24 @@ final class FileServer {
         // 解码后用于「防穿越 / 面包屑显示」；301 的 Location 仍用 req.path（保持编码，浏览器再请求即可）。
         let decodedPath = req.path.removingPercentEncoding ?? req.path
 
+        // Markdown 预览的内容协商：浏览器导航（Accept 含 text/html）发预览壳页；curl、脚本与
+        // 壳页自身的取文 fetch（Accept */*）拿原始文件；?raw=1 为显式逃生门（页角「查看原文」）。
+        let rawRequested = req.queryParams.contains { $0.0 == "raw" && $0.1 == "1" }
+        let wantsViewer = !rawRequested && (req.headers["accept"] ?? "").contains("text/html")
+
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
         // 否则单文件模式下 POST 会拿到文件本体）。
         if req.method == "POST" {
             return handleUpload(decodedPath: decodedPath, req: req, extra: extra)
         }
 
-        // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件
+        // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件。
+        // md 预览照常可用（壳页 fetch ?raw=1 时本分支返回文件本体）；相对图片无从谈起，属设计内。
         if case .file(let fileURL) = share {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
             }
-            return fileResponse(fileURL, extra: extra)
+            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, extra: extra)
         }
 
         // 多选模式：虚拟根列出选中项；首段 key 映射到对应真实项后落地（目录项再走子树服务）。
@@ -189,31 +195,48 @@ final class FileServer {
             }
             let rest = segs.joined(separator: "/")
             if !item.isDir {
-                // 文件项：不暴露任何子路径
+                // 文件项：不暴露任何子路径。md 项的相对引用恰好可用——虚拟根以 lastPathComponent
+                // 为 key，同父目录的兄弟项保持原名，`assets/x.png` 解析到 `/assets/…` 即命中。
                 guard rest.isEmpty, FileManager.default.fileExists(atPath: item.url.path) else {
                     return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
                 }
-                return fileResponse(item.url, extra: extra)
+                let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: Self.multipleRootName)
+                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, extra: extra)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
                              decodedPath: decodedPath, rootName: Self.multipleRootName,
-                             canUpload: false, extra: extra)
+                             canUpload: false, viewer: wantsViewer, extra: extra)
         }
 
         guard case .directory(let rootURL) = share else { return .internalServerError }
         let rel = String(decodedPath.drop { $0 == "/" })
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
-                         canUpload: uploadEnabled, extra: extra)
+                         canUpload: uploadEnabled, viewer: wantsViewer, extra: extra)
     }
 
-    // 在 rootURL 这棵子树内服务请求：防穿越 → 目录(301 补斜杠 / index.html / 列表页) → 文件流式发送。
-    // relPath：相对 rootURL 的路径（已解码、去前导斜杠）；encodedPath：用于 301 Location 的原始请求路径（保留编码）；
+    // md 文件且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；其余发文件本体。
+    private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
+                                 canUpload: Bool, extra: [String: String]) -> HttpResponse {
+        if viewer, Self.isMarkdown(url) {
+            let html = MarkdownViewer.html(fileName: url.lastPathComponent, crumbs: crumbs, canUpload: canUpload)
+            return htmlResponse(200, "OK", html, extra: extra)
+        }
+        return fileResponse(url, extra: extra)
+    }
+
+    private static func isMarkdown(_ url: URL) -> Bool {
+        ["md", "markdown"].contains(url.pathExtension.lowercased())
+    }
+
+    // 在 rootURL 这棵子树内服务请求：防穿越 → 目录(301 补斜杠 / index.html / 列表页) → 文件流式发送
+    //（md 文件且 viewer=true 时发预览壳页）。relPath：相对 rootURL 的路径（已解码、去前导斜杠）；
+    // encodedPath：用于 301 Location 的原始请求路径（保留编码）；
     // decodedPath：用于列表页面包屑/标题的解码请求路径；rootName：列表页与面包屑的根名。
     // 单根目录与多选里的每个目录项共用此函数（多选时 rootURL=项目本身、relPath=去掉 key 段后的剩余）。
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
                            decodedPath: String, rootName: String, canUpload: Bool,
-                           extra: [String: String]) -> HttpResponse {
+                           viewer: Bool, extra: [String: String]) -> HttpResponse {
         // 防目录穿越：拼接后标准化解符号链接，结果必须仍落在 root 内（杜绝 ../、%2e%2e、..%2f）。
         let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
         let target = rootURL.appendingPathComponent(relPath).standardizedFileURL.resolvingSymlinksInPath()
@@ -244,7 +267,8 @@ final class FileServer {
             return htmlResponse(200, "OK", html, extra: extra)
         }
 
-        return fileResponse(target, extra: extra)
+        let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
+        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, extra: extra)
     }
 
     // MARK: - 上传处理

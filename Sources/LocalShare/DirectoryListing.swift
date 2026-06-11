@@ -133,8 +133,8 @@ enum DirectoryListing {
         return encodePath("/" + segs.dropLast().map { $0 + "/" }.joined())
     }
 
-    // 面包屑：根(站名) / seg / …，末段当前不可点。
-    private static func breadcrumb(requestPath: String, rootName: String) -> String {
+    // 面包屑：根(站名) / seg / …，末段当前不可点。Markdown 预览页（FileServer.contentResponse）复用。
+    static func breadcrumb(requestPath: String, rootName: String) -> String {
         let segs = requestPath.split(separator: "/").map(String.init)
         var html = segs.isEmpty
             ? "<span class=\"cur\">\(htmlText(rootName))</span>"
