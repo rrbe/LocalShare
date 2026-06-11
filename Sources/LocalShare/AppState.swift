@@ -222,6 +222,11 @@ final class AppState: ObservableObject {
     }
 
     func revealReceived(_ url: URL) {
+        revealInFinder(url)
+    }
+
+    // 在 Finder 中定位一项（文件与文件夹一律「在父目录中选中」）。多选卡片菜单与收件卡片共用。
+    func revealInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
