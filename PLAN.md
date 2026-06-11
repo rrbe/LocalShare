@@ -186,6 +186,16 @@ open dist/LocalShare.app     # 本机自测
       GUI 由 AppState 2s 轮询展示（0 人隐藏），网页端 ≥2 人才显示（自己即 1 人）。
       已知缺口：用户自带 index.html 无法注入心跳，只能靠请求时间近似。
       已验证：双 IP 计 2、同 IP 多请求计 1、无 token 403、中文名/防穿越无回归、release 冒烟通过。
+- [x] 访客上传 v1（0.6）：`Permission.add` 接真后端 —— 设置页开关（仅单文件夹分享可开，换分享
+      自动回只读）；listing 页上传按钮 + 整页拖拽 + XHR 进度条，完成后刷新；POST multipart 到当前
+      浏览目录（落点过同一套防穿越校验），文件名只取末段并清洗（拒空名/点开头，":" 换 "-"），
+      重名 -2 兜底，itemReplacementDirectory 临时文件 + 原子 moveItem；500MB 上限（前端先拦、
+      服务端 413 兜底——注意 Swifter 进 middleware 前已把 body 整段读进内存，上限只能事后拒绝，
+      流式/分片是 v1.5 的事）；GUI「新收到」卡片点击 Reveal in Finder；headless 用 `LS_UPLOAD=1`。
+      网页措辞（kicker/colophon）经 permSummary 派生，开上传自动变「可读写分享」。
+      已验证：根/子目录上传、文件名穿越清洗、目标路径穿越 403、重名 -2、中文/空格名、点开头 400、
+      不存在目录 404、无 token 403、开关关 403、多选/单文件分享 403、501MB 413 且不落盘、
+      上传内容逐字节完整、未开上传时页面无按钮且措辞仍「只读」、release 冒烟全过。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -206,26 +216,21 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 
 ---
 
-## 7. 规划中（v0.6+）
+## 7. 规划中（v0.7+）
 
-### 访客上传（互传文件，v1 只做上传）
+（访客上传 v1 已在 0.6 落地，见 §5 进度；当年切范围的理由：上传解决手机照片/文档传到 Mac
+这 90% 的诉求，在线编辑在手机浏览器体验差、覆盖丢数据风险大，删除误删风险高，均往后放。）
 
-把「双向互传」的范围切成**访客上传**：上传解决手机照片/文档传到 Mac 这 90% 的诉求；在线编辑
-在手机浏览器体验差、覆盖丢数据风险大，删除误删风险高，均往后放。`Permission.swift` 的
-`add/edit/del` 开关与 `PermSummary` 全局措辞派生早已建好，后续放开开关即可全局联动，不动架构。
+### 上传 v1.5：分片上传
 
-1. **权限默认关**：GUI 加「允许上传」开关（即 `Permission.add`），每次更换分享内容时重置为关。
-2. **上传落点**：传到访客当前浏览的子目录（浏览到哪传到哪）。单文件与多选分享无自然落点，
-   v1 限定**仅分享文件夹时可上传**，开关置灰。
-3. **协议**：DirectoryListing 页加上传按钮（支持整页拖拽），fetch POST multipart 到当前路径。
-   Swifter 1.5.0 自带 `parseMultiPartFormData()`，开箱可用。
-4. **最大技术坑**：Swifter 请求体一次性整段读进内存（`HttpParser.swift:38`），multipart 解析再拷贝
-   一份，大文件会爆内存。对策分级：v1 设大小上限（如 500MB，超限 413）；v1.5 做前端分片上传
-   （每片 16–32MB、服务端按序 append，顺带断点续传的底子，**推荐最终走到这步**）；不 fork Swifter。
-5. **安全清单**：token 照旧；文件名只取 lastPathComponent 并清洗（防 `../`、空名）；目标路径过同
-   一套防穿越校验；重名加 `-2` 后缀（同 `makeItems` 策略）；先写临时文件再原子 rename。
-6. **Mac 端反馈**：轻量提示最近收到的文件（点击 Reveal in Finder），不堆文案；写文件在 socket
-   线程做，通知 `AppState` 时 hop 回 MainActor。Headless 由 `LS_*` 环境变量决定是否开上传。
+绕开 Swifter「整段 body 进内存」的根本限制：前端把大文件切片（每片 16–32MB）逐片 POST，
+服务端按序 append 到临时文件、末片原子换名。任意大小可传、内存恒定，还顺带断点续传的底子。
+不 fork Swifter。落地后可放开（或大幅提高）500MB 上限。
+
+### 写权限后续
+
+- `Permission.edit` / `Permission.del`（在线编辑、删除）：后端未实现，开关已留好；做之前先想清
+  覆盖丢数据与并发冲突的兜底。
 
 ### 在线感知后续
 

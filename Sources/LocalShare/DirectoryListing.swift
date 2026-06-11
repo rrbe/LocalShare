@@ -16,7 +16,8 @@ enum DirectoryListing {
     }()
 
     // 真实目录页：枚举目录 → 目录在前/名称序 → 交给渲染核心（href 基路径 = 请求路径）。
-    static func html(directory: URL, requestPath: String, rootName: String) -> String {
+    // canUpload：单文件夹分享且开了访客上传时为 true，页面出上传按钮 + 整页拖拽，措辞联动「可读写」。
+    static func html(directory: URL, requestPath: String, rootName: String, canUpload: Bool = false) -> String {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(
             at: directory,
@@ -32,7 +33,7 @@ enum DirectoryListing {
 
         let base = requestPath.hasSuffix("/") ? requestPath : requestPath + "/"
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
-        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName)
+        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName, canUpload: canUpload)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
@@ -42,13 +43,13 @@ enum DirectoryListing {
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
-        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName)
+        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName, canUpload: false)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
-                               base: String, requestPath: String, rootName: String) -> String {
+                               base: String, requestPath: String, rootName: String, canUpload: Bool) -> String {
         let fm = FileManager.default
         var rows = ""
         var folderCount = 0
@@ -75,7 +76,8 @@ enum DirectoryListing {
         let title = requestPath == "/" ? rootName : ((requestPath as NSString).lastPathComponent)
         let crumbs = breadcrumb(requestPath: requestPath, rootName: rootName)
         let chips = filterChips(folderCount: folderCount, counts: counts, total: total)
-        return page(title: title, crumbs: crumbs, chips: chips, rows: rows, isEmpty: entries.isEmpty, total: total)
+        return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
+                    isEmpty: entries.isEmpty, total: total, canUpload: canUpload)
     }
 
     // MARK: - 片段
@@ -138,7 +140,19 @@ enum DirectoryListing {
         return html
     }
 
-    private static func page(title: String, crumbs: String, chips: String, rows: String, isEmpty: Bool, total: Int) -> String {
+    private static func page(title: String, crumbs: String, chips: String, rows: String,
+                             isEmpty: Bool, total: Int, canUpload: Bool) -> String {
+        // 措辞统一经 PermSummary 派生（同 GUI），网页端只有「上传」一个写权限会出现
+        let ps = permSummary(Permission(add: canUpload))
+        let uploadButton = canUpload ? """
+        <button class="upbtn" id="upbtn"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4 7l4-3.5L12 7"/></svg><span class="lbl">上传</span></button><input type="file" id="fi" multiple hidden>
+        """ : ""
+        let uploadExtras = canUpload ? """
+        <div class="upbar" id="upbar"><div class="upmeta"><span id="upname"></span><span id="uppct"></span></div><div class="track"><i id="upfill"></i></div></div>
+        """ : ""
+        let dropMask = canUpload ? """
+        <div class="dropmask" id="dropmask"><div class="dropcard">松手上传到这里</div></div>
+        """ : ""
         let listInner = isEmpty
             ? #"<div class="empty"><span class="big">○</span>这个文件夹是空的</div>"#
             : #"<ul class="list">\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">未找到匹配的文件</div><div class="nr-s">试试其他关键词</div></div>"#
@@ -215,6 +229,23 @@ enum DirectoryListing {
         .scrim{position:fixed;inset:0;z-index:20;display:none}
         .scrim.open{display:block}
 
+        .upbtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 16px;border-radius:12px;
+          cursor:pointer;font:600 14px var(--sans);white-space:nowrap;border:1px solid var(--accent);
+          background:var(--accent);color:#fff;transition:filter .15s}
+        .upbtn:hover{filter:brightness(1.07)}
+        .upbar{display:none;margin-top:12px;padding:10px 14px;border-radius:12px;
+          background:var(--surface);border:1px solid var(--line)}
+        .upbar.on{display:block}
+        .upmeta{display:flex;justify-content:space-between;gap:10px;font:12px var(--mono);color:var(--inkMute)}
+        .upmeta #upname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .upbar.err .upmeta{color:var(--danger)}
+        .upbar .track{margin-top:7px;height:4px;border-radius:2px;background:var(--field);overflow:hidden}
+        .upbar .track i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+        .dropmask{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;background:var(--bg)}
+        .dropmask.on{display:flex}
+        .dropcard{padding:28px 40px;border:2px dashed var(--accent);border-radius:18px;background:var(--accentSoft);
+          font:600 15px var(--sans);color:var(--accent);pointer-events:none}
+
         .chips{display:flex;gap:8px;margin-top:12px;overflow-x:auto;padding-bottom:4px;
           scrollbar-width:none;-webkit-overflow-scrolling:touch}
         .chips::-webkit-scrollbar{display:none}
@@ -278,6 +309,8 @@ enum DirectoryListing {
           h1{font-size:30px}
           .search{height:40px}.sortbtn{height:40px}
           .sortbtn .lbl{display:none}
+          .upbtn{height:40px;padding:0 13px}
+          .upbtn .lbl{display:none}
           .row>a{gap:12px;padding:13px 14px}
           .ic{width:34px;height:34px}.ic svg{width:17px;height:17px}
           .nm{font-size:15px}
@@ -286,7 +319,7 @@ enum DirectoryListing {
         }
         </style></head><body>
         <main>
-          <div class="kicker"><span class="dot"></span><span>局域网 · 只读分享</span></div>
+          <div class="kicker"><span class="dot"></span><span>\(htmlText(ps.eyebrow))</span></div>
           <h1>\(htmlText(title))</h1>
           <nav class="crumbs">\(crumbs)</nav>
           <div class="countline"><span class="count" data-total="\(total)">\(total) 项</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span></div>
@@ -311,14 +344,17 @@ enum DirectoryListing {
                 <button data-k="time" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>时间 · 旧 → 新</button>
               </div>
             </div>
+            \(uploadButton)
           </div>
+          \(uploadExtras)
           \(chips)
           <section class="ledger">
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>
             \(listInner)
           </section>
-          <div class="colophon">由 <b>LocalShare</b> 提供 · 只读</div>
+          <div class="colophon">由 <b>LocalShare</b> 提供 · \(htmlText(ps.tag))</div>
         </main>
+        \(dropMask)
         <script>
         (function(){
           // 在线心跳：每 15s ping 一次，刷新本机活跃时间并取回在线数；
@@ -402,6 +438,64 @@ enum DirectoryListing {
           // 默认选中「默认顺序」
           menu.querySelector('button').classList.add('on');
           render();
+        })();
+        (function(){
+          // 访客上传：按钮选文件 + 整页拖拽，逐个 XHR 上传（有进度事件），全部完成后刷新页面。
+          // 超限文件前端直接拦（与服务端 413 同一阈值）；失败的跳过继续传下一个。
+          var btn=document.getElementById('upbtn'); if(!btn)return;
+          var fi=document.getElementById('fi'),bar=document.getElementById('upbar'),
+              fill=document.getElementById('upfill'),nm=document.getElementById('upname'),pct=document.getElementById('uppct');
+          var MAX=524288000;
+          var queue=[],busy=false,done=0;
+
+          function show(msg,p,err){
+            bar.classList.add('on');bar.classList.toggle('err',!!err);
+            nm.textContent=msg;pct.textContent=p==null?'':p+'%';fill.style.width=(p||0)+'%';
+          }
+          function enqueue(files){
+            for(var i=0;i<files.length;i++){
+              if(files[i].size>MAX){show(files[i].name+' · 超过 500MB 上限',null,true);continue}
+              queue.push(files[i]);
+            }
+            if(!busy)next();
+          }
+          function next(){
+            var f=queue.shift();
+            if(!f){
+              busy=false;
+              if(done>0)location.reload();
+              return;
+            }
+            busy=true;show(f.name,0);
+            var xhr=new XMLHttpRequest();
+            xhr.open('POST',location.pathname+location.search);
+            xhr.upload.onprogress=function(e){
+              if(e.lengthComputable)show(f.name,Math.round(e.loaded*100/e.total));
+            };
+            xhr.onload=function(){
+              if(xhr.status===200){done++}else{show(f.name+' · 上传失败',null,true)}
+              next();
+            };
+            xhr.onerror=function(){show(f.name+' · 上传失败',null,true);next();};
+            var fd=new FormData();fd.append('file',f,f.name);
+            xhr.send(fd);
+          }
+
+          btn.addEventListener('click',function(){fi.click()});
+          fi.addEventListener('change',function(){enqueue(fi.files);fi.value=''});
+
+          var mask=document.getElementById('dropmask'),depth=0;
+          function hasFiles(e){
+            var t=e.dataTransfer&&e.dataTransfer.types;
+            return t&&[].slice.call(t).indexOf('Files')>=0;
+          }
+          document.addEventListener('dragenter',function(e){if(hasFiles(e)){depth++;mask.classList.add('on')}});
+          document.addEventListener('dragleave',function(){if(--depth<=0){depth=0;mask.classList.remove('on')}});
+          document.addEventListener('dragover',function(e){e.preventDefault()});
+          document.addEventListener('drop',function(e){
+            e.preventDefault();depth=0;mask.classList.remove('on');
+            if(e.dataTransfer&&e.dataTransfer.files.length)enqueue(e.dataTransfer.files);
+          });
         })();
         </script>
         </body></html>

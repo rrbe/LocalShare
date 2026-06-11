@@ -1,13 +1,13 @@
 import Foundation
 
-// 权限模型（DESIGN.md §6.2）。当前 v1 仅只读分享 —— 写权限（上传/编辑/删除）后端在 PLAN.md §6 标为
-// 范围外、Swifter 也是只读的，故 add/edit/del 暂恒为 false。但措辞框架保留：所有展示分享态的界面都
-// 经 PermSummary 派生「只读 / 可读写」文案，绝不各自硬编码 —— 将来接上写入后端时只需放开开关即可全局联动。
+// 权限模型（DESIGN.md §6.2）。read 锁定常开；add（访客上传）0.6 起接上真后端，仅单文件夹分享可开、
+// 换分享自动回只读；edit/del 后端未实现、暂恒为 false（规划见 PLAN.md §7）。措辞框架统一：所有展示
+// 分享态的界面（含网页 listing 页）都经 PermSummary 派生「只读 / 可读写」文案，绝不各自硬编码。
 struct Permission: Equatable {
     var read = true   // 锁定常开
-    var add = false   // 访客上传
-    var edit = false  // 访客在线编辑
-    var del = false   // 访客删除
+    var add = false   // 访客上传（0.6 起可用，FileServer.uploadEnabled 联动）
+    var edit = false  // 访客在线编辑（未开放）
+    var del = false   // 访客删除（未开放）
 }
 
 // 由单个 perm 对象派生每屏的只读/可读写文案，统一真相源。

@@ -209,6 +209,7 @@ private struct ShareScreen: View {
         } content: {
             VStack(spacing: 16) {
                 ticket(ps)
+                if !state.received.isEmpty { receivedCard }
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
@@ -309,6 +310,27 @@ private struct ShareScreen: View {
         }
     }
 
+    // 访客新上传的文件（最多列 3 条，点击在 Finder 中显示）。换分享/清除时由 AppState 清空。
+    private var receivedCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(t.accent).frame(width: 6, height: 6)
+                Text("新收到").font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Spacer()
+                if state.received.count > 3 {
+                    Text("\(state.received.count) 项").font(.mono(11)).foregroundStyle(t.inkFaint)
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 5)
+            ForEach(state.received.prefix(3), id: \.self) { url in
+                ReceivedRow(t: t, url: url) { state.revealReceived(url) }
+            }
+        }
+        .padding(.bottom, 8)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
@@ -376,6 +398,34 @@ private struct ShareScreen: View {
     private func openInBrowser() {
         guard let s = state.primaryURL, let url = URL(string: s) else { return }
         NSWorkspace.shared.open(url)
+    }
+}
+
+// 收件单行：类型小图标 + 文件名，悬停亮出跳转箭头（点击在 Finder 中显示）。
+private struct ReceivedRow: View {
+    let t: Theme
+    let url: URL
+    let reveal: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: reveal) {
+            HStack(spacing: 9) {
+                TypeGlyph(t: t, category: FileType.category(of: url, isDir: false),
+                          ext: url.pathExtension.lowercased(), size: 26)
+                Text(url.lastPathComponent).font(.sans(12.5, .medium)).foregroundStyle(t.ink)
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(hover ? t.accent : t.inkFaint)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .background(hover ? t.surfaceAlt : .clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("在 Finder 中显示")
     }
 }
 
@@ -507,10 +557,18 @@ private struct SettingsScreen: View {
                 .padding(.top, 24).padding(.bottom, 4)
 
                 permRow(name: "读取与下载", desc: "允许查看和下载文件", locked: true, on: true)
+                permRow(name: "允许上传",
+                        desc: state.canToggleUpload ? "访客可把文件传进这个文件夹" : "仅分享单个文件夹时可用",
+                        locked: !state.canToggleUpload,
+                        on: state.permission.add) {
+                    state.setUploadAllowed(!state.permission.add)
+                }
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
-                    Text("当前为只读分享 · 访客只能查看和下载。写入权限（上传 / 编辑 / 删除）尚未开放。")
+                    Text(ps.writable
+                         ? "已开启上传 · 访客可向这个文件夹写入文件，请只把二维码交给信任的人。"
+                         : "当前为只读分享 · 访客只能查看和下载。")
                         .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
                     Spacer(minLength: 0)
                 }
@@ -614,17 +672,19 @@ private struct SettingsScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func permRow(name: String, desc: String, locked: Bool, on: Bool) -> some View {
+    // locked 且无 action = 锁定常开（读取）；locked 且有 action = 当前形态不可用（开关置灰）。
+    private func permRow(name: String, desc: String, locked: Bool, on: Bool,
+                         action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(name).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                    if locked { Text("始终开启").font(.sans(11)).foregroundStyle(t.inkFaint) }
+                    if locked && action == nil { Text("始终开启").font(.sans(11)).foregroundStyle(t.inkFaint) }
                 }
                 Text(desc).font(.sans(11.5)).foregroundStyle(t.inkMute)
             }
             Spacer()
-            ToggleSwitch(t: t, isOn: on, locked: locked)
+            ToggleSwitch(t: t, isOn: on, locked: locked, action: action ?? {})
         }
         .padding(.vertical, 13)
         .overlay(alignment: .top) { Rectangle().fill(t.line).frame(height: 1) }

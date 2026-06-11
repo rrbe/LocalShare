@@ -60,6 +60,20 @@ final class FileServer {
         set { lock.lock(); _share = newValue; lock.unlock() }
     }
 
+    // MARK: - 访客上传（Permission.add，v1 仅单文件夹分享）
+    // 开关可在运行中切换（设置页），与 share 同款加锁。落点 = 访客当前浏览的目录。
+    private var _uploadEnabled = false
+    var uploadEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _uploadEnabled }
+        set { lock.lock(); _uploadEnabled = newValue; lock.unlock() }
+    }
+    // 每存好一个文件回调一次（socket 线程）；GUI 用它提示「新收到」，设置方自行 hop 主线程。
+    var onUpload: ((URL) -> Void)?
+
+    // Swifter 在进 middleware 前已把请求体整段读进内存（HttpParser.readBody），上限只能事后
+    // 拒绝、省掉 multipart 的二次拷贝；前端先行拦截超限文件。流式/分片上传是 v1.5 的事。
+    static let uploadLimit = 500 * 1024 * 1024
+
     // MARK: - 在线感知
     // 「正在浏览」近似为：最近 presenceWindow 内有过任何请求的客户端 IP（页面心跳、点开文件、
     // 下载大文件都算）。局域网内一台设备一个 IP，无须 cookie 标识；同设备多 tab 算一个人。
@@ -128,11 +142,19 @@ final class FileServer {
         // 心跳/在线数端点（保留路径，优先于分享内容命中；分享里恰好有 ls/ping 的概率可忽略）。
         // req.path 不含 query（Swifter 用 URLComponents.path），精确比较即可。
         if req.path == "/ls/ping" {
-            var headers = extra
-            headers["Content-Type"] = "application/json"
-            headers["Cache-Control"] = "no-store"
-            let body = Data("{\"viewers\":\(activeViewers())}".utf8)
-            return .raw(200, "OK", headers) { writer in try? writer.write(body) }
+            var h = extra
+            h["Cache-Control"] = "no-store"
+            return jsonResponse(200, "OK", #"{"viewers":\#(activeViewers())}"#, extra: h)
+        }
+
+        // 注意：Swifter 的 path 解析有 bug，req.path 仍保留一层百分号编码，需手动解码再落地到文件系统。
+        // 解码后用于「防穿越 / 面包屑显示」；301 的 Location 仍用 req.path（保持编码，浏览器再请求即可）。
+        let decodedPath = req.path.removingPercentEncoding ?? req.path
+
+        // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
+        // 否则单文件模式下 POST 会拿到文件本体）。
+        if req.method == "POST" {
+            return handleUpload(decodedPath: decodedPath, req: req, extra: extra)
         }
 
         // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件
@@ -142,10 +164,6 @@ final class FileServer {
             }
             return fileResponse(fileURL, extra: extra)
         }
-
-        // 注意：Swifter 的 path 解析有 bug，req.path 仍保留一层百分号编码，需手动解码再落地到文件系统。
-        // 解码后用于「防穿越 / 面包屑显示」；301 的 Location 仍用 req.path（保持编码，浏览器再请求即可）。
-        let decodedPath = req.path.removingPercentEncoding ?? req.path
 
         // 多选模式：虚拟根列出选中项；首段 key 映射到对应真实项后落地（目录项再走子树服务）。
         if case .multiple(let items) = share {
@@ -168,13 +186,15 @@ final class FileServer {
                 return fileResponse(item.url, extra: extra)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
-                             decodedPath: decodedPath, rootName: Self.multipleRootName, extra: extra)
+                             decodedPath: decodedPath, rootName: Self.multipleRootName,
+                             canUpload: false, extra: extra)
         }
 
         guard case .directory(let rootURL) = share else { return .internalServerError }
         let rel = String(decodedPath.drop { $0 == "/" })
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
-                         decodedPath: decodedPath, rootName: rootURL.lastPathComponent, extra: extra)
+                         decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
+                         canUpload: uploadEnabled, extra: extra)
     }
 
     // 在 rootURL 这棵子树内服务请求：防穿越 → 目录(301 补斜杠 / index.html / 列表页) → 文件流式发送。
@@ -182,7 +202,8 @@ final class FileServer {
     // decodedPath：用于列表页面包屑/标题的解码请求路径；rootName：列表页与面包屑的根名。
     // 单根目录与多选里的每个目录项共用此函数（多选时 rootURL=项目本身、relPath=去掉 key 段后的剩余）。
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
-                           decodedPath: String, rootName: String, extra: [String: String]) -> HttpResponse {
+                           decodedPath: String, rootName: String, canUpload: Bool,
+                           extra: [String: String]) -> HttpResponse {
         // 防目录穿越：拼接后标准化解符号链接，结果必须仍落在 root 内（杜绝 ../、%2e%2e、..%2f）。
         let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
         let target = rootURL.appendingPathComponent(relPath).standardizedFileURL.resolvingSymlinksInPath()
@@ -208,11 +229,103 @@ final class FileServer {
             if fm.fileExists(atPath: indexURL.path) {
                 return fileResponse(indexURL, extra: extra)
             }
-            let html = DirectoryListing.html(directory: target, requestPath: decodedPath, rootName: rootName)
+            let html = DirectoryListing.html(directory: target, requestPath: decodedPath,
+                                             rootName: rootName, canUpload: canUpload)
             return htmlResponse(200, "OK", html, extra: extra)
         }
 
         return fileResponse(target, extra: extra)
+    }
+
+    // MARK: - 上传处理
+
+    // POST multipart/form-data → 写入访客当前浏览的目录。
+    // 安全：开关 + 仅 .directory 分享；目标目录过与读取同一套防穿越校验；
+    // 文件名只取末段并清洗；重名 -2 兜底（同 makeItems 策略）；先写临时文件再原子换名。
+    private func handleUpload(decodedPath: String, req: HttpRequest, extra: [String: String]) -> HttpResponse {
+        guard uploadEnabled, case .directory(let rootURL) = share else {
+            return jsonResponse(403, "Forbidden", #"{"error":"上传未开启"}"#, extra: extra)
+        }
+        guard req.body.count <= Self.uploadLimit else {
+            return jsonResponse(413, "Payload Too Large", #"{"error":"超过 500MB 上限"}"#, extra: extra)
+        }
+
+        // 落点目录：同 serveTree 的防穿越判据
+        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let rel = String(decodedPath.drop { $0 == "/" })
+        let target = rootURL.appendingPathComponent(rel).standardizedFileURL.resolvingSymlinksInPath()
+        let targetPath = target.path
+        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
+            return jsonResponse(403, "Forbidden", #"{"error":"路径不允许"}"#, extra: extra)
+        }
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: targetPath, isDirectory: &isDir), isDir.boolValue else {
+            return jsonResponse(404, "Not Found", #"{"error":"目录不存在"}"#, extra: extra)
+        }
+
+        let fileParts = req.parseMultiPartFormData().filter { $0.fileName != nil }
+        var saved: [String] = []
+        for part in fileParts {
+            guard let name = Self.sanitizeFileName(part.fileName) else { continue }
+            let dest = Self.availableURL(in: target, name: name)
+            do {
+                // itemReplacementDirectory 保证与目标同卷，moveItem 才是原子换名而非跨卷拷贝
+                let tmpDir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                        appropriateFor: target, create: true)
+                let tmp = tmpDir.appendingPathComponent(UUID().uuidString)
+                try Data(part.body).write(to: tmp)
+                try fm.moveItem(at: tmp, to: dest)
+            } catch {
+                return jsonResponse(500, "Internal Server Error", #"{"error":"写入失败"}"#, extra: extra)
+            }
+            saved.append(dest.lastPathComponent)
+            onUpload?(dest)
+        }
+        guard !saved.isEmpty else {
+            return jsonResponse(400, "Bad Request", #"{"error":"没有可保存的文件"}"#, extra: extra)
+        }
+        let names = saved.map { "\"\(Self.jsonEscape($0))\"" }.joined(separator: ",")
+        return jsonResponse(200, "OK", #"{"saved":[\#(names)]}"#, extra: extra)
+    }
+
+    // 文件名清洗：只取末段（防 ../ 与绝对路径）、剔除控制符、":" 换 "-"（Finder 的路径分隔）；
+    // 点开头（隐藏文件）、空名、"."/".." 一律拒绝。
+    static func sanitizeFileName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        var name = (raw as NSString).lastPathComponent
+        name = String(name.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !name.hasPrefix(".") else { return nil }
+        return name
+    }
+
+    // 目标已存在则在扩展名前追加 -2/-3…（与 Share.makeItems 的 key 兜底同款策略）。
+    static func availableURL(in dir: URL, name: String) -> URL {
+        let fm = FileManager.default
+        var candidate = dir.appendingPathComponent(name)
+        guard fm.fileExists(atPath: candidate.path) else { return candidate }
+        let ext = (name as NSString).pathExtension
+        let stem = (name as NSString).deletingPathExtension
+        var n = 2
+        repeat {
+            let next = ext.isEmpty ? "\(stem)-\(n)" : "\(stem)-\(n).\(ext)"
+            candidate = dir.appendingPathComponent(next)
+            n += 1
+        } while fm.fileExists(atPath: candidate.path)
+        return candidate
+    }
+
+    private static func jsonEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private func jsonResponse(_ code: Int, _ reason: String, _ json: String, extra: [String: String]) -> HttpResponse {
+        var headers = extra
+        headers["Content-Type"] = "application/json"
+        let body = Data(json.utf8)
+        return .raw(code, reason, headers) { writer in try? writer.write(body) }
     }
 
     private func fileResponse(_ url: URL, extra: [String: String]) -> HttpResponse {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // 全局状态：当前分享对象（文件夹或单个文件）、服务运行态、网络接口候选、二维码 URL、
-// 监听端口配置、最近分享历史、屏幕路由、权限（当前恒只读）。
+// 监听端口配置、最近分享历史、屏幕路由、权限（读取常开，上传可切换）。
 // 负责：选目录/选文件、启停服务、端口配置 + 应用（重启服务）、记住上次分享并自动启动。
 @MainActor
 final class AppState: ObservableObject {
@@ -24,8 +24,9 @@ final class AppState: ObservableObject {
     @Published var localHost: String?
     @Published var lastError: String?
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
+    @Published var received: [URL] = []   // 本次分享期间访客上传的文件（新→旧，最多留 5 条）
 
-    @Published var permission = Permission()        // v1 恒只读；保留以驱动全局措辞
+    @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
@@ -160,6 +161,7 @@ final class AppState: ObservableObject {
         sharedItems = urls
         updateSharedIsFile()
         describeShared()
+        resetUpload()   // 换分享内容即回到只读（安全默认），收件提示一并清空
         UserDefaults.standard.set(urls.map(\.path), forKey: sharedPathsKey)
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)   // 清理旧单值键
         recordRecent()
@@ -202,12 +204,43 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - 访客上传
+
+    // 仅「单个文件夹」分享有上传落点；单文件/多选时设置页开关置灰。
+    var canToggleUpload: Bool { sharedItems.count == 1 && !sharedIsFile }
+
+    func setUploadAllowed(_ on: Bool) {
+        permission.add = on && canToggleUpload
+        server?.uploadEnabled = permission.add
+    }
+
+    private func resetUpload() {
+        permission.add = false
+        server?.uploadEnabled = false
+        received = []
+    }
+
+    // 收到访客上传（FileServer 回调已 hop 回主线程）。同名（覆盖前缀去重）不重复插入。
+    private func recordReceived(_ url: URL) {
+        received.removeAll { $0 == url }
+        received.insert(url, at: 0)
+        if received.count > 5 { received = Array(received.prefix(5)) }
+    }
+
+    func revealReceived(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     // MARK: - 启停 / 端口
 
     func start() {
         guard !sharedItems.isEmpty else { return }
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
+        fs.uploadEnabled = permission.add && canToggleUpload
+        fs.onUpload = { url in   // socket 线程 → 主线程
+            Task { @MainActor [weak self] in self?.recordReceived(url) }
+        }
         do {
             var prefer = [configuredPort]
             prefer += fallbackPorts.filter { $0 != configuredPort }
@@ -251,6 +284,7 @@ final class AppState: ObservableObject {
         sharedItems = []
         sharedIsFile = false
         sharedDetail = nil
+        resetUpload()
         UserDefaults.standard.removeObject(forKey: sharedPathsKey)
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
         screen = .share
