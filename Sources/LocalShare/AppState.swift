@@ -37,7 +37,9 @@ final class AppState: ObservableObject {
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
     static private(set) var shared: AppState?
 
-    let token = Token.generate()
+    // 分享访问令牌：随每次「分享」动作轮换（setShared / stop），不随 app 进程长存——
+    // 换分享或停止即作废旧链接、旧 cookie 与拍走的旧二维码，权限不跨分享延续。
+    @Published private(set) var token = Token.generate()
     private var server: FileServer?
     private var viewerTimer: Timer?
 
@@ -110,17 +112,6 @@ final class AppState: ObservableObject {
         return makeURL(host: host)
     }
 
-    // 仅展示用的「主机:端口/尾部」短地址（隐去 token 与 http://，超长由 UI 中段省略）。
-    var displayAddress: String? {
-        guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
-        if isMultiple { return "\(ip):\(port)/" }
-        if sharedIsFile, let name = sharedItems.first?.lastPathComponent {
-            return "\(ip):\(port)/\(name)"
-        }
-        let folder = sharedItems.first?.lastPathComponent ?? ""
-        return "\(ip):\(port)/\(folder)/"
-    }
-
     var qrImage: NSImage? {
         guard let primaryURL else { return nil }
         return QRCode.image(for: primaryURL)
@@ -158,6 +149,7 @@ final class AppState: ObservableObject {
 
     func setShared(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        token = Token.generate()   // 换分享即换钥匙：上一次分享的链接/cookie/二维码全部作废
         sharedItems = urls
         updateSharedIsFile()
         describeShared()
@@ -167,7 +159,9 @@ final class AppState: ObservableObject {
         recordRecent()
         screen = .share
         if isRunning {
-            server?.share = currentShare   // 运行中只换分享对象，不重启（token/cookie 保持有效）
+            // 运行中不重启（端口不变），先换钥匙再换内容——杜绝旧 token 可读新分享的瞬间
+            server?.token = token
+            server?.share = currentShare
         } else {
             start()
         }
@@ -263,6 +257,7 @@ final class AppState: ObservableObject {
         server = nil
         isRunning = false
         port = 0
+        token = Token.generate()   // 停止即撕毁已发出的链接；「重新广播」发的是新钥匙
     }
 
     // 轮询活跃访客数（activeViewers 锁内取快照，保持 server → state → view 的单向数据流）。
