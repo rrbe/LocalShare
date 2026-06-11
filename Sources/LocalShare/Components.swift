@@ -323,7 +323,7 @@ struct CopyPill: View {
                       color: copied ? t.ok : t.inkMute, help: "复制") { copy() }
             if withOpen {
                 HoverIcon(t: t, systemImage: "arrow.up.forward.square",
-                          color: t.inkMute, help: "在本机浏览器打开（自测）") { onOpen?() }
+                          color: t.inkMute, help: "在浏览器打开") { onOpen?() }
             }
         }
         .frame(height: compact ? 42 : 48)
@@ -340,7 +340,7 @@ struct CopyPill: View {
 }
 
 // 备用地址行：主地址条下方的次级地址（主机名 / .local）。无字段底，但与主地址同样可用——
-// 右侧两枚小钮：复制完整 URL（含 token，成功显示绿 check）+ 在本机浏览器打开（自测）。
+// 右侧两枚小钮：复制完整 URL（含 token，成功显示绿 check）+ 在浏览器打开。
 // 「备用 ·」是行标签；其后展示的 URL 与复制结果逐字一致，超长仅由 UI 中段省略。
 struct BackupAddressRow: View {
     let t: Theme
@@ -356,7 +356,7 @@ struct BackupAddressRow: View {
             MiniIconButton(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
                            tint: copied ? t.ok : t.inkFaint, help: "复制备用地址") { copyURL() }
             MiniIconButton(t: t, systemImage: "arrow.up.forward.square",
-                           tint: t.inkFaint, help: "在本机浏览器打开（自测）", action: onOpen)
+                           tint: t.inkFaint, help: "在浏览器打开", action: onOpen)
         }
     }
     private func copyURL() {
