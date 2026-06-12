@@ -251,8 +251,7 @@ private struct ShareScreen: View {
                 Spacer(minLength: 8)
                 ClearButton(t: t) { state.clearShare() }
             }
-            Text(preview).font(.sans(11.5)).foregroundStyle(t.inkFaint)
-                .lineLimit(2).truncationMode(.tail)
+            MultiPreviewMenu(t: t, items: items, preview: preview) { state.revealInFinder($0) }
         }
         .padding(.horizontal, 18).padding(.vertical, 16)
     }
@@ -398,6 +397,42 @@ private struct ShareScreen: View {
     private func openInBrowser() {
         guard let s = state.primaryURL, let url = URL(string: s) else { return }
         NSWorkspace.shared.open(url)
+    }
+}
+
+// 多选项目预览行：标签沿用原淡色名称预览（前 3 项 + 等），点击弹出全部分享项菜单，
+// 选中即在 Finder 中显示——与单项分享的 PathRow、收件行同一交互语言（hover 下划线 + 手型）。
+private struct MultiPreviewMenu: View {
+    let t: Theme
+    let items: [URL]
+    let preview: String
+    let reveal: (URL) -> Void
+    @State private var hover = false
+    var body: some View {
+        Menu {
+            Section("在 Finder 中显示") {
+                ForEach(items, id: \.self) { url in
+                    Button(url.lastPathComponent) { reveal(url) }
+                }
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(preview)
+                    .font(.sans(11.5))
+                    .foregroundStyle(hover ? t.inkMute : t.inkFaint)
+                    .underline(hover, color: t.inkFaint)
+                    .lineLimit(2).truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7.5, weight: .semibold))
+                    .foregroundStyle(hover ? t.accent : t.inkFaint)
+            }
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
+        .onHover { h in hover = h; if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+        .help("在 Finder 中显示分享项")
     }
 }
 
