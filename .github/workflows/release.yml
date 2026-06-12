@@ -64,7 +64,13 @@ jobs:
           # changelog 写在 annotated tag 的注释里（git tag -a vX.Y.Z -F notes.md），这里取出
           # 拼进「更新内容」一节；轻量 tag 无注释则退化为纯安装说明。注释只写 - 列表、不写 #
           # 标题行（git tag 默认 cleanup=strip 会把 # 行当注释剥掉，标题统一由这里加）。
-          CHANGELOG="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          # 注意 actions/checkout 会把触发构建的 tag 重建成指向提交的轻量 tag（actions/checkout#290），
+          # 直接读 %(contents) 拿到的是提交信息——先按远端原样恢复 tag 对象，并确认确为 annotated tag。
+          git fetch origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" --force
+          CHANGELOG=""
+          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = "tag" ]; then
+            CHANGELOG="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          fi
           printf '**LocalShare %s** · 局域网文件 / 文件夹只读分享，扫码即看。\nUniversal（Apple Silicon + Intel），要求 macOS 13+。\n' "$VERSION" > release_body.md
           if [ -n "$CHANGELOG" ]; then
             printf '\n## 更新内容\n\n%s\n' "$CHANGELOG" >> release_body.md
