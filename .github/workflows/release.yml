@@ -56,7 +56,15 @@ jobs:
           STAGE="$(mktemp -d)"
           cp -R dist/LocalShare.app "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname LocalShare -srcfolder "$STAGE" -ov -format UDZO "LocalShare-$VERSION.dmg"
+          # macOS runner 上 hdiutil 偶发「Resource busy」（Spotlight 等短暂占用暂存目录），
+          # v0.7.0 首跑即中招——重试几次即过。
+          for i in 1 2 3 4 5; do
+            hdiutil create -volname LocalShare -srcfolder "$STAGE" -ov -format UDZO "LocalShare-$VERSION.dmg" && exit 0
+            echo "hdiutil 第 $i 次失败，5 秒后重试"
+            sleep 5
+          done
+          echo "::error::hdiutil 连续 5 次失败"
+          exit 1
 
       - name: 组装 Release 正文（changelog 取自 tag 注释）
         run: |
