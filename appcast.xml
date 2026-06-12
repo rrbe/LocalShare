@@ -3,12 +3,12 @@
   <channel>
     <title>LocalShare</title>
     <item>
-      <title>0.6.0</title>
-      <sparkle:version>8</sparkle:version>
-      <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
+      <title>0.7.0</title>
+      <sparkle:version>9</sparkle:version>
+      <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <pubDate>Fri, 12 Jun 2026 01:35:50 +0000</pubDate>
-      <enclosure url="https://github.com/rrbe/LocalShare/releases/download/v0.6.0/LocalShare-0.6.0.dmg" sparkle:edSignature="+hvwhrUxFevpW6vvYgZ9ML0Y3oaO1JtTJdembVLUjDTlyiwKPqFze19Yqd3oXevz/Gvu7kHj3cUKdI9qOfegDg==" length="3296163" type="application/octet-stream" />
+      <pubDate>Fri, 12 Jun 2026 03:39:47 +0000</pubDate>
+      <enclosure url="https://github.com/rrbe/LocalShare/releases/download/v0.7.0/LocalShare-0.7.0.dmg" sparkle:edSignature="qFWuNzidgcnDjLs8KjUQHp3idAS+2n1EiNnDytkpWCfRWTrgfmqZhV0MW2lfcjqi2jSyUWczlPF7m9huqyeXCg==" length="3296075" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
