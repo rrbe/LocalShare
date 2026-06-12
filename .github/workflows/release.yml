@@ -1,14 +1,16 @@
 name: Release
 
 # 推送 vX.Y.Z 标签即触发：编译 universal → 校验依赖（仅许内置 framework）→ 打 DMG →
-# 建 GitHub Release → EdDSA 签名 + 生成 appcast.xml 提交回 master（供 Sparkle 自动更新）。
+# 建 GitHub Release → EdDSA 签名 + 生成 appcast.xml 经 PR 合回 master（供 Sparkle 自动更新；
+# master 有「必须走 PR」规则，CI 不能直推）。
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write # 创建 Release、推送 appcast.xml 到 master 都需要写权限
+  contents: write # 创建 Release、推送 appcast 分支都需要写权限
+  pull-requests: write # appcast 走 PR 回 master：创建并自动合并
 
 jobs:
   release:
@@ -95,9 +97,10 @@ jobs:
           files: LocalShare-${{ env.VERSION }}.dmg
           body_path: release_body.md
 
-      - name: EdDSA 签名 DMG + 生成 appcast.xml 提交回 master
+      - name: EdDSA 签名 DMG + 生成 appcast.xml 经 PR 合回 master
         env:
           ED_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 未配置私钥则跳过（首次发布、或暂未启用自动更新时）。DMG 已发布，仅缺自动更新喂源。
           if [ -z "$ED_KEY" ]; then
@@ -120,11 +123,12 @@ jobs:
           DMG_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/LocalShare-$VERSION.dmg"
           PUBDATE="$(date "+%a, %d %b %Y %H:%M:%S %z")"
 
-          # 切到 master 再生成，避免被 checkout 覆盖；appcast 只保留最新一项即可触发更新比对。
+          # 基于 origin/master 开 appcast 分支再生成；appcast 只保留最新一项即可触发更新比对。
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # -f 丢弃 build 期对 Info.plist 的版本号改写（master 保留占位版本，不需要该临时改动）。
-          git checkout -f -B master origin/master
+          BRANCH="ci/appcast-$VERSION"
+          git checkout -f -B "$BRANCH" origin/master
 
           cat > appcast.xml <<EOF
           <?xml version="1.0" encoding="utf-8"?>
@@ -145,4 +149,20 @@ jobs:
 
           git add appcast.xml
           git commit -m "chore: 更新 appcast 至 $VERSION" || { echo "appcast 无变化，跳过提交"; exit 0; }
-          git push origin master
+          git push -f origin "$BRANCH"
+
+          # master 要求变更走 PR（规则无必需审核），CI 开 PR 后用 token 直接合并；
+          # 刚建的 PR 偶尔要等 mergeability 计算，失败稍等重试。重跑时 PR 可能已存在，复用即可。
+          gh pr create --base master --head "$BRANCH" \
+            --title "chore: 更新 appcast 至 $VERSION" \
+            --body "Release 流水线自动提交：v$VERSION 的 Sparkle 更新源。" \
+            || echo "PR 已存在，直接尝试合并"
+          for i in 1 2 3; do
+            if gh pr merge "$BRANCH" --squash; then
+              git push origin --delete "$BRANCH" || true
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::appcast 的 PR 未能自动合并，请到仓库人工合并后删除分支 $BRANCH"
+          exit 1
