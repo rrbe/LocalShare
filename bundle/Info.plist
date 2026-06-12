@@ -30,9 +30,11 @@
     <string>public.app-category.utilities</string>
 
     <!-- ===== Sparkle 自动更新 ===== -->
-    <!-- appcast 源：CI 每次发布会重写 appcast.xml 并提交回 master，raw 链接稳定可达。 -->
+    <!-- appcast 源：CI 发版时把 appcast.xml 作为 Release 资产上传；此地址由 GitHub 保证
+         恒指向最新 release 的同名资产，无需向仓库写任何东西。≤0.6.0 的老客户端仍读
+         raw master 的 appcast.xml，迁移说明见 CLAUDE.md「发布与版本」。 -->
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/rrbe/LocalShare/master/appcast.xml</string>
+    <string>https://github.com/rrbe/LocalShare/releases/latest/download/appcast.xml</string>
     <!-- EdDSA 公钥：更新包用对应私钥签名、此处校验。⚠️ 发布前必须用 Sparkle 的 generate_keys
          生成并替换占位值（私钥进 GitHub secret SPARKLE_ED_PRIVATE_KEY）。占位时 app 不启动 updater。 -->
     <key>SUPublicEDKey</key>
