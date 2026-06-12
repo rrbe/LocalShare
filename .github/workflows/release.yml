@@ -59,24 +59,35 @@ jobs:
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname LocalShare -srcfolder "$STAGE" -ov -format UDZO "LocalShare-$VERSION.dmg"
 
+      - name: 组装 Release 正文（changelog 取自 tag 注释）
+        run: |
+          # changelog 写在 annotated tag 的注释里（git tag -a vX.Y.Z -F notes.md），这里取出
+          # 拼进「更新内容」一节；轻量 tag 无注释则退化为纯安装说明。注释只写 - 列表、不写 #
+          # 标题行（git tag 默认 cleanup=strip 会把 # 行当注释剥掉，标题统一由这里加）。
+          CHANGELOG="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          printf '**LocalShare %s** · 局域网文件 / 文件夹只读分享，扫码即看。\nUniversal（Apple Silicon + Intel），要求 macOS 13+。\n' "$VERSION" > release_body.md
+          if [ -n "$CHANGELOG" ]; then
+            printf '\n## 更新内容\n\n%s\n' "$CHANGELOG" >> release_body.md
+          fi
+          cat >> release_body.md <<'BODY'
+
+          ## ⚠️ 首次打开被「隐私与安全性」拦截怎么办
+          本包是 ad-hoc 签名、未经 Apple 公证，从网络下载会被 Gatekeeper 拦（提示「已损坏」或「无法打开」）。任选一种解除：
+
+          **方式 A**：「系统设置 → 隐私与安全性」，下滑找到被拦提示，点「仍要打开」。
+
+          **方式 B（终端一行）**：
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/LocalShare.app
+          ```
+          BODY
+
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           name: LocalShare ${{ env.VERSION }}
           files: LocalShare-${{ env.VERSION }}.dmg
-          body: |
-            **LocalShare ${{ env.VERSION }}** · 局域网文件 / 文件夹只读分享，扫码即看。
-            Universal（Apple Silicon + Intel），要求 macOS 13+。
-
-            ## ⚠️ 首次打开被「隐私与安全性」拦截怎么办
-            本包是 ad-hoc 签名、未经 Apple 公证，从网络下载会被 Gatekeeper 拦（提示「已损坏」或「无法打开」）。任选一种解除：
-
-            **方式 A**：「系统设置 → 隐私与安全性」，下滑找到被拦提示，点「仍要打开」。
-
-            **方式 B（终端一行）**：
-            ```bash
-            xattr -dr com.apple.quarantine /Applications/LocalShare.app
-            ```
+          body_path: release_body.md
 
       - name: EdDSA 签名 DMG + 生成 appcast.xml 提交回 master
         env:

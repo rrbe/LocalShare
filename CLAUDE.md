@@ -45,6 +45,10 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 `Updater.swift` 封装 Sparkle 自动更新：`UpdaterController` 持 `SPUStandardUpdaterController`，仅 GUI 路径（`LocalShareApp`）构造，headless 完全不碰。配置全在 `bundle/Info.plist`（`SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks`）。信任链走 EdDSA（私钥签更新包、app 内嵌公钥校验），与 ad-hoc 代码签名无关，故未公证也能安全自更新；`Info.plist` 的 `SUPublicEDKey` 还是占位值时 `UpdaterController` 不启动 updater。CI 发布时用 `sign_update` 签 DMG 并把 `appcast.xml` 提交回 `master`（feed 走 raw.githubusercontent）。详见 `PLAN.md` 的「自动更新」一节。
 
+## 发布与版本
+
+版本号以 git tag 为准（`vX.Y.Z`，打在 master tip 上）：`bundle/Info.plist` 里的 `CFBundleShortVersionString` 只是占位值，CI 构建时用 tag 版本覆写、`CFBundleVersion` 写 run number，这个改写不会提交回 master——所以本地构建显示旧版本号是正常的，**发版不需要改 Info.plist**。发布步骤：变更全部合入 master → changelog 写进 annotated tag 的注释（`git tag -a vX.Y.Z -F notes.md`）→ 推 tag，`.github/workflows/release.yml`（监听 `v*`）接手：编译 universal → 依赖校验 → 打 DMG → 建 GitHub Release → EdDSA 签名 + 重写 `appcast.xml` 提交回 master（Sparkle feed）。workflow 跑的是 tag 指向那个提交里的文件，所以改 release.yml 要先合入 master 再打 tag。changelog 写法：tag 注释里只写 `-` 列表，一个功能一条、用面向用户的说法、重要的放前面；不要写 `#` 标题行（`git tag` 默认会把 `#` 开头的行当注释删掉，「更新内容」这个标题由 workflow 加）；范围用 `git log v上一版..origin/master --oneline` 圈定。Release 正文由 workflow 拼成：版本简介 + 更新内容（tag 注释）+ 固定安装说明。
+
 ## 跨文件的关键约束（改动前必读）
 
 - **不依赖包外 dylib（戒律的精神，不可破）**：判据是「换任何机器都不会缺库」。纯 Swift 依赖优先以 SPM 源码静态编进二进制；确需二进制 framework（如 Sparkle）时，必须 `@rpath` 引用并由 `build.sh` 内置进 `Contents/Frameworks/`、深度签名、且通过依赖校验（见 build.sh 末尾与 CI）。**绝对路径包外 dylib（`/opt/homebrew`、`/usr/local` 等）一律禁止**——这正是 dufs 当年崩在运行时缺 `liblzma.5.dylib` 的坑。新增/改依赖后务必跑上面的 `otool` 复核 + 确认 framework 已随包。
