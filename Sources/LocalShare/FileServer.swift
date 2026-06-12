@@ -215,18 +215,28 @@ final class FileServer {
                          canUpload: uploadEnabled, viewer: wantsViewer, extra: extra)
     }
 
-    // md 文件且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；其余发文件本体。
+    // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
+    // 其余发文件本体。新增预览类型只需在此登记，壳页骨架见 PreviewPage。
     private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
                                  canUpload: Bool, extra: [String: String]) -> HttpResponse {
-        if viewer, Self.isMarkdown(url) {
-            let html = MarkdownViewer.html(fileName: url.lastPathComponent, crumbs: crumbs, canUpload: canUpload)
+        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload) {
             return htmlResponse(200, "OK", html, extra: extra)
         }
         return fileResponse(url, extra: extra)
     }
 
-    private static func isMarkdown(_ url: URL) -> Bool {
-        ["md", "markdown"].contains(url.pathExtension.lowercased())
+    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool) -> String? {
+        let name = url.lastPathComponent
+        switch url.pathExtension.lowercased() {
+        case "md", "markdown":
+            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+        case "json", "geojson":
+            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+        case "csv", "tsv":
+            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+        default:
+            return nil
+        }
     }
 
     // 在 rootURL 这棵子树内服务请求：防穿越 → 目录(301 补斜杠 / index.html / 列表页) → 文件流式发送
