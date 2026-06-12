@@ -91,7 +91,7 @@ lan-file-share/
    ```
    `standardizedFileURL` 解掉 `..`，杜绝 `GET /../../etc/passwd`；编码点点（`%2e%2e`）也因「先解码后标准化」被一并挡住。
 3. **目录**：① 若请求的目录路径不以 `/` 结尾 → 先 301 加斜杠（让 `index.html` 里的相对资源能正确解析）；② 含 `index.html` → 发该文件；③ 否则发 DirectoryListing 列表页。列表 href 为**绝对路径并逐段百分号编码**（`encodePath`，保留 `/` 分隔符）；隐藏文件（`.` 开头）不列。非根列表首行固定「返回上一级」（不参与前端筛选/排序，空目录也保留，多选子树的上一级天然指回虚拟根）；文件行 `target=_blank` 新标签打开、目录行原地进入。
-4. **文件**：按扩展名查 MIME（text 类加 `; charset=utf-8`，关键——中文 html 才不乱码），`FileHandle` 分块（64KB）`writer.write(Data)` 流式发。
+4. **文件**：按扩展名查 MIME（text 类加 `; charset=utf-8`，关键——中文 html 才不乱码），`FileHandle` 分块（64KB）`writer.write(Data)` 流式发。例外：`.md`/`.markdown` 的**浏览器导航**（Accept 含 `text/html` 且无 `?raw=1`）发 Markdown 预览壳页（`MarkdownViewer`，内嵌 vendored marked 客户端渲染，原始 HTML 转义不执行）；壳页与文件同 URL，正文相对引用（`assets/` 图、相邻 md 链接）由浏览器解析、命中本表的常规服务，多选虚拟根因 key=lastPathComponent 保持原名而同样成立。curl/脚本/壳页取文（Accept `*/*`）与 `?raw=1` 一律拿原始文件（页角「查看原文」）。
 
 > 单文件夹的 2~4 步抽成 `serveTree(rootURL:relPath:…)` 复用。**单文件**直接发那一个文件。**多选**（`Share.multiple([Item])`，`Item` 持 `key`/`url`/`isDir`，`makeItems` 由选中 URL 构造、key 取 lastPathComponent 并对极少数重名做 `-2` 后缀兜底）：空路径 → 合成虚拟根列表页（`DirectoryListing.html(items:rootName:)`，rootName=「分享内容」）；否则拆首段 `key` 查项——文件项仅当无子路径才发、目录项以 `item.url` 为根走 `serveTree`（`relPath`=去掉 key 段后的剩余，面包屑天然渲染成「分享内容 / key / …」）。未知 key / 文件项带子路径 → 404；穿越判据每项独立。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔）。
 
