@@ -51,6 +51,11 @@ final class FileServer {
 
     private let server = HttpServer()
 
+    // 监听地址：nil = 绑定全部接口（0.0.0.0，默认）——回环可达、对网络切换鲁棒，headless/CLI 与冒烟
+    // 测试都走这条。设为某块网卡的私网 IPv4 时，socket 只绑那一个地址，分享便仅在该网络可见
+    // （GUI「仅当前网络可见」开关，opt-in）。Swifter 原生支持，无须 fork（见 start）。
+    var listenAddress: String?
+
     // share 与 token 都可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
     private let lock = NSLock()
     private var _share: Share
@@ -121,6 +126,8 @@ final class FileServer {
     // 依次尝试偏好端口；都占用则随机高位端口。返回实际绑定端口，全失败抛错。
     @discardableResult
     func start(preferredPorts: [in_port_t]) throws -> in_port_t {
+        // nil → INADDR_ANY（全接口）；非 nil → 只绑该 IPv4。forceIPv4 取 listenAddressIPv4。
+        server.listenAddressIPv4 = listenAddress
         var lastError: Error?
         let candidates = preferredPorts + (0..<20).map { _ in in_port_t(Int.random(in: 49152...65535)) }
         for port in candidates {

@@ -379,7 +379,7 @@ private struct ShareScreen: View {
     private var interfacePicker: some View {
         Menu {
             ForEach(state.interfaces) { iface in
-                Button(iface.displayName) { state.selectedInterface = iface }
+                Button(iface.displayName) { state.selectInterface(iface) }
             }
         } label: {
             HStack(spacing: 7) {
@@ -578,6 +578,23 @@ private struct SettingsScreen: View {
                     }
                     .padding(.top, 12)
                 }
+
+                // 网络可见范围：仅绑选中网卡（默认关=对全部网络开放）。只有同时连了多个网络时才有意义，
+                // 故描述按是否多网卡分两种措辞，避免单网卡时给出空泛的“其它网络”字样。
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("仅当前网络可见").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                        Text(state.interfaces.count > 1
+                             ? "只在选中的信号源上开放，电脑连着的其它网络访问不到"
+                             : "只在当前网络开放，日后接入别的网络时也访问不到")
+                            .font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    ToggleSwitch(t: t, isOn: state.bindSelectedOnly) { state.setBindSelectedOnly(!state.bindSelectedOnly) }
+                }
+                .padding(.top, 20).padding(.bottom, 13)
+                .overlay(alignment: .bottom) { Rectangle().fill(t.line).frame(height: 1) }
 
                 // 权限
                 HStack {
