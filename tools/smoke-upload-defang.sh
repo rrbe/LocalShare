@@ -62,6 +62,16 @@ echo "── 5. 普通文件响应也带 nosniff"
 curl -s -D - -o /dev/null "$base/sub/report.pdf?t=$TOK" | grep -qi '^X-Content-Type-Options: *nosniff' \
   && ok "普通文件响应带 nosniff" || bad "普通文件缺 nosniff"
 
+# 护栏：去势只作用于「上传」，分享者自己放在磁盘上的静态站点（含 index.html）必须照常以
+# text/html 渲染、原样发出——若将来有人误把去势/下载头扩到磁盘文件，这条会立刻抓到。
+echo "── 6. 不误伤磁盘静态站点（自带 index.html 照常渲染）"
+mkdir -p "$ROOT/site"
+SITE_MARKER="STATIC_SITE_MARKER_5521"
+printf '<!doctype html><h1>site</h1><script>console.log(1)</script>%s' "$SITE_MARKER" > "$ROOT/site/index.html"
+SH=$(curl -s -D - -o /tmp/_site "$base/site/?t=$TOK")
+echo "$SH" | grep -qi '^Content-Type: *text/html' && ok "/site/ 以 text/html 渲染（静态站点功能在）" || bad "/site/ Content-Type 非 text/html: $(echo "$SH" | grep -i '^Content-Type')"
+grep -q "$SITE_MARKER" /tmp/_site && ok "磁盘 index.html 原样发出、未被去势" || bad "磁盘 index.html 内容缺失/被改"
+
 echo
 echo "结果：PASS=$PASS  FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
