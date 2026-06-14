@@ -335,6 +335,12 @@ final class FileServer {
 
     // 文件名清洗：只取末段（防 ../ 与绝对路径）、剔除控制符、":" 换 "-"（Finder 的路径分隔）；
     // 点开头（隐藏文件）、空名、"."/".." 一律拒绝。
+    // 末了给「浏览器作为顶层文档打开时会执行其中脚本」的扩展名（HTML/SVG 家族）追加 .txt 去势：
+    // 访客上传的内容落在分享源（http://本机:端口）下，若以 text/html、image/svg+xml 原样发出会被
+    // 当成同源页面执行脚本（存储型 XSS）；尤其传一个 index.html 会顶替目录列表页、别人点进该目录
+    // 即零点击中招。改名后落地为 text/plain，保留文件本体但不再执行、也不会成为目录默认页。
+    // 仅作用于访客上传路径；分享者自己放进文件夹的静态站点经 .directory 直接服务、不过此函数，
+    // 故「分享一个含 index.html 的站点目录」照常工作，不受影响。
     static func sanitizeFileName(_ raw: String?) -> String? {
         guard let raw else { return nil }
         var name = (raw as NSString).lastPathComponent
@@ -342,8 +348,16 @@ final class FileServer {
             .replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, !name.hasPrefix(".") else { return nil }
+        if executableDocExtensions.contains((name as NSString).pathExtension.lowercased()) {
+            name += ".txt"
+        }
         return name
     }
+
+    // 浏览器把它当顶层文档打开时会执行内嵌脚本的类型（HTML/SVG 家族）。访客上传命中即去势。
+    private static let executableDocExtensions: Set<String> = [
+        "html", "htm", "xhtml", "xht", "shtml", "svg", "svgz", "mht", "mhtml",
+    ]
 
     // 目标已存在则在扩展名前追加 -2/-3…（与 Share.makeItems 的 key 兜底同款策略）。
     static func availableURL(in dir: URL, name: String) -> URL {
@@ -368,6 +382,7 @@ final class FileServer {
     private func jsonResponse(_ code: Int, _ reason: String, _ json: String, extra: [String: String]) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = "application/json"
+        headers["X-Content-Type-Options"] = "nosniff"
         let body = Data(json.utf8)
         return .raw(code, reason, headers) { writer in try? writer.write(body) }
     }
@@ -375,6 +390,9 @@ final class FileServer {
     private func fileResponse(_ url: URL, extra: [String: String]) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = Mime.contentType(forExtension: url.pathExtension)
+        // 关掉浏览器的 MIME 猜测兜底：一律按上面声明的类型处理。已正确声明类型的文件照常内联显示，
+        // 未知类型本就回退 octet-stream 下载——nosniff 只是确保它不会被某些浏览器猜成 HTML 执行。
+        headers["X-Content-Type-Options"] = "nosniff"
         if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
             headers["Content-Length"] = String(size)
         }
@@ -395,6 +413,7 @@ final class FileServer {
     private func htmlResponse(_ code: Int, _ reason: String, _ html: String, extra: [String: String] = [:]) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = "text/html; charset=utf-8"
+        headers["X-Content-Type-Options"] = "nosniff"
         return .raw(code, reason, headers) { writer in
             try? writer.write(Data(html.utf8))
         }
