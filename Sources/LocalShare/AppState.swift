@@ -24,10 +24,12 @@ final class AppState: ObservableObject {
     @Published var localHost: String?
     @Published var lastError: String?
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
+    @Published var viewerLabels: [String] = []  // 访客展示标签（设备名优先，回退 IP 尾号），最近活跃在前
     @Published var received: [URL] = []   // 本次分享期间访客上传的文件（新→旧，最多留 5 条）
 
     @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
+    @Published var bindSelectedOnly = false         // 仅绑选中网卡（默认关=绑全部接口，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
@@ -46,6 +48,7 @@ final class AppState: ObservableObject {
     private let sharedDefaultsKey = "lastFolderPath"   // 旧版单值键（迁移回退用，新写入走 sharedPathsKey）
     private let sharedPathsKey = "lastSharedPaths"      // 当前分享的项路径数组（支持多选）
     private let portKey = "configuredPort"
+    private let bindSelectedOnlyKey = "bindSelectedOnly"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
     private let showRecentsKey = "showRecentShares"
@@ -55,6 +58,7 @@ final class AppState: ObservableObject {
     init() {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
+        bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         // bool(forKey:) 对未写入的键返回 false，会把默认「展示」误判成关闭，故先探键存在性。
         if UserDefaults.standard.object(forKey: showRecentsKey) != nil {
@@ -240,24 +244,63 @@ final class AppState: ObservableObject {
         fs.onUpload = { url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
         }
+        let prefer = [configuredPort] + fallbackPorts.filter { $0 != configuredPort }
+        // 「仅当前网络可见」开 → 只绑选中网卡；无选中网卡（无网）时退回全接口，避免直接挂掉。
+        let bindIP = bindSelectedOnly ? selectedInterface?.ip : nil
+        fs.listenAddress = bindIP
         do {
-            var prefer = [configuredPort]
-            prefer += fallbackPorts.filter { $0 != configuredPort }
             port = try fs.start(preferredPorts: prefer)
             server = fs
             isRunning = true
             lastError = nil
             startViewerPolling()
         } catch {
+            // 绑定指定网卡失败（IP 刚因 DHCP/切网消失）：退回全接口重试一次，给提示但不让分享中断。
+            if bindIP != nil {
+                fs.listenAddress = nil
+                if let p = try? fs.start(preferredPorts: prefer) {
+                    port = p
+                    server = fs
+                    isRunning = true
+                    lastError = "选定网卡暂不可用，已临时对全部网络开放。"
+                    startViewerPolling()
+                    return
+                }
+            }
             lastError = "启动服务失败：\(error.localizedDescription)"
             isRunning = false
         }
+    }
+
+    // 在不轮换 token 的前提下重绑监听地址（切网卡 / 切「仅当前网络可见」用）：stop() 会换钥匙、
+    // 作废已发链接，这里只想换 socket 绑定，故单独走——保留 self.token，已分发的二维码继续有效。
+    private func rebindServer() {
+        guard isRunning else { return }
+        viewerTimer?.invalidate(); viewerTimer = nil
+        server?.stop()
+        server = nil
+        start()   // 复用 self.token，仅监听地址/端口随当前选择重算
+    }
+
+    // 切换信号源：默认（绑全接口）下纯展示用途，沿用旧行为不重启；开了「仅当前网络可见」才需重绑到新网卡。
+    func selectInterface(_ iface: NetworkInterface) {
+        guard iface != selectedInterface else { return }
+        selectedInterface = iface
+        if isRunning && bindSelectedOnly { rebindServer() }
+    }
+
+    func setBindSelectedOnly(_ on: Bool) {
+        guard on != bindSelectedOnly else { return }
+        bindSelectedOnly = on
+        UserDefaults.standard.set(on, forKey: bindSelectedOnlyKey)
+        if isRunning { rebindServer() }   // 立即重绑：开=收窄到选中网卡，关=放开到全接口
     }
 
     func stop() {
         viewerTimer?.invalidate()
         viewerTimer = nil
         viewerCount = 0
+        viewerLabels = []
         server?.stop()
         server = nil
         isRunning = false
@@ -271,7 +314,9 @@ final class AppState: ObservableObject {
         viewerTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isRunning else { return }
-                self.viewerCount = self.server?.activeViewers() ?? 0
+                let labels = self.server?.activeViewerLabels() ?? []
+                self.viewerLabels = labels
+                self.viewerCount = labels.count
             }
         }
     }

@@ -245,4 +245,19 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 
 ### 在线感知后续
 
-- IP 反查 mDNS 主机名，显示「Shawn 的 iPhone 正在浏览」；查不到名兜底显示 IP 尾号。
+- ~~IP 反查主机名，显示「Shawn 的 iPhone 正在浏览」；查不到名兜底显示 IP 尾号。~~
+  **已落地（v0.7.x）**：`FileServer` 后台 best-effort 反查访客 IP 的设备名（`getnameinfo`
+  + `NI_NAMEREQD`，放并发队列、同 `NSLock` 缓存于 `nameCache`，随 token 轮换清零），GUI 单台
+  直呼其名、多台「… 等 N 人正在浏览」；查不到回退「…尾号」。**网页 `/ls/ping` 仍只回人数**，
+  不外泄设备名给其他访客。已知现实：iPhone 多经 mDNS 注册、普通 PTR 常查不到 → 多数显示 IP 尾号
+  （家用路由器把 DHCP 主机名登记进反向 DNS 时才有名）。要更准需走 `DNSServiceQueryRecord` 的
+  mDNS PTR 查询，成本高且仍不保证，未做。
+
+### 已落地的网络/提示小项（v0.7.x polish）
+
+- **「仅当前网络可见」开关**（`AppState.bindSelectedOnly` → `FileServer.listenAddress`）：默认关 =
+  绑全部接口（`0.0.0.0`，回环可达、对切网鲁棒）；开启则只绑选中信号源的私网 IPv4（Swifter 原生
+  `listenAddressIPv4`，**无须 fork**），分享仅在该网络可见。切网卡/切开关时不轮换 token 地重绑
+  （已发二维码继续有效），绑定 IP 因 DHCP/切网消失时自动回退全接口并提示。冒烟 `tools/smoke-bind-interface.sh`。
+- **明文风险提示**：底部「连不上?」气泡 + 设置·访问权限 区各一行克制灰字，点明公共 Wi-Fi 下传输
+  不加密、同网的人可能看到内容（与威胁模型行一致；自签 TLS 仍不做，理由见 §1）。

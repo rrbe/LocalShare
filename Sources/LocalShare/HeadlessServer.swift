@@ -7,6 +7,7 @@ import Foundation
 //   LS_TOKEN    访问令牌（选填，默认 testtoken）
 //   LS_PORT     端口（选填，默认 8080）
 //   LS_UPLOAD   置 1 开启访客上传（仅单文件夹分享生效）
+//   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）——对应 GUI「仅当前网络可见」，供冒烟验证
 enum HeadlessServer {
     static func run() {
         let env = ProcessInfo.processInfo.environment
@@ -26,6 +27,7 @@ enum HeadlessServer {
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let server = FileServer(share: makeShare(urls), token: token)
         server.uploadEnabled = env["LS_UPLOAD"] == "1"
+        server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         do {
             let bound = try server.start(preferredPorts: [port])
             print("LS_URL http://127.0.0.1:\(bound)/?t=\(token)")
