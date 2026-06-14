@@ -34,7 +34,7 @@
 | 生命周期 | 记住上次文件夹 · 开 app 自动起服务 · 端口自动选（占用则换）· 退出停服务 |
 | 容错 | 检测无 WiFi/无 IP 并提示 · 首启引导点防火墙“允许” · 常驻排错提示 · 空文件夹友好态 |
 | 分发 | Xcode ad-hoc 签名 · 你首次帮同事过一次 Gatekeeper（放行被持久记住） |
-| 自动更新 | Sparkle（二进制 framework，`@rpath` 内置进 `Contents/Frameworks/`）· 自动后台检查、发现新版弹提示由用户确认 · 信任链走 **EdDSA 签名**（与 ad-hoc 代码签名无关，故未公证也安全）· appcast 托管在 `raw.githubusercontent.com/.../master/appcast.xml`，CI 每次发布重写并提交回 master |
+| 自动更新 | Sparkle（二进制 framework，`@rpath` 内置进 `Contents/Frameworks/`）· 自动后台检查、发现新版弹提示由用户确认 · 信任链走 **EdDSA 签名**（与 ad-hoc 代码签名无关，故未公证也安全）· appcast 作为 GitHub Release 资产上传，feed 走 `releases/latest/download/appcast.xml` 固定地址，**发布对仓库零写入**（仓库根 `appcast.xml` 已于 0.7.0 冻结，仅供老客户端迁移） |
 | 沙盒 | **不开 App Sandbox**（内部手发、不上 App Store），省掉沙盒对“读任意文件夹”的限制 |
 
 ---
@@ -147,13 +147,14 @@ lan-file-share/
 - **依赖校验**（`build.sh` 末尾 + CI）：逐条过滤主二进制依赖，系统库放行、`@rpath/X.framework` 必须对应 `Contents/Frameworks/X.framework` 存在、其余包外 dylib 判失败。
 - **代码集成**：`Updater.swift` 的 `UpdaterController`（`@MainActor`）持 `SPUStandardUpdaterController`，在 `LocalShareApp` 以 `@StateObject` 构造（headless 路径不触及）；菜单 About 下方加「检查更新…」。配置全在 `Info.plist`：`SUFeedURL`、`SUPublicEDKey`、`SUEnableAutomaticChecks=true`、`SUScheduledCheckInterval=86400`、`SUAutomaticallyUpdate=false`（发现新版只提示、不静默装）。
 - **信任链**：走 EdDSA（Ed25519）——更新包用私钥签名、app 内嵌 `SUPublicEDKey` 校验，**与代码签名/公证无关**，所以 ad-hoc + 未公证也能安全自更新。且 Sparkle 安装的更新不带 `com.apple.quarantine`，首次装好后续升级不再触发 Gatekeeper。
-- **CI 链路**（`.github/workflows/release.yml`）：build → 依赖闸门 → 打 DMG → 建 Release → 用 `sign_update` 对 DMG 做 EdDSA 签名 → 生成单条 `<item>` 的 `appcast.xml`（enclosure 指向 Release 里的 DMG URL）→ `git checkout -f -B master` 后提交回 master。feed 即 `raw.githubusercontent.com/rrbe/LocalShare/master/appcast.xml`。
+- **CI 链路**（`.github/workflows/release.yml`）：build → 依赖闸门 → 打 DMG → 建 Release → 用 `sign_update` 对 DMG 做 EdDSA 签名 → 生成单条 `<item>` 的 `appcast.xml`（enclosure 指向 Release 里的 DMG URL）→ **作为资产上传到本次 Release（不提交 git，发布对仓库零写入）**。feed 即 `https://github.com/rrbe/LocalShare/releases/latest/download/appcast.xml`（GitHub 恒指向最新 release 的同名资产）。一次性迁移随 v0.7.0 完成：仓库根 `appcast.xml` 已冻结在 0.7.0、仅服务 ≤0.6.0 老客户端（feed 指向旧 raw master），升级后即转入新 feed；详见 CLAUDE.md「发布与版本」。
 
-#### ⚠️ 发布前一次性配置（必做，否则自动更新不生效）
+#### 一次性配置（EdDSA 密钥）— ✅ 已完成，下列为留档
+当年生成密钥对的步骤（仅作记录，无需重做）：
 1. 本地装 Sparkle 工具后生成 EdDSA 密钥对：`./bin/generate_keys`（私钥进登录钥匙串，终端打印 base64 **公钥**）。
-2. 把公钥填进 `bundle/Info.plist` 的 `SUPublicEDKey`，替换占位值 `REPLACE_WITH_REAL_SUPublicEDKey`，提交。（公钥非机密，直接进仓库。）
-3. 导出私钥：`./bin/generate_keys -x private_key.pem`（或从钥匙串导出），把内容存为 GitHub 仓库 secret **`SPARKLE_ED_PRIVATE_KEY`**。**私钥绝不入仓库**。
-   - 未配 secret 时 CI 会跳过 appcast 生成（仅出 DMG，发 `::warning::`）；`Info.plist` 仍是占位公钥时 app 不启动 updater。两道保险让「未配置」状态显式可见。
+2. 公钥已填入 `bundle/Info.plist` 的 `SUPublicEDKey`（当前值 `yF0fhsSuotJutGHezmoAFb3+M7nA6gcOln5aEWycXp8=`，**非占位**）。公钥非机密，直接进仓库。
+3. 私钥已存为 GitHub 仓库 secret **`SPARKLE_ED_PRIVATE_KEY`**（导出用 `./bin/generate_keys -x private_key.pem`）。**私钥绝不入仓库**。
+   - 兜底逻辑仍在：未配 secret 时 CI 跳过 appcast 生成（仅出 DMG，发 `::warning::`）；`Info.plist` 仍是占位公钥时 app 不启动 updater。两道保险让「未配置」状态显式可见。
 
 ### 容错 UI
 - 无 WiFi / 无私网 IP → 不画死码，显示“请先连接 WiFi”。
@@ -188,7 +189,7 @@ open dist/LocalShare.app     # 本机自测
 - [x] 安全：目录穿越（字面 `..`、编码 `%2e%2e`、混合 `..%2f`）全部 403，`/etc/passwd` 不可达
 - [x] 组装 `.app`：codesign 有效；`otool -L` 确认**零第三方 dylib**（仅 /usr/lib 与系统 Frameworks）
 - [x] GUI 端到端：启动 → 读记住的文件夹 → 自动起服务 → 监听端口生效
-- [x] 自动更新（Sparkle）：framework `@rpath` 内置进 `Contents/Frameworks/` + 深度签名；放宽后依赖闸门（build.sh/CI）只许内置 framework；`Updater.swift` + Info.plist 配置；CI 走 EdDSA 签名 + appcast 提交回 master。**发布前需一次性配置 EdDSA 密钥**（见 §3「发布前一次性配置」）。
+- [x] 自动更新（Sparkle）：framework `@rpath` 内置进 `Contents/Frameworks/` + 深度签名；放宽后依赖闸门（build.sh/CI）只许内置 framework；`Updater.swift` + Info.plist 配置；CI 走 EdDSA 签名 + appcast 作为 Release 资产上传（feed `releases/latest/download`，零写仓库）。EdDSA 密钥已一次性配置完成（见 §3）。
 - [x] 命令行启动：`localshare <路径>…` 转发 GUI / `--headless` 前台模式 / 设置面板安装 symlink；
       已验证 symlink 经 dyld realpath 加载包内 Sparkle、冷启动 open 事件缓冲、热切换实例复用、
       终端二维码 Vision 实扫解码通过；release 编译器坑已规避并注释（见 §3「命令行启动」）。
@@ -207,6 +208,16 @@ open dist/LocalShare.app     # 本机自测
       已验证：根/子目录上传、文件名穿越清洗、目标路径穿越 403、重名 -2、中文/空格名、点开头 400、
       不存在目录 404、无 token 403、开关关 403、多选/单文件分享 403、501MB 413 且不落盘、
       上传内容逐字节完整、未开上传时页面无按钮且措辞仍「只读」、release 冒烟全过。
+- [x] 在线访客显示设备名（0.7.x，PR #15）：`FileServer` 后台 best-effort 反查访客 IP 的设备名
+      （`getnameinfo`+`NI_NAMEREQD`，串行队列、同 `NSLock` 缓存于 `nameCache`、对端自报名清洗去
+      控制/RTL 码点、随 token 轮换清零），GUI 单台直呼其名、多台「… 等 N 人」、查不到回退「…尾号」；
+      **网页 `/ls/ping` 仍只回人数**。已知现实：iPhone 多经 mDNS 注册、普通 PTR 常查不到。
+- [x] 「仅当前网络可见」开关（0.7.x，PR #15）：`AppState.bindSelectedOnly` → `FileServer.listenAddress`，
+      开启则只绑选中网卡的私网 IPv4（Swifter 原生 `listenAddressIPv4`，无须 fork），默认仍绑 `0.0.0.0`；
+      切网卡/切开关不轮换 token 地重绑、绑定 IP 消失自动回退全接口并提示；非法地址经 `inet_pton` 校验
+      抛错而非静默绑全接口。冒烟 `tools/smoke-bind-interface.sh`。
+- [x] 明文风险提示（0.7.x，PR #15）：底部「连不上?」气泡 + 设置·访问权限 区各一行克制灰字，告知公共
+      Wi-Fi 下传输不加密、同网可能被嗅探（与 §1 威胁模型一致；自签 TLS 仍不做）。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -223,7 +234,7 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 ## 6. 明确不做（v1 范围外，留给 v2）
 
 - Apple 公证（要 $99/年开发者号）；https + 自签证书（仅当 html 用到 secure-context API 才需要）；跨网络隧道（cloudflared/ngrok/tailscale）；菜单栏常驻形态。
-- （自动更新已在 0.3 落地，见 §3「自动更新（Sparkle）」；手机上传回电脑已转入 §7 规划。）
+- （自动更新已在 0.3 落地，见 §3「自动更新（Sparkle）」；手机上传回电脑已在 0.6 落地，见 §5 进度。）
 
 ---
 
@@ -243,21 +254,9 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 - `Permission.edit` / `Permission.del`（在线编辑、删除）：后端未实现，开关已留好；做之前先想清
   覆盖丢数据与并发冲突的兜底。
 
-### 在线感知后续
+### 设备名反查后续
 
-- ~~IP 反查主机名，显示「Shawn 的 iPhone 正在浏览」；查不到名兜底显示 IP 尾号。~~
-  **已落地（v0.7.x）**：`FileServer` 后台 best-effort 反查访客 IP 的设备名（`getnameinfo`
-  + `NI_NAMEREQD`，放并发队列、同 `NSLock` 缓存于 `nameCache`，随 token 轮换清零），GUI 单台
-  直呼其名、多台「… 等 N 人正在浏览」；查不到回退「…尾号」。**网页 `/ls/ping` 仍只回人数**，
-  不外泄设备名给其他访客。已知现实：iPhone 多经 mDNS 注册、普通 PTR 常查不到 → 多数显示 IP 尾号
-  （家用路由器把 DHCP 主机名登记进反向 DNS 时才有名）。要更准需走 `DNSServiceQueryRecord` 的
-  mDNS PTR 查询，成本高且仍不保证，未做。
+- 现为 best-effort `getnameinfo`（已落地，见 §5），iPhone 多查不到、回退 IP 尾号。要更准需走
+  `DNSServiceQueryRecord` 的 mDNS PTR 查询，成本高且仍不保证命中，暂不做。
 
-### 已落地的网络/提示小项（v0.7.x polish）
-
-- **「仅当前网络可见」开关**（`AppState.bindSelectedOnly` → `FileServer.listenAddress`）：默认关 =
-  绑全部接口（`0.0.0.0`，回环可达、对切网鲁棒）；开启则只绑选中信号源的私网 IPv4（Swifter 原生
-  `listenAddressIPv4`，**无须 fork**），分享仅在该网络可见。切网卡/切开关时不轮换 token 地重绑
-  （已发二维码继续有效），绑定 IP 因 DHCP/切网消失时自动回退全接口并提示。冒烟 `tools/smoke-bind-interface.sh`。
-- **明文风险提示**：底部「连不上?」气泡 + 设置·访问权限 区各一行克制灰字，点明公共 Wi-Fi 下传输
-  不加密、同网的人可能看到内容（与威胁模型行一致；自签 TLS 仍不做，理由见 §1）。
+> v0.7.x 已落地的小项（设备名反查、「仅当前网络可见」、明文提示）已移入 §5 进度，不再列为规划。
