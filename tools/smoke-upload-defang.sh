@@ -41,7 +41,8 @@ R=$(up "index.html")
 echo "$R" | grep -q '"index.html.txt"' && ok "落地被改名为 index.html.txt: ${R}" || bad "未改名: ${R}"
 
 # 别人点进 /sub/：应拿到目录列表页，而不是攻击者 HTML（响应里不该出现 MARKER 内容）
-SUB=$(curl -s -H 'Accept: text/html' "$base/sub/?t=$TOK")
+# 注：用默认 Accept（*/*）而非 text/html —— 目录列表不受 Accept 影响，且可避开浏览器导航的 token 302 清洗
+SUB=$(curl -s "$base/sub/?t=$TOK")
 echo "$SUB" | grep -q "$MARKER" && bad "/sub/ 仍吐出攻击载荷内容（劫持未堵！）" || ok "/sub/ 返回目录列表、不含载荷内容"
 
 echo "── 2. 文件本体保留但被中和为 text/plain + nosniff"
@@ -62,9 +63,13 @@ echo "── 5. 普通文件响应也带 nosniff"
 curl -s -D - -o /dev/null "$base/sub/report.pdf?t=$TOK" | grep -qi '^X-Content-Type-Options: *nosniff' \
   && ok "普通文件响应带 nosniff" || bad "普通文件缺 nosniff"
 
+echo "── 6. 上传文件落地打上 com.apple.quarantine（双击触发 Gatekeeper）"
+xattr -p com.apple.quarantine "$ROOT/sub/report.pdf" 2>/dev/null | grep -q ';LocalShare;' \
+  && ok "report.pdf 带 quarantine（来源 LocalShare）" || bad "缺 quarantine 属性"
+
 # 护栏：去势只作用于「上传」，分享者自己放在磁盘上的静态站点（含 index.html）必须照常以
 # text/html 渲染、原样发出——若将来有人误把去势/下载头扩到磁盘文件，这条会立刻抓到。
-echo "── 6. 不误伤磁盘静态站点（自带 index.html 照常渲染）"
+echo "── 7. 不误伤磁盘静态站点（自带 index.html 照常渲染）"
 mkdir -p "$ROOT/site"
 SITE_MARKER="STATIC_SITE_MARKER_5521"
 printf '<!doctype html><h1>site</h1><script>console.log(1)</script>%s' "$SITE_MARKER" > "$ROOT/site/index.html"

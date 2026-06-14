@@ -98,8 +98,11 @@ lan-file-share/
 > **网页侧 XSS 硬化（0.7.x）**：被服务的内容跑在分享源（`http://本机:端口`）下，HTML/SVG 会被当同源页面执行脚本——能在浏览者会话里读写整个分享、把页面伪装成可信的列表页钓鱼、拿浏览者当 LAN 跳板。两道防线：
 > 1. **访客上传去势（主修）**：`sanitizeFileName` 末尾对 `executableDocExtensions`（html/htm/xhtml/xht/shtml/svg/svgz/mht/mhtml）追加 `.txt`，落地成 `text/plain`。专堵「传一个 `index.html` 顶替目录列表页 → 别人点进该目录**零点击**执行脚本」这条存储型 XSS（`availableURL` 只在重名时改名，故空目录里的 `index.html` 会成为默认页），也中和点开即跑的上传 HTML/SVG。文件本体保留、不丢。
 > 2. **全站 `X-Content-Type-Options: nosniff`（纵深防御）**：关掉浏览器 MIME 猜测。正确声明类型的文件照常内联显示、未知类型本就 `octet-stream` 下载，**零回归**；它拦的是「octet-stream 被猜成 HTML 执行」，拦不住「类型本就是 text/html 的执行」——所以 defang 才是上传向量的主修，nosniff 是补强。
+> 3. **Markdown 链接/图片协议白名单**：`.md` 走 marked 预览渲染、不经上面的去势，故单独在 `MarkdownViewer.rendererConfig` 覆盖 marked 的 `link`/`image` 渲染器——只**放行**安全协议（链接 `http`/`https`/`mailto`/`tel`，图片再加 `data:`）与相对/锚点，其余一律拦，堵「恶意 `.md` 里一个 `[x](javascript:…)` 链接被点开即在分享页同源跑脚本」；用白名单而非黑名单，因黑名单天然漏（实体编码、未来新协议）。两个易错点：**(a) 先解 HTML 实体再判**——marked 默认渲染器把 href 里的实体（`&#106;avascript:`、`javascript&colon;`）原样写进属性、浏览器解析时才解码，不解码就「检查串≠执行串」被旁路；**(b)** 解码后再剥掉码点 ≤32 的字符（挡 `java<TAB>script:`），冒号须在任何 `/ ? #` 之前才算协议。安全 URL 返回 `false` 走 marked 默认渲染，不误伤。配置用 `/* MD-RENDERER-CONFIG */` 标记，`tools/smoke-md-link-sanitize.cjs` 连同**真实 vendored marked** 在 node 里跑断言（含实体编码绕过用例，测真配置非复刻）。
 >
-> **只作用于上传路径**：分享者自己放进文件夹的静态站点（含磁盘上的 `index.html`）经 `.directory` 直接服务、不过 `sanitizeFileName`，照常渲染——「分享一个站点目录、index.html 当首页」的功能不受影响。回归测试 `tools/smoke-upload-defang.sh`（无头 + curl，复现完整攻击链 + 不误伤正常文件 + 不破坏磁盘静态站点）。
+> **只作用于上传/不可信内容路径**：分享者自己放进文件夹的静态站点（含磁盘上的 `index.html`）经 `.directory` 直接服务、不过 `sanitizeFileName`，照常渲染——「分享一个站点目录、index.html 当首页」的功能不受影响。回归测试 `tools/smoke-upload-defang.sh`（无头 + curl，复现完整攻击链 + 不误伤正常文件 + 不破坏磁盘静态站点）。
+>
+> **配套两项卫生加固（0.7.x）**：① **token-302 清洗**——浏览器经 `?t=` 首访（Accept 含 `text/html`、尚无 cookie）时，种好 cookie 后立刻 302 到去掉 `?t=` 的同一路径，token 不残留地址栏/历史；curl/脚本与壳页 `?raw=1`/子资源（Accept `*/*`）不触发、照旧直接拿内容（测 `tools/smoke-token-302.sh`）。② **上传文件打 `com.apple.quarantine`**——访客上传落地后 `setxattr` 隔离属性，分享者双击时与「浏览器下载的文件」同享 Gatekeeper 待遇（纯 libSystem，best-effort）。
 >
 > 未做（接收端是浏览器、自签 TLS 会触发证书警告页伤体验，与「扫码即用」冲突，业界同形态产品如 LocalSend 的 Web Share 同样退回明文 HTTP）：传输层加密。明文 HTTP 下「同网嗅探/恶意 AP 读到 `?t=` 或文件流」是该形态的固有上限，靠 token 轮换 + 默认只读 + 二维码带外传 token 收敛，详见威胁模型行。
 

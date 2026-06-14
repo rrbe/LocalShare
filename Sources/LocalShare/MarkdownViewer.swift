@@ -10,7 +10,7 @@ enum MarkdownViewer {
         PreviewPage.html(
             fileName: fileName, crumbs: crumbs, canUpload: canUpload,
             body: #"<article class="card md" id="md"><p class="ld">正在加载…</p></article>"#,
-            css: css, scripts: [MarkedJS.source, boot])
+            css: css, scripts: [MarkedJS.source, rendererConfig, boot])
     }
 
     private static let css = """
@@ -25,6 +25,7 @@ enum MarkdownViewer {
         .md h4,.md h5,.md h6{font-size:15.5px}
         .md p{margin:.9em 0}
         .md a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)}
+        .md .blk{color:var(--inkMute);border-bottom:1px dotted var(--inkFaint)}
         .md img{max-width:100%;border-radius:10px;border:1px solid var(--line)}
         .md code{font:.92em var(--mono);background:var(--surfaceAlt);border:1px solid var(--line);
           border-radius:5px;padding:.1em .38em}
@@ -45,14 +46,50 @@ enum MarkdownViewer {
         }
         """
 
+    // marked 渲染器安全配置（独立 <script>，在 marked 之后、boot 解析之前注入）。两件事：
+    // ① 原始 HTML 块/行内标签转义为可见文本——内嵌 <script>/<iframe> 不执行；
+    // ② 链接/图片 href 协议**白名单**——只放行 http/https/mailto/tel（图片再加 data:image）与相对/锚点，
+    //    其余一律拦掉，堵「恶意 .md 里一个 [x](javascript:…) 链接被点开即在分享页同源执行脚本」的存储型 XSS。
+    //    用白名单而非黑名单：黑名单天然漏（实体编码、未来新协议）。两个关键点：
+    //    (a) **先解 HTML 实体再判**——marked 默认渲染器把 href 里的实体（&#106;avascript: / javascript&colon;）
+    //        原样写进属性，浏览器解析属性时才解码，「检查串 ≠ 执行串」会被旁路；故必须解码到与浏览器一致。
+    //    (b) 解码后再剥掉码点 ≤32 的字符（控制符/空白，挡 java<TAB>script:），冒号须在任何 / ? # 之前才算协议。
+    //    安全 URL 返回 false → 用 marked 默认渲染，不改写正常链接。
+    // /* MD-RENDERER-CONFIG */ 标记供 tools/smoke-md-link-sanitize.cjs 提取，连同真实 vendored
+    // marked 在 node 里跑回归断言（测的是这份真配置，不是复刻品）。
+    static let rendererConfig = """
+        /* MD-RENDERER-CONFIG */
+        (function(){
+          var escHtml=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')};
+          var ent=function(s){s=String(s==null?'':s);
+            s=s.replace(/&#[xX]([0-9a-fA-F]+);?/g,function(_,h){var n=parseInt(h,16);return (n>=0&&n<=1114111)?String.fromCodePoint(n):''});
+            s=s.replace(/&#([0-9]+);?/g,function(_,d){var n=parseInt(d,10);return (n>=0&&n<=1114111)?String.fromCodePoint(n):''});
+            s=s.replace(/&colon;/gi,':');
+            s=s.replace(/&(tab|newline);/gi,'');
+            return s};
+          var clean=function(u){u=ent(u);var o='';for(var i=0;i<u.length;i++){if(u.charCodeAt(i)>32)o+=u.charAt(i)}return o.toLowerCase()};
+          var scheme=function(u){var c=clean(u);var m=/^[a-z][a-z0-9+.-]*:/.exec(c);return m?c.slice(0,m[0].length-1):''};
+          var LINK_OK={http:1,https:1,mailto:1,tel:1};
+          var IMG_OK={http:1,https:1,data:1};
+          var linkBlocked=function(u){var s=scheme(u);return s!==''&&!LINK_OK[s]};
+          var imgBlocked=function(u){var s=scheme(u);return s!==''&&!IMG_OK[s]};
+          marked.use({gfm:true,breaks:false,renderer:{
+            html:function(t){var s=(t&&(t.text!=null?t.text:t.raw))||'';return escHtml(s)},
+            link:function(t){
+              if(!linkBlocked(t&&t.href))return false;
+              return '<span class="blk">'+this.parser.parseInline(t.tokens||[])+'</span>';
+            },
+            image:function(t){
+              if(!imgBlocked(t&&t.href))return false;
+              return escHtml((t&&t.text)||'');
+            }
+          }});
+        })();
+        """
+
     private static let boot = """
         (function(){
           var box=document.getElementById('md');
-          var escHtml=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')};
-          // 原始 HTML 块/行内标签转义为可见文本：md 渲染特性全保留，内嵌 <script>/<iframe> 不执行。
-          marked.use({gfm:true,breaks:false,renderer:{
-            html:function(t){var s=(t&&(t.text!=null?t.text:t.raw))||'';return escHtml(s)}
-          }});
           function fail(){
             box.innerHTML='<p class="ld">加载失败 · <a href="?raw=1">查看原文</a></p>';
           }
