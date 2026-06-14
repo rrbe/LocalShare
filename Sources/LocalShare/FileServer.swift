@@ -122,30 +122,38 @@ final class FileServer {
         }
     }
 
-    // 活跃访客数。网页 /ls/ping 只回这个数字（不外泄设备名给其他访客）；顺手剔除窗口外条目。
-    func activeViewers() -> Int {
+    // 裁剪窗口外的活跃记录，并同步淘汰其设备名缓存——nameCache 与 lastSeen 同生命周期，免得只增
+    // 不减（否则仅在 token 轮换时清）。调用方已持 lock。
+    private func pruneExpiredLocked() {
         let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
-        lock.lock(); defer { lock.unlock() }
         lastSeen = lastSeen.filter { $0.value > cutoff }
+        nameCache = nameCache.filter { lastSeen[$0.key] != nil }
+    }
+
+    // 活跃访客数。网页 /ls/ping 只回这个数字（不外泄设备名给其他访客）。
+    func activeViewers() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        pruneExpiredLocked()
         return lastSeen.count
     }
 
     // GUI 用：活跃访客的展示标签，按最近活跃排序。设备名优先，查不到回退「…尾号」（IP 末段）。
     // 仅供分享者本机的窗口显示——网页端永远只看到人数（见 activeViewers）。
     func activeViewerLabels() -> [String] {
-        let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
         lock.lock(); defer { lock.unlock() }
-        lastSeen = lastSeen.filter { $0.value > cutoff }
+        pruneExpiredLocked()
         return lastSeen.sorted { $0.value > $1.value }.map { ip, _ in
             if let n = nameCache[ip], !n.isEmpty { return n }
             return "…" + (ip.split(separator: ".").last.map(String.init) ?? ip)
         }
     }
 
-    // 反查设备名（best-effort，会阻塞 → 放后台并发队列）。getnameinfo 走系统解析器：家用路由器
-    // 常把客户端 DHCP 主机名登记进反向 DNS，故有时能拿到名字；iPhone 多只经 mDNS 注册、普通 PTR
-    // 常查不到 → 回 ""，由 activeViewerLabels 回退 IP 尾号。取首段并去本地域后缀作友好显示。
-    private static let lookupQueue = DispatchQueue(label: "localshare.namelookup", attributes: .concurrent)
+    // 反查设备名（best-effort）。getnameinfo 走系统解析器：家用路由器常把客户端 DHCP 主机名登记进
+    // 反向 DNS，故有时能拿到名字；iPhone 多只经 mDNS 注册、普通 PTR 常查不到 → 回 ""，由
+    // activeViewerLabels 回退 IP 尾号。取首段去本地域后缀作友好显示。
+    // 串行队列：NI_NAMEREQD 对无 PTR 的设备会阻塞到 DNS 超时；既然 best-effort、延迟无所谓，串行可
+    // 避免多个陌生 IP 同时到达时派生一堆被阻塞的线程（nameLookupInFlight 已按 IP 去重）。
+    private static let lookupQueue = DispatchQueue(label: "localshare.namelookup")
     private static func reverseLookup(_ ip: String, completion: @escaping (String) -> Void) {
         lookupQueue.async {
             var addr = sockaddr_in()
@@ -160,10 +168,18 @@ final class FileServer {
                 }
             }
             guard r == 0 else { completion(""); return }   // NI_NAMEREQD：无名即非 0
-            let full = String(cString: host)
-            let name = full.split(separator: ".").first.map(String.init) ?? full
-            completion(name)
+            let first = String(cString: host).split(separator: ".").first.map(String.init) ?? ""
+            completion(Self.sanitizeDeviceName(first))
         }
+    }
+
+    // 设备名由 LAN 对端自报（DHCP/PTR），不可信：剔除控制字符与 RTL/隔离等格式码点——咖啡馆这类
+    // 网络下对端可自命名塞 U+202E 之类做视觉欺骗。SwiftUI Text(String) 本不解释 markdown/HTML，
+    // 故无注入，这里只是 host 自己屏幕上的观感加固；再限长兜底。
+    private static func sanitizeDeviceName(_ raw: String) -> String {
+        let bidi: Set<UInt32> = [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069]
+        let kept = raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F && !bidi.contains($0.value) }
+        return String(String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces).prefix(40))
     }
 
     init(share: Share, token: String) {
@@ -177,6 +193,17 @@ final class FileServer {
     // 依次尝试偏好端口；都占用则随机高位端口。返回实际绑定端口，全失败抛错。
     @discardableResult
     func start(preferredPorts: [in_port_t]) throws -> in_port_t {
+        // 监听地址若非合法 IPv4：Swifter 的 inet_pton 会静默失败、sin_addr 保持 0 即 INADDR_ANY——
+        // 「仅当前网络可见」会无声地对所有网络开放，与承诺相反。提前抛错，把这条隐性失败显式化：
+        // GUI 侧让上层「回退全接口并提示」的安全网接住（而非依赖 bind() 失败），headless 侧直接启动失败。
+        // GUI 的地址恒来自 getifaddrs、本不会触发；这是给 LS_BIND / 日后误用的兜底。
+        if let addr = listenAddress {
+            var probe = in_addr()
+            guard inet_pton(AF_INET, addr, &probe) == 1 else {
+                throw NSError(domain: "FileServer", code: -2,
+                              userInfo: [NSLocalizedDescriptionKey: "非法监听地址：\(addr)"])
+            }
+        }
         // nil → INADDR_ANY（全接口）；非 nil → 只绑该 IPv4。forceIPv4 取 listenAddressIPv4。
         server.listenAddressIPv4 = listenAddress
         var lastError: Error?

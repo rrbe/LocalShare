@@ -64,6 +64,16 @@ if start_srv "$LAN" 18213 "$LAN"; then
 else bad "局域网绑定服务未就绪"; fi
 stop_srv
 
+echo "── 4. LS_BIND 非法值 → 启动失败，不静默绑全接口（inet_pton 校验）"
+env LS_BIND=not-an-ip LS_HEADLESS=1 LS_FOLDER="$ROOT" LS_TOKEN="$TOK" LS_PORT=18214 "$BIN" >/dev/null 2>&1 &
+SRV=$!; sleep 1
+if kill -0 "$SRV" 2>/dev/null; then
+  bad "非法 LS_BIND 仍在运行（loopback=$(probe 127.0.0.1 18214)）——应启动失败而非静默对外开放"
+  stop_srv
+else
+  ok "非法 LS_BIND 启动失败（未静默绑全接口）"; SRV=""
+fi
+
 echo
 echo "结果：PASS=$PASS  FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
