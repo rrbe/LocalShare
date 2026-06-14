@@ -81,6 +81,14 @@ final class FileServer {
     // 拒绝、省掉 multipart 的二次拷贝；前端先行拦截超限文件。流式/分片上传是 v1.5 的事。
     static let uploadLimit = 500 * 1024 * 1024
 
+    // token-302 重建剩余 query 时用：从 urlQueryAllowed 去掉在 query 里有分隔含义的字符，
+    // 免得某个参数值里的 & = + ? # ; 把 302 的 Location 拆出额外参数（保真，非安全问题）。
+    private static let queryComponentAllowed: CharacterSet = {
+        var s = CharacterSet.urlQueryAllowed
+        s.remove(charactersIn: "&=+?#;")
+        return s
+    }()
+
     // MARK: - 在线感知
     // 「正在浏览」近似为：最近 presenceWindow 内有过任何请求的客户端 IP（页面心跳、点开文件、
     // 下载大文件都算）。局域网内一台设备一个 IP，无须 cookie 标识；同设备多 tab 算一个人。
@@ -164,8 +172,8 @@ final class FileServer {
         if viaQuery, !viaCookie, req.method == "GET",
            (req.headers["accept"] ?? "").contains("text/html") {
             let rest = req.queryParams.filter { $0.0 != "t" }.map { kv in
-                let k = kv.0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kv.0
-                let v = kv.1.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kv.1
+                let k = kv.0.addingPercentEncoding(withAllowedCharacters: Self.queryComponentAllowed) ?? kv.0
+                let v = kv.1.addingPercentEncoding(withAllowedCharacters: Self.queryComponentAllowed) ?? kv.1
                 return "\(k)=\(v)"
             }.joined(separator: "&")
             var h = extra

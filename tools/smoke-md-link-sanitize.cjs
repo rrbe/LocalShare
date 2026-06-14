@@ -46,6 +46,20 @@ check('内嵌 NUL 的 java<NUL>script: 被挡', !/href="/i.test(marked.parse('[x
 check('vbscript: 被挡', !/href="vbscript:/i.test(marked.parse('[x](vbscript:msgbox(1))')));
 check('链接里的 data: 被挡', !/href="data:/i.test(marked.parse('[x](data:text/html,foo)')));
 
+console.log('── HTML 实体编码绕过被堵（marked 把实体原样写进 href，浏览器才解码）');
+// 这些 .md 若不解码就判，会被白名单当成「无协议=相对链接」放行，浏览器解码后却变成 javascript: 执行。
+check('十进制实体 &#106;avascript: 被挡', !/href="[^"]*avascript:/i.test(marked.parse('[x](&#106;avascript:alert(1))')));
+check('十六进制实体 &#x6a;avascript: 被挡', !/href="[^"]*avascript:/i.test(marked.parse('[x](&#x6a;avascript:alert(1))')));
+check('大写 &#X6A;avascript: 被挡', !/href="[^"]*avascript:/i.test(marked.parse('[x](&#X6A;avascript:alert(1))')));
+check('前导零 &#0000106;avascript: 被挡', !/href="[^"]*avascript:/i.test(marked.parse('[x](&#0000106;avascript:alert(1))')));
+check('命名实体冒号 javascript&colon: 被挡', !/href="javascript&colon;/i.test(marked.parse('[x](javascript&colon;alert(1))')));
+check('数字实体冒号 javascript&#58;: 被挡', !/href="javascript&#58;/i.test(marked.parse('[x](javascript&#58;alert(1))')));
+check('实体编码图片 &#106;avascript: 无 src', !/src="[^"]*avascript:/i.test(marked.parse('![i](&#106;avascript:alert(1))')));
+
+console.log('── 白名单：非安全协议一律拦、tel: 放行');
+check('ftp: 被挡（白名单外）', !/href="ftp:/i.test(marked.parse('[x](ftp://host/f)')));
+check('tel: 放行', /href="tel:/.test(marked.parse('[t](tel:+123)')));
+
 console.log('── 正常链接照常渲染（不误伤）');
 check('https 链接保留 href', /href="https:\/\/example\.com"/.test(marked.parse('[ok](https://example.com)')));
 check('相对路径链接保留 href', /href="\/foo\/bar"/.test(marked.parse('[rel](/foo/bar)')));
