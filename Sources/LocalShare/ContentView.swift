@@ -347,11 +347,12 @@ private struct ShareScreen: View {
                 }
                 .padding(.top, 7).padding(.leading, 12)
             }
-            // 在线访客：小绿点 + 人数，0 人时整行隐藏（不占位、不留空文案）。
+            // 在线访客：小绿点 + 设备名（查不到回退 IP 尾号），0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {
                 HStack(spacing: 6) {
                     Circle().fill(t.ok).frame(width: 6, height: 6)
-                    Text("\(state.viewerCount) 人正在浏览").font(.sans(11.5)).foregroundStyle(t.inkMute)
+                    Text(viewerText).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                        .lineLimit(1).truncationMode(.tail)
                 }
                 .padding(.top, 12)
                 .transition(.opacity)
@@ -359,6 +360,13 @@ private struct ShareScreen: View {
         }
         .padding(.horizontal, 18).padding(.bottom, 18)
         .animation(.easeInOut(duration: 0.2), value: state.viewerCount > 0)
+    }
+
+    // 在线访客文案：单台直呼其名（或 IP 尾号），多台以最近活跃那台领衔 +「等 N 人」。
+    private var viewerText: String {
+        let n = state.viewerCount
+        guard let first = state.viewerLabels.first else { return "\(n) 人正在浏览" }
+        return n <= 1 ? "\(first) 正在浏览" : "\(first) 等 \(n) 人正在浏览"
     }
 
     @ViewBuilder private var actions: some View {
@@ -628,6 +636,15 @@ private struct SettingsScreen: View {
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
                 .padding(.top, 12)
 
+                // 明文传输提示：纯 LAN 不加密，公共网络下同网的人能看到内容。用克制的灰字、不进彩底警告框。
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "lock.open").font(.system(size: 13)).foregroundStyle(t.inkMute).padding(.top, 1)
+                    Text("同一网络下传输不加密 · 公共 Wi-Fi（咖啡馆 / 机场等）下同网的人可能看到内容，敏感文件别在这种网络分享。")
+                        .font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 12)
+
                 // 最近分享
                 SectionLabel(t: t, text: "最近分享").padding(.top, 24).padding(.bottom, 4)
                 HStack(spacing: 12) {
@@ -891,6 +908,13 @@ private struct HelpRow: View {
                     row("1", "确认两台设备连的是同一个 Wi-Fi / 网络。")
                     row("2", "首次启动若弹出防火墙提示，请点「允许」。")
                     row("3", "公司 / 公共 Wi-Fi 常开「设备隔离」，会阻止互访，换个网络试试。")
+                    Rectangle().fill(t.line).frame(height: 1).padding(.vertical, 1)
+                    HStack(alignment: .top, spacing: 9) {
+                        Image(systemName: "lock.open").font(.system(size: 11)).foregroundStyle(t.inkMute).frame(width: 16)
+                        Text("传输不加密：公共 Wi-Fi 下同网的人可能看到内容，敏感文件别在这种网络分享。")
+                            .font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
+                        Spacer(minLength: 0)
+                    }
                 }
                 .padding(16).frame(width: 312)
             }

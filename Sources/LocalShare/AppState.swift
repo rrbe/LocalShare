@@ -24,6 +24,7 @@ final class AppState: ObservableObject {
     @Published var localHost: String?
     @Published var lastError: String?
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
+    @Published var viewerLabels: [String] = []  // 访客展示标签（设备名优先，回退 IP 尾号），最近活跃在前
     @Published var received: [URL] = []   // 本次分享期间访客上传的文件（新→旧，最多留 5 条）
 
     @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
@@ -299,6 +300,7 @@ final class AppState: ObservableObject {
         viewerTimer?.invalidate()
         viewerTimer = nil
         viewerCount = 0
+        viewerLabels = []
         server?.stop()
         server = nil
         isRunning = false
@@ -312,7 +314,9 @@ final class AppState: ObservableObject {
         viewerTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isRunning else { return }
-                self.viewerCount = self.server?.activeViewers() ?? 0
+                let labels = self.server?.activeViewerLabels() ?? []
+                self.viewerLabels = labels
+                self.viewerCount = labels.count
             }
         }
     }

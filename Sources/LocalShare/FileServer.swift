@@ -1,4 +1,5 @@
 import Foundation
+import Darwin   // getnameinfo / inet_pton / sockaddr_in（设备名反查）
 import Swifter
 
 // 基于 Swifter 的只读静态文件服务。
@@ -69,7 +70,7 @@ final class FileServer {
     private var _token: String
     var token: String {
         get { lock.lock(); defer { lock.unlock() }; return _token }
-        set { lock.lock(); _token = newValue; lastSeen = [:]; lock.unlock() }
+        set { lock.lock(); _token = newValue; lastSeen = [:]; nameCache = [:]; nameLookupInFlight = []; lock.unlock() }
     }
 
     // MARK: - 访客上传（Permission.add，v1 仅单文件夹分享）
@@ -101,18 +102,68 @@ final class FileServer {
     // 心跳，只能靠请求时间近似（可接受的已知缺口）。
     private static let presenceWindow: TimeInterval = 45
     private var lastSeen: [String: Date] = [:]   // ip → 最近请求时间（同 lock 保护）
+    // 设备名反查缓存（同 lock）：ip → 友好设备名；空串=查过但无名（回退 IP 尾号）；缺键=尚未查。
+    private var nameCache: [String: String] = [:]
+    private var nameLookupInFlight: Set<String> = []   // 正在后台反查的 ip，去重避免重复发起
 
     private func touchPresence(_ ip: String?) {
         guard let ip, !ip.isEmpty else { return }
-        lock.lock(); lastSeen[ip] = Date(); lock.unlock()
+        lock.lock()
+        lastSeen[ip] = Date()
+        // 首次见到该 IP 时后台反查一次设备名；命中即缓存，之后直接读。
+        let needsLookup = nameCache[ip] == nil && !nameLookupInFlight.contains(ip)
+        if needsLookup { nameLookupInFlight.insert(ip) }
+        lock.unlock()
+        if needsLookup {
+            Self.reverseLookup(ip) { [weak self] name in
+                guard let self else { return }
+                self.lock.lock(); self.nameCache[ip] = name; self.nameLookupInFlight.remove(ip); self.lock.unlock()
+            }
+        }
     }
 
-    // 活跃访客数。GUI 定时轮询 + 心跳响应均走这里；顺手剔除窗口外条目，字典不会无限增长。
+    // 活跃访客数。网页 /ls/ping 只回这个数字（不外泄设备名给其他访客）；顺手剔除窗口外条目。
     func activeViewers() -> Int {
         let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
         lock.lock(); defer { lock.unlock() }
         lastSeen = lastSeen.filter { $0.value > cutoff }
         return lastSeen.count
+    }
+
+    // GUI 用：活跃访客的展示标签，按最近活跃排序。设备名优先，查不到回退「…尾号」（IP 末段）。
+    // 仅供分享者本机的窗口显示——网页端永远只看到人数（见 activeViewers）。
+    func activeViewerLabels() -> [String] {
+        let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
+        lock.lock(); defer { lock.unlock() }
+        lastSeen = lastSeen.filter { $0.value > cutoff }
+        return lastSeen.sorted { $0.value > $1.value }.map { ip, _ in
+            if let n = nameCache[ip], !n.isEmpty { return n }
+            return "…" + (ip.split(separator: ".").last.map(String.init) ?? ip)
+        }
+    }
+
+    // 反查设备名（best-effort，会阻塞 → 放后台并发队列）。getnameinfo 走系统解析器：家用路由器
+    // 常把客户端 DHCP 主机名登记进反向 DNS，故有时能拿到名字；iPhone 多只经 mDNS 注册、普通 PTR
+    // 常查不到 → 回 ""，由 activeViewerLabels 回退 IP 尾号。取首段并去本地域后缀作友好显示。
+    private static let lookupQueue = DispatchQueue(label: "localshare.namelookup", attributes: .concurrent)
+    private static func reverseLookup(_ ip: String, completion: @escaping (String) -> Void) {
+        lookupQueue.async {
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            guard inet_pton(AF_INET, ip, &addr.sin_addr) == 1 else { completion(""); return }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let r = withUnsafePointer(to: &addr) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getnameinfo(sa, socklen_t(MemoryLayout<sockaddr_in>.size),
+                                &host, socklen_t(host.count), nil, 0, NI_NAMEREQD)
+                }
+            }
+            guard r == 0 else { completion(""); return }   // NI_NAMEREQD：无名即非 0
+            let full = String(cString: host)
+            let name = full.split(separator: ".").first.map(String.init) ?? full
+            completion(name)
+        }
     }
 
     init(share: Share, token: String) {
