@@ -10,7 +10,7 @@ enum MarkdownViewer {
         PreviewPage.html(
             fileName: fileName, crumbs: crumbs, canUpload: canUpload,
             body: #"<article class="card md" id="md"><p class="ld">正在加载…</p></article>"#,
-            css: css, scripts: [MarkedJS.source, boot])
+            css: css, scripts: [MarkedJS.source, rendererConfig, boot])
     }
 
     private static let css = """
@@ -25,6 +25,7 @@ enum MarkdownViewer {
         .md h4,.md h5,.md h6{font-size:15.5px}
         .md p{margin:.9em 0}
         .md a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)}
+        .md .blk{color:var(--inkMute);border-bottom:1px dotted var(--inkFaint)}
         .md img{max-width:100%;border-radius:10px;border:1px solid var(--line)}
         .md code{font:.92em var(--mono);background:var(--surfaceAlt);border:1px solid var(--line);
           border-radius:5px;padding:.1em .38em}
@@ -45,14 +46,38 @@ enum MarkdownViewer {
         }
         """
 
+    // marked 渲染器安全配置（独立 <script>，在 marked 之后、boot 解析之前注入）。两件事：
+    // ① 原始 HTML 块/行内标签转义为可见文本——内嵌 <script>/<iframe> 不执行；
+    // ② 链接/图片 href 协议白名单——丢弃 javascript:/vbscript:/data:（链接）这类点击即在分享页
+    //    同源执行脚本的协议，堵「恶意 .md 里一个 [x](javascript:…) 链接被点开即跑脚本」的存储型 XSS。
+    //    判协议前先剥掉码点 ≤32 的字符（控制符与空白），挡 `java<TAB>script:` 之类绕过；
+    //    安全 URL 返回 false → 用 marked 默认渲染，不改写正常链接。
+    // /* MD-RENDERER-CONFIG */ 标记供 tools/smoke-md-link-sanitize.cjs 提取，连同真实 vendored
+    // marked 在 node 里跑回归断言（测的是这份真配置，不是复刻品）。
+    static let rendererConfig = """
+        /* MD-RENDERER-CONFIG */
+        (function(){
+          var escHtml=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')};
+          var proto=function(u){u=String(u==null?'':u);var o='';for(var i=0;i<u.length;i++){if(u.charCodeAt(i)>32)o+=u.charAt(i)}return o.toLowerCase()};
+          var linkBlocked=function(u){var p=proto(u);return p.indexOf('javascript:')===0||p.indexOf('vbscript:')===0||p.indexOf('data:')===0};
+          var imgBlocked=function(u){var p=proto(u);return p.indexOf('javascript:')===0||p.indexOf('vbscript:')===0};
+          marked.use({gfm:true,breaks:false,renderer:{
+            html:function(t){var s=(t&&(t.text!=null?t.text:t.raw))||'';return escHtml(s)},
+            link:function(t){
+              if(!linkBlocked(t&&t.href))return false;
+              return '<span class="blk">'+this.parser.parseInline(t.tokens||[])+'</span>';
+            },
+            image:function(t){
+              if(!imgBlocked(t&&t.href))return false;
+              return escHtml((t&&t.text)||'');
+            }
+          }});
+        })();
+        """
+
     private static let boot = """
         (function(){
           var box=document.getElementById('md');
-          var escHtml=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')};
-          // 原始 HTML 块/行内标签转义为可见文本：md 渲染特性全保留，内嵌 <script>/<iframe> 不执行。
-          marked.use({gfm:true,breaks:false,renderer:{
-            html:function(t){var s=(t&&(t.text!=null?t.text:t.raw))||'';return escHtml(s)}
-          }});
           function fail(){
             box.innerHTML='<p class="ld">加载失败 · <a href="?raw=1">查看原文</a></p>';
           }
