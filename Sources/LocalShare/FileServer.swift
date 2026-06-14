@@ -157,6 +157,22 @@ final class FileServer {
             return jsonResponse(200, "OK", #"{"viewers":\#(activeViewers())}"#, extra: h)
         }
 
+        // token 清洗：浏览器首次经 ?t= 进入（尚无 cookie、cookie 已在 extra 里种好）时，立刻 302 到
+        // 去掉 ?t= 的同一路径——token 不在地址栏/浏览历史里停留，followed 请求带 cookie 鉴权。
+        // 仅限浏览器导航（Accept 含 text/html）：curl/脚本、壳页 ?raw=1 取文、图片等子请求（Accept */*）
+        // 不受影响，照旧直接拿内容。目录无斜杠会再经下游 301 补斜杠，多一跳但只在首访发生。
+        if viaQuery, !viaCookie, req.method == "GET",
+           (req.headers["accept"] ?? "").contains("text/html") {
+            let rest = req.queryParams.filter { $0.0 != "t" }.map { kv in
+                let k = kv.0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kv.0
+                let v = kv.1.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kv.1
+                return "\(k)=\(v)"
+            }.joined(separator: "&")
+            var h = extra
+            h["Location"] = rest.isEmpty ? req.path : "\(req.path)?\(rest)"
+            return .raw(302, "Found", h, nil)
+        }
+
         // 注意：Swifter 的 path 解析有 bug，req.path 仍保留一层百分号编码，需手动解码再落地到文件系统。
         // 解码后用于「防穿越 / 面包屑显示」；301 的 Location 仍用 req.path（保持编码，浏览器再请求即可）。
         let decodedPath = req.path.removingPercentEncoding ?? req.path
@@ -323,6 +339,7 @@ final class FileServer {
             } catch {
                 return jsonResponse(500, "Internal Server Error", #"{"error":"写入失败"}"#, extra: extra)
             }
+            Self.markQuarantine(dest)
             saved.append(dest.lastPathComponent)
             onUpload?(dest)
         }
@@ -358,6 +375,20 @@ final class FileServer {
     private static let executableDocExtensions: Set<String> = [
         "html", "htm", "xhtml", "xht", "shtml", "svg", "svgz", "mht", "mhtml",
     ]
+
+    // 给访客上传落地的文件打上 com.apple.quarantine 隔离属性：分享者之后在 Finder 双击时，与
+    // 「从浏览器下载的文件」享同等 Gatekeeper 待遇（弹来源确认 / 触发公证校验），降低被诱导直接
+    // 打开局域网他人投放文件的风险。纯 setxattr（libSystem），不引包外 dylib；best-effort，失败
+    // 不影响上传成功。值格式：<flags>;<hex 时间戳>;<来源 agent>;<UUID>。
+    private static func markQuarantine(_ url: URL) {
+        let stamp = String(format: "%lx", UInt(max(0, Date().timeIntervalSince1970)))
+        let value = "0181;\(stamp);LocalShare;\(UUID().uuidString)"
+        _ = value.withCString { v in
+            url.path.withCString { p in
+                setxattr(p, "com.apple.quarantine", v, strlen(v), 0, 0)
+            }
+        }
+    }
 
     // 目标已存在则在扩展名前追加 -2/-3…（与 Share.makeItems 的 key 兜底同款策略）。
     static func availableURL(in dir: URL, name: String) -> URL {
