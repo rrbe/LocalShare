@@ -95,6 +95,14 @@ lan-file-share/
 
 > 单文件夹的 2~4 步抽成 `serveTree(rootURL:relPath:…)` 复用。**单文件**直接发那一个文件。**多选**（`Share.multiple([Item])`，`Item` 持 `key`/`url`/`isDir`，`makeItems` 由选中 URL 构造、key 取 lastPathComponent 并对极少数重名做 `-2` 后缀兜底）：空路径 → 合成虚拟根列表页（`DirectoryListing.html(items:rootName:)`，rootName=「分享内容」）；否则拆首段 `key` 查项——文件项仅当无子路径才发、目录项以 `item.url` 为根走 `serveTree`（`relPath`=去掉 key 段后的剩余，面包屑天然渲染成「分享内容 / key / …」）。未知 key / 文件项带子路径 → 404；穿越判据每项独立。Headless 测多选用 `LS_FOLDERS`（`:`/换行分隔）。
 
+> **网页侧 XSS 硬化（0.7.x）**：被服务的内容跑在分享源（`http://本机:端口`）下，HTML/SVG 会被当同源页面执行脚本——能在浏览者会话里读写整个分享、把页面伪装成可信的列表页钓鱼、拿浏览者当 LAN 跳板。两道防线：
+> 1. **访客上传去势（主修）**：`sanitizeFileName` 末尾对 `executableDocExtensions`（html/htm/xhtml/xht/shtml/svg/svgz/mht/mhtml）追加 `.txt`，落地成 `text/plain`。专堵「传一个 `index.html` 顶替目录列表页 → 别人点进该目录**零点击**执行脚本」这条存储型 XSS（`availableURL` 只在重名时改名，故空目录里的 `index.html` 会成为默认页），也中和点开即跑的上传 HTML/SVG。文件本体保留、不丢。
+> 2. **全站 `X-Content-Type-Options: nosniff`（纵深防御）**：关掉浏览器 MIME 猜测。正确声明类型的文件照常内联显示、未知类型本就 `octet-stream` 下载，**零回归**；它拦的是「octet-stream 被猜成 HTML 执行」，拦不住「类型本就是 text/html 的执行」——所以 defang 才是上传向量的主修，nosniff 是补强。
+>
+> **只作用于上传路径**：分享者自己放进文件夹的静态站点（含磁盘上的 `index.html`）经 `.directory` 直接服务、不过 `sanitizeFileName`，照常渲染——「分享一个站点目录、index.html 当首页」的功能不受影响。回归测试 `tools/smoke-upload-defang.sh`（无头 + curl，复现完整攻击链 + 不误伤正常文件 + 不破坏磁盘静态站点）。
+>
+> 未做（接收端是浏览器、自签 TLS 会触发证书警告页伤体验，与「扫码即用」冲突，业界同形态产品如 LocalSend 的 Web Share 同样退回明文 HTTP）：传输层加密。明文 HTTP 下「同网嗅探/恶意 AP 读到 `?t=` 或文件流」是该形态的固有上限，靠 token 轮换 + 默认只读 + 二维码带外传 token 收敛，详见威胁模型行。
+
 ### NetworkInfo
 - `getifaddrs` 遍历；取 `IFF_UP && !IFF_LOOPBACK && AF_INET`；`getnameinfo(NI_NUMERICHOST)` 拿 IP。
 - 只留私网段：`192.168.*` / `10.*` / `172.16–31.*`（过滤掉 VPN/utun、bridge）。
