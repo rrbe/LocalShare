@@ -39,6 +39,9 @@ jobs:
       - name: 中文 / 空格 / 百分号文件名解码
         run: ./tools/smoke-filenames.sh
 
+      - name: 多选虚拟根路由
+        run: ./tools/smoke-multiselect.sh
+
       - name: 仅当前网络可见（网卡绑定）
         run: ./tools/smoke-bind-interface.sh
 
