@@ -35,7 +35,10 @@ struct ContentView: View {
                 .frame(maxWidth: 430)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(minWidth: 390, minHeight: 620)
+        // 最小宽度对齐默认宽度（共用同一常量）：留出 min↔默认 的缝隙时，切换屏幕的瞬间内容会被
+        // 短暂提议到更小的最小宽度再弹回，表现为一次横向闪烁；锁成同一值即无缝可闪。高度无此问题——
+        // 内容恒比最小高度高（可滚动），永不会被压到最小高度。
+        .frame(minWidth: AppState.defaultWindowWidth, minHeight: 620)
         .preferredColorScheme(forced)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted.animation(.easeOut(duration: 0.15))) { handleDrop($0) }
         .overlay { if isDropTargeted { dropOverlay } }
@@ -156,6 +159,7 @@ private struct EmptyScreen: View {
                 }
                 Spacer()
                 IdlePill(t: t, port: state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 0) {
@@ -206,6 +210,7 @@ private struct ShareScreen: View {
                 Spacer(minLength: 8)
                 StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
                            port: state.isRunning ? state.port : state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 16) {
@@ -542,6 +547,7 @@ private struct NoNetworkScreen: View {
                 Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
                 Spacer()
                 StatusPill(t: t, running: false, port: state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 14) {
@@ -567,9 +573,12 @@ private struct SettingsScreen: View {
     @EnvironmentObject var state: AppState
     @State private var portText = ""
     var body: some View {
-        let pv = validatePort(portText)
+        // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
+        // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
+        let effectivePort = portText.isEmpty ? String(state.configuredPort) : portText
+        let pv = validatePort(effectivePort)
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
-        let changed = (Int(portText) ?? -1) != Int(state.configuredPort)
+        let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
         let ps = permSummary(state.permission)
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
