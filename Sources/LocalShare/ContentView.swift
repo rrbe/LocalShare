@@ -577,6 +577,7 @@ private struct NoNetworkScreen: View {
 private struct SettingsScreen: View {
     let t: Theme
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
     var body: some View {
         // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
@@ -730,6 +731,17 @@ private struct SettingsScreen: View {
                 settingRow(top: true, title: "恢复默认窗口尺寸") {
                     GhostButton(t: t, title: "恢复默认", systemImage: "arrow.counterclockwise") {
                         state.resetWindowSize()
+                    }
+                }
+
+                // MARK: 更新（仅 updater 已启动时出现——dev/未签名构建不显示）
+                if updater.isActive {
+                    SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
+                    settingRow(title: "自动检查更新",
+                               desc: "关闭后不再自动弹出更新提示；仍可在菜单「检查更新…」手动查") {
+                        ToggleSwitch(t: t, isOn: updater.automaticChecks) {
+                            updater.setAutomaticChecks(!updater.automaticChecks)
+                        }
                     }
                 }
 
