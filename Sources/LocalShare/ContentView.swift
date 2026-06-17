@@ -196,6 +196,7 @@ private struct EmptyScreen: View {
 private struct ShareScreen: View {
     let t: Theme
     @EnvironmentObject var state: AppState
+    @State private var showViewers = false   // 在线访客明细弹窗（点摘要行展开）
     var body: some View {
         let ps = permSummary(state.permission)
         ScreenFrame(t: t) {
@@ -347,26 +348,37 @@ private struct ShareScreen: View {
                 }
                 .padding(.top, 7).padding(.leading, 12)
             }
-            // 在线访客：小绿点 + 设备名（查不到回退 IP 尾号），0 人时整行隐藏（不占位、不留空文案）。
+            // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
+            // 0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {
-                HStack(spacing: 6) {
-                    Circle().fill(t.ok).frame(width: 6, height: 6)
-                    Text(viewerText).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                        .lineLimit(1).truncationMode(.tail)
+                Button { showViewers.toggle() } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(t.ok).frame(width: 6, height: 6)
+                        Text(viewerText).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            .lineLimit(1).truncationMode(.tail)
+                        Image(systemName: "chevron.down").font(.sans(8, .semibold)).foregroundStyle(t.inkFaint)
+                    }
                 }
+                .buttonStyle(.plain)
                 .padding(.top, 12)
                 .transition(.opacity)
+                .popover(isPresented: $showViewers, arrowEdge: .bottom) {
+                    ViewerListPopover(t: t, viewers: state.viewers)
+                }
             }
         }
         .padding(.horizontal, 18).padding(.bottom, 18)
         .animation(.easeInOut(duration: 0.2), value: state.viewerCount > 0)
     }
 
-    // 在线访客文案：单台直呼其名（或 IP 尾号），多台以最近活跃那台领衔 +「等 N 人」。
+    // 在线访客摘要：反查到设备名才领衔具名（单台直呼其名、多台「领衔 + 等 N 人」）；
+    // 查不到则统一「N 人正在浏览」——不在摘要露 IP 尾号，完整 IP 留给展开列表。
     private var viewerText: String {
         let n = state.viewerCount
-        guard let first = state.viewerLabels.first else { return "\(n) 人正在浏览" }
-        return n <= 1 ? "\(first) 正在浏览" : "\(first) 等 \(n) 人正在浏览"
+        if let name = state.viewers.first?.name, !name.isEmpty {
+            return n <= 1 ? "\(name) 正在浏览" : "\(name) 等 \(n) 人正在浏览"
+        }
+        return "\(n) 人正在浏览"
     }
 
     @ViewBuilder private var actions: some View {
@@ -469,6 +481,53 @@ private struct ReceivedRow: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help("在 Finder 中显示")
+    }
+}
+
+// 在线访客明细弹窗：列出全部活跃访客（设备名优先，查不到显示完整 IP），最近活跃在前。
+// 仅分享者本机可见——网页端永不外泄身份（见 FileServer.activeViewers）。
+private struct ViewerListPopover: View {
+    let t: Theme
+    let viewers: [ViewerInfo]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(t.ok).frame(width: 6, height: 6)
+                Text("正在浏览").font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Spacer(minLength: 16)
+                Text("\(viewers.count) 人").font(.mono(11)).foregroundStyle(t.inkFaint)
+            }
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+            ForEach(viewers) { v in
+                // 左：身份（查到设备名则名字为主、完整 IP 作副行；查不到直接显示完整 IP）。
+                // 右：本次浏览开始至今的时长，尾部对齐成一列，便于多人时纵向扫读。
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(v.fullLabel).font(.sans(12.5, .medium)).foregroundStyle(t.ink)
+                            .lineLimit(1).truncationMode(.middle)
+                        if !v.name.isEmpty {
+                            Text(v.ip).font(.mono(10.5)).foregroundStyle(t.inkFaint)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text(elapsedText(v.since)).font(.sans(10.5)).foregroundStyle(t.inkFaint)
+                        .fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.vertical, 5)
+            }
+        }
+        .padding(.bottom, 8)
+        .frame(width: 230)
+    }
+
+    // 「开始浏览」至今的时长，口语化粗粒度即可（随 AppState 2s 轮询刷新）。
+    private func elapsedText(_ since: Date) -> String {
+        let s = Int(Date().timeIntervalSince(since))
+        if s < 60 { return "刚刚" }
+        if s < 3600 { return "\(s / 60) 分钟前" }
+        if s < 86400 { return "\(s / 3600) 小时前" }
+        return "\(s / 86400) 天前"
     }
 }
 
