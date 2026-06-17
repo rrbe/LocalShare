@@ -16,13 +16,7 @@ import SwiftUI
 // 配置（含 SUFeedURL / SUPublicEDKey）全部放在 bundle/Info.plist，这里不硬编码。
 @MainActor
 final class UpdaterController: ObservableObject {
-    // 与 bundle/Info.plist 里 SUPublicEDKey 的占位值保持一致；填入真实公钥前不启动 updater。
-    static let placeholderEDKey = "REPLACE_WITH_REAL_SUPublicEDKey"
-
     private let controller: SPUStandardUpdaterController
-
-    // updater 是否真正启动（配了真实 EdDSA 公钥）。未启动时设置页不展示更新开关——控件本无意义。
-    let isActive: Bool
 
     // 绑定到菜单项的可用态：Sparkle 正在检查时为 false，置灰「检查更新…」避免重复触发。
     @Published var canCheckForUpdates = false
@@ -33,21 +27,17 @@ final class UpdaterController: ObservableObject {
     @Published var automaticChecks = true
 
     init() {
-        // 未配置真实 EdDSA 公钥时不启动 updater：避免本地 dev 构建（占位 key）触发 Sparkle 的
-        // 「配置错误」弹窗，也让「更新尚不可用」这件事显式化，而非签名校验静默失效。
-        let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String ?? ""
-        let configured = !key.isEmpty && key != Self.placeholderEDKey
-        isActive = configured
-
+        // 一律启动 updater：不按构建是否签名 / 配齐做预判。配置缺失（如裸 swift build 无 Info.plist）
+        // 顶多让 Sparkle 自己报错，到时再处理，不靠环境判定提前把更新设置藏掉。
         // delegate 暂时为 nil：默认行为（读 Info.plist 配置、标准更新 UI）已满足需求。
         controller = SPUStandardUpdaterController(
-            startingUpdater: configured,
+            startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
         controller.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
-        automaticChecks = configured && controller.updater.automaticallyChecksForUpdates
+        automaticChecks = controller.updater.automaticallyChecksForUpdates
     }
 
     // 用户在菜单主动点「检查更新…」时调用；走带 UI 的检查（无更新也会有反馈）。

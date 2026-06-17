@@ -44,7 +44,7 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 辅助模块各自单一职责：`NetworkInfo`（`getifaddrs` 枚举 → 只留私网 IPv4、过滤 VPN/bridge/回环、en0 优先排序）、`QRCode`（CoreImage `CIQRCodeGenerator`）、`Token`、`Mime`（text 类带 `charset=utf-8`）、`DirectoryListing`（移动端友好 HTML，href 逐段编码、隐藏文件不列）、`PreviewPage`（预览壳页共用骨架：tokens/刊头/取景框/心跳）+ `MarkdownViewer`/`JsonViewer`/`CsvViewer`（三类预览内容卡，面包屑复用 `DirectoryListing.breadcrumb`）、`MarkedJS`（vendored marked，Swift 字符串常量编进二进制而非资源 bundle——三条启动路径都无须定位资源文件，升级整文件替换）。
 
-`Updater.swift` 封装 Sparkle 自动更新：`UpdaterController` 持 `SPUStandardUpdaterController`，仅 GUI 路径（`LocalShareApp`）构造，headless 完全不碰。配置全在 `bundle/Info.plist`（`SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks`）。信任链走 EdDSA（私钥签更新包、app 内嵌公钥校验），与 ad-hoc 代码签名无关，故未公证也能安全自更新；`Info.plist` 的 `SUPublicEDKey` 还是占位值时 `UpdaterController` 不启动 updater。CI 发布时用 `sign_update` 签 DMG，`appcast.xml` 作为 Release 资产上传（feed 走 `releases/latest/download` 固定地址，发布对仓库零写入）。详见 `PLAN.md` 的「自动更新」一节。
+`Updater.swift` 封装 Sparkle 自动更新：`UpdaterController` 持 `SPUStandardUpdaterController`，仅 GUI 路径（`LocalShareApp`）构造，headless 完全不碰。配置全在 `bundle/Info.plist`（`SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks`）。信任链走 EdDSA（私钥签更新包、app 内嵌公钥校验），与 ad-hoc 代码签名无关，故未公证也能安全自更新；`UpdaterController` 一律启动 updater、设置页一律展示「自动更新」开关，不按构建是否签名 / 配齐做预判（配置缺失顶多让 Sparkle 自己报错，不提前隐藏）。CI 发布时用 `sign_update` 签 DMG，`appcast.xml` 作为 Release 资产上传（feed 走 `releases/latest/download` 固定地址，发布对仓库零写入）。详见 `PLAN.md` 的「自动更新」一节。
 
 ## 发布与版本
 
