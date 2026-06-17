@@ -52,7 +52,7 @@ struct GhostButton: View {
             .frame(height: 34)
             .padding(.horizontal, 13)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(t.lineStrong, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
@@ -98,7 +98,7 @@ struct IconButton: View {
                 .foregroundStyle(t.ink)
                 .frame(width: 34, height: 34)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(t.lineStrong, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))
         }
         .buttonStyle(.plain).onHover { hover = $0 }.help(help)
     }
