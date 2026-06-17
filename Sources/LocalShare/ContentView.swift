@@ -32,7 +32,7 @@ struct ContentView: View {
         ZStack {
             t.bg.ignoresSafeArea()
             content
-                .frame(maxWidth: 430)
+                .frame(maxWidth: 470)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         // 最小宽度对齐默认宽度（共用同一常量）：留出 min↔默认 的缝隙时，切换屏幕的瞬间内容会被
@@ -216,6 +216,7 @@ private struct ShareScreen: View {
                 Spacer(minLength: 8)
                 StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
                            port: state.isRunning ? state.port : state.configuredPort)
+                    .layoutPriority(1)   // IP:端口是数据，缺宽时让品牌标题先缩（它有 minimumScaleFactor），地址不被截断
                 IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {

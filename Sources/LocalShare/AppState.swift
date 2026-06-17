@@ -11,7 +11,7 @@ final class AppState: ObservableObject {
 
     // 设计默认窗口尺寸（票据风竖窗，设计稿 400×720）。供 App 的 .defaultSize 与
     // 「恢复默认尺寸」共用同一处真相，避免两边各写一份数字漂移。
-    static let defaultWindowWidth: CGFloat = 410
+    static let defaultWindowWidth: CGFloat = 450
     static let defaultWindowHeight: CGFloat = 720
 
     @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
