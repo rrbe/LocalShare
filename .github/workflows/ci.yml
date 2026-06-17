@@ -33,6 +33,12 @@ jobs:
       - name: 访客上传去势 + 全站 nosniff
         run: ./tools/smoke-upload-defang.sh
 
+      - name: 防目录穿越 + 单文件隔离
+        run: ./tools/smoke-traversal.sh
+
+      - name: 中文 / 空格 / 百分号文件名解码
+        run: ./tools/smoke-filenames.sh
+
       - name: 仅当前网络可见（网卡绑定）
         run: ./tools/smoke-bind-interface.sh
 
