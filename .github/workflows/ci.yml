@@ -4,10 +4,14 @@ name: CI
 # 访客上传去势、网卡绑定、Markdown 链接卫生）。这些脚本本就是 `退出码 0=全过` 的设计，
 # 直接作 PR 门禁——把已有的回归测试从「手动想起来才跑」变成「每次改动自动把关」。
 # 发布走另一条 release.yml（仅 v* tag），与此互不干扰。
+#
+# 触发：PR(任意分支→master)走 pull_request；master 自身的推送(合并后)走 push。
+# 不监听其它分支的 push——本仓库一切变更都经 PR，故 PR 事件已覆盖；避免同一次推送既触发
+# push 又触发 pull_request 而重复跑（macOS runner 10 倍计费）。
 on:
   push:
     branches:
-      - "**"
+      - master
   pull_request:
 
 jobs:
