@@ -425,8 +425,11 @@ struct Perforation: View {
             .overlay(alignment: .leading) { notch.offset(x: -9) }
             .overlay(alignment: .trailing) { notch.offset(x: 9) }
     }
+    // 缺口填底色，再叠一层与卡片投影同源(castColor)的淡阴影：卡缘那圈底色本就被投影压暗，
+    // 纯亮 t.bg 夹在其中会显成一块浮起的亮斑——压暗后半圆贴回底色，深浅主题各自成立。
     private var notch: some View {
         Circle().fill(t.bg).frame(width: 18, height: 18)
+            .overlay(Circle().fill(Theme.castColor.opacity(0.05)))
             .overlay(Circle().strokeBorder(t.line, lineWidth: 1))
     }
 }
