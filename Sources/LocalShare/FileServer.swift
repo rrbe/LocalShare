@@ -363,6 +363,18 @@ final class FileServer {
         }
     }
 
+    // 防目录穿越的唯一判据（serveTree 与 handleUpload 共用）：把 relPath 拼到 root 后标准化、
+    // 解符号链接，结果必须仍落在 root 内（root 自身或其子路径）——杜绝 ../、绝对路径、以及指向
+    // 外部的符号链接。安全则返回解析后的真实 URL，逃逸返回 nil。relPath 须已解码（上游已做
+    // removingPercentEncoding，故 %2e%2e / ..%2f 解码成 .. 后同样被挡）。
+    static func resolveWithinRoot(_ rootURL: URL, relPath: String) -> URL? {
+        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let target = rootURL.appendingPathComponent(relPath).standardizedFileURL.resolvingSymlinksInPath()
+        let targetPath = target.path
+        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else { return nil }
+        return target
+    }
+
     // 在 rootURL 这棵子树内服务请求：防穿越 → 目录(301 补斜杠 / index.html / 列表页) → 文件流式发送
     //（md 文件且 viewer=true 时发预览壳页）。relPath：相对 rootURL 的路径（已解码、去前导斜杠）；
     // encodedPath：用于 301 Location 的原始请求路径（保留编码）；
@@ -371,13 +383,11 @@ final class FileServer {
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
                            decodedPath: String, rootName: String, canUpload: Bool,
                            viewer: Bool, extra: [String: String]) -> HttpResponse {
-        // 防目录穿越：拼接后标准化解符号链接，结果必须仍落在 root 内（杜绝 ../、%2e%2e、..%2f）。
-        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
-        let target = rootURL.appendingPathComponent(relPath).standardizedFileURL.resolvingSymlinksInPath()
-        let targetPath = target.path
-        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
+        // 防目录穿越：判据抽进 resolveWithinRoot，与 handleUpload 共用一份，避免两处漂移。
+        guard let target = Self.resolveWithinRoot(rootURL, relPath: relPath) else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage)
         }
+        let targetPath = target.path
 
         let fm = FileManager.default
         var isDir: ObjCBool = false
@@ -418,14 +428,12 @@ final class FileServer {
             return jsonResponse(413, "Payload Too Large", #"{"error":"超过 500MB 上限"}"#, extra: extra)
         }
 
-        // 落点目录：同 serveTree 的防穿越判据
-        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        // 落点目录：同 serveTree 的防穿越判据（共用 resolveWithinRoot）
         let rel = String(decodedPath.drop { $0 == "/" })
-        let target = rootURL.appendingPathComponent(rel).standardizedFileURL.resolvingSymlinksInPath()
-        let targetPath = target.path
-        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
+        guard let target = Self.resolveWithinRoot(rootURL, relPath: rel) else {
             return jsonResponse(403, "Forbidden", #"{"error":"路径不允许"}"#, extra: extra)
         }
+        let targetPath = target.path
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: targetPath, isDirectory: &isDir), isDir.boolValue else {

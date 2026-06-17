@@ -11,6 +11,7 @@ macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口�
 ```bash
 swift build                      # debug 编译（首次拉 Swifter）
 swift build -c release           # release 编译
+swift test                       # 单元测试（XCTest，纯函数：防穿越判据 / 文件名清洗 / key 去重）
 ./build.sh                       # release 编译 → 组装 .app → ad-hoc 签名 → dist/LocalShare.app
 open "dist/LocalShare.app"    # 本机自测 GUI
 
@@ -31,7 +32,7 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 # 期望：仅 @rpath/Sparkle.framework/... ；ls dist/LocalShare.app/Contents/Frameworks 应见 Sparkle.framework
 ```
 
-无测试框架（无 XCTest target）。验证靠无头模式 + `curl` 冒烟测：token 校验、防穿越、index.html、MIME、中文/空格文件名、流式发送。要求 macOS 13+ 与 Swift 工具链。
+测试分两层：`swift test`（XCTest，`Tests/LocalShareTests/`，测纯函数——防穿越判据 `resolveWithinRoot`、上传文件名清洗 `sanitizeFileName`、多选 key 去重 `Share.makeItems`、重名兜底 `availableURL` 等；用 `@testable import LocalShare` 直接碰可执行 target 的 internal 符号，无须拆 library）+ 无头 `curl` 冒烟测（`tools/smoke-*.sh` 与 `smoke-*.cjs`，端到端验 token 校验与 302 清洗、防穿越与单文件隔离、中文/空格/百分号文件名解码、多选虚拟根路由、上传去势、网卡绑定、Markdown 链接卫生）。两层都由 `.github/workflows/ci.yml` 在每个 PR / master push 上自动跑（`release.yml` 只管发版，互不干扰）。要求 macOS 13+ 与 Swift 工具链。
 
 ## 架构
 

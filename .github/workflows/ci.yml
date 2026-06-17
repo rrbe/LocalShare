@@ -1,0 +1,49 @@
+name: CI
+
+# 每次 push / PR 触发：编译 debug → 跑 tools/ 下的无头冒烟测（token 鉴权与 302 清洗、
+# 访客上传去势、网卡绑定、Markdown 链接卫生）。这些脚本本就是 `退出码 0=全过` 的设计，
+# 直接作 PR 门禁——把已有的回归测试从「手动想起来才跑」变成「每次改动自动把关」。
+# 发布走另一条 release.yml（仅 v* tag），与此互不干扰。
+#
+# 触发：PR(任意分支→master)走 pull_request；master 自身的推送(合并后)走 push。
+# 不监听其它分支的 push——本仓库一切变更都经 PR，故 PR 事件已覆盖；避免同一次推送既触发
+# push 又触发 pull_request 而重复跑（macOS runner 10 倍计费）。
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: macos-latest # 与 release 同款 runner，自带 Xcode / Swift 工具链与 Node
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 编译 debug（首次会拉取 Swifter / Sparkle）
+        run: swift build
+
+      - name: 单元测试（纯函数：防穿越判据 / 文件名清洗 / key 去重）
+        run: swift test
+
+      # 各脚本独立成步，失败时一眼看出是哪条回归。脚本默认用 .build/debug/LocalShare。
+      - name: token 鉴权与 302 清洗
+        run: ./tools/smoke-token-302.sh
+
+      - name: 访客上传去势 + 全站 nosniff
+        run: ./tools/smoke-upload-defang.sh
+
+      - name: 防目录穿越 + 单文件隔离
+        run: ./tools/smoke-traversal.sh
+
+      - name: 中文 / 空格 / 百分号文件名解码
+        run: ./tools/smoke-filenames.sh
+
+      - name: 多选虚拟根路由
+        run: ./tools/smoke-multiselect.sh
+
+      - name: 仅当前网络可见（网卡绑定）
+        run: ./tools/smoke-bind-interface.sh
+
+      - name: Markdown 链接 / 图片协议卫生
+        run: node tools/smoke-md-link-sanitize.cjs
