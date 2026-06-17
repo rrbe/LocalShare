@@ -23,6 +23,9 @@ jobs:
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build
 
+      - name: 单元测试（纯函数：防穿越判据 / 文件名清洗 / key 去重）
+        run: swift test
+
       # 各脚本独立成步，失败时一眼看出是哪条回归。脚本默认用 .build/debug/LocalShare。
       - name: token 鉴权与 302 清洗
         run: ./tools/smoke-token-302.sh

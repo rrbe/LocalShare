@@ -30,5 +30,11 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]
         ),
+        // 单元测试：@testable import 可执行 target，无须把源码拆成单独 library、也无须把
+        // internal 符号提成 public——直接测纯函数（防穿越判据、文件名清洗、key 去重等）。
+        .testTarget(
+            name: "LocalShareTests",
+            dependencies: ["LocalShare"]
+        ),
     ]
 )
