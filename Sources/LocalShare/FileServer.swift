@@ -2,6 +2,17 @@ import Foundation
 import Darwin   // getnameinfo / inet_pton / sockaddr_in（设备名反查）
 import Swifter
 
+// 一名在线访客的明细（仅在分享者本机窗口展示，绝不外泄给网页端）。
+// name 是反查到的设备名，查不到为空串；ip 始终是完整 IPv4。
+struct ViewerInfo: Identifiable {
+    let ip: String
+    let name: String        // 反查到的设备名，查不到为空串
+    let since: Date         // 本次浏览会话首次出现时间（断开超出在线窗口再来即重新计）
+    var id: String { ip }
+    // 展开列表：设备名优先，查不到显示完整 IP（不再只剩尾号，便于区分是哪几台）。
+    var fullLabel: String { name.isEmpty ? ip : name }
+}
+
 // 基于 Swifter 的只读静态文件服务。
 // 全部逻辑放进单个 middleware 闭包（永远返回 response），绕开 router。
 // 安全：① token 鉴权（query 或 cookie）；② 防目录穿越（路径解析后必须仍在所选文件夹内）。
@@ -70,7 +81,7 @@ final class FileServer {
     private var _token: String
     var token: String {
         get { lock.lock(); defer { lock.unlock() }; return _token }
-        set { lock.lock(); _token = newValue; lastSeen = [:]; nameCache = [:]; nameLookupInFlight = []; lock.unlock() }
+        set { lock.lock(); _token = newValue; lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []; lock.unlock() }
     }
 
     // MARK: - 访客上传（Permission.add，v1 仅单文件夹分享）
@@ -102,6 +113,7 @@ final class FileServer {
     // 心跳，只能靠请求时间近似（可接受的已知缺口）。
     private static let presenceWindow: TimeInterval = 45
     private var lastSeen: [String: Date] = [:]   // ip → 最近请求时间（同 lock 保护）
+    private var firstSeen: [String: Date] = [:]  // ip → 本次会话首次出现时间（与 lastSeen 同生命周期）
     // 设备名反查缓存（同 lock）：ip → 友好设备名；空串=查过但无名（回退 IP 尾号）；缺键=尚未查。
     private var nameCache: [String: String] = [:]
     private var nameLookupInFlight: Set<String> = []   // 正在后台反查的 ip，去重避免重复发起
@@ -109,7 +121,9 @@ final class FileServer {
     private func touchPresence(_ ip: String?) {
         guard let ip, !ip.isEmpty else { return }
         lock.lock()
-        lastSeen[ip] = Date()
+        let now = Date()
+        lastSeen[ip] = now
+        if firstSeen[ip] == nil { firstSeen[ip] = now }   // 首次出现即记开始时间，之后只更新 lastSeen
         // 首次见到该 IP 时后台反查一次设备名；命中即缓存，之后直接读。
         let needsLookup = nameCache[ip] == nil && !nameLookupInFlight.contains(ip)
         if needsLookup { nameLookupInFlight.insert(ip) }
@@ -122,11 +136,12 @@ final class FileServer {
         }
     }
 
-    // 裁剪窗口外的活跃记录，并同步淘汰其设备名缓存——nameCache 与 lastSeen 同生命周期，免得只增
+    // 裁剪窗口外的活跃记录，并同步淘汰其设备名缓存与开始时间——三者与 lastSeen 同生命周期，免得只增
     // 不减（否则仅在 token 轮换时清）。调用方已持 lock。
     private func pruneExpiredLocked() {
         let cutoff = Date().addingTimeInterval(-Self.presenceWindow)
         lastSeen = lastSeen.filter { $0.value > cutoff }
+        firstSeen = firstSeen.filter { lastSeen[$0.key] != nil }
         nameCache = nameCache.filter { lastSeen[$0.key] != nil }
     }
 
@@ -137,20 +152,20 @@ final class FileServer {
         return lastSeen.count
     }
 
-    // GUI 用：活跃访客的展示标签，按最近活跃排序。设备名优先，查不到回退「…尾号」（IP 末段）。
+    // GUI 用：活跃访客明细，按最近活跃排序（最近在前）。每项带完整 IP、反查到的设备名（查不到为空串）、
+    // 以及本次会话开始时间（since）。摘要行与展开列表各取所需（见 ViewerInfo.fullLabel）。
     // 仅供分享者本机的窗口显示——网页端永远只看到人数（见 activeViewers）。
-    func activeViewerLabels() -> [String] {
+    func activeViewerInfos() -> [ViewerInfo] {
         lock.lock(); defer { lock.unlock() }
         pruneExpiredLocked()
         return lastSeen.sorted { $0.value > $1.value }.map { ip, _ in
-            if let n = nameCache[ip], !n.isEmpty { return n }
-            return "…" + (ip.split(separator: ".").last.map(String.init) ?? ip)
+            ViewerInfo(ip: ip, name: nameCache[ip] ?? "", since: firstSeen[ip] ?? Date())
         }
     }
 
     // 反查设备名（best-effort）。getnameinfo 走系统解析器：家用路由器常把客户端 DHCP 主机名登记进
     // 反向 DNS，故有时能拿到名字；iPhone 多只经 mDNS 注册、普通 PTR 常查不到 → 回 ""，由
-    // activeViewerLabels 回退 IP 尾号。取首段去本地域后缀作友好显示。
+    // 展示层回退完整 IP（摘要行则归入「N 人正在浏览」）。取首段去本地域后缀作友好显示。
     // 串行队列：NI_NAMEREQD 对无 PTR 的设备会阻塞到 DNS 超时；既然 best-effort、延迟无所谓，串行可
     // 避免多个陌生 IP 同时到达时派生一堆被阻塞的线程（nameLookupInFlight 已按 IP 去重）。
     private static let lookupQueue = DispatchQueue(label: "localshare.namelookup")
