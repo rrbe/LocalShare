@@ -127,17 +127,23 @@ private struct ScreenFrame<Header: View, Body: View>: View {
 // 鼠标用户在系统「始终显示滚动条」下，默认会拿到常驻、挤占右侧宽度的 legacy 滚动条
 //（`.scrollIndicators(.hidden)` 也压不住它）；改 overlay 后与触控板一致——空闲隐藏、
 // 滚动/悬停时才细细淡入，且不占布局宽度。挂在内容里靠 enclosingScrollView 反查容器。
+// 关键：必须在首帧绘制前同步改样式。若拖到下一个 runloop（DispatchQueue.async）才改，
+// 内容超出视口的页（如设置页）会先按 legacy 滚动条占走右侧 ~15px 布一次，下一拍切 overlay
+// 再把这 15px 还回去——肉眼即「内容向右撑开」的闪动。故改用视图入树回调即时应用，不延后。
 private struct OverlayScrollers: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let v = NSView(frame: .zero)
-        DispatchQueue.main.async { apply(from: v) }
-        return v
-    }
+    func makeNSView(context: Context) -> NSView { ScrollerStyler() }
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { apply(from: nsView) }
+        (nsView as? ScrollerStyler)?.applyOverlay()
     }
-    private func apply(from view: NSView) {
-        guard let scroll = view.enclosingScrollView else { return }
+}
+
+// 入树即应用：viewDidMoveToSuperview / ToWindow 都在首帧绘制前同步触发，反查 enclosingScrollView
+// 并切 overlay；任一时机还拿不到容器，后一个时机补上，全程无 async 延迟。
+private final class ScrollerStyler: NSView {
+    override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); applyOverlay() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); applyOverlay() }
+    func applyOverlay() {
+        guard let scroll = enclosingScrollView else { return }
         scroll.scrollerStyle = .overlay
         scroll.autohidesScrollers = true
     }
