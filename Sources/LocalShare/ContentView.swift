@@ -795,7 +795,7 @@ private struct SettingsScreen: View {
                 .foregroundStyle(on ? .white : t.ink)
                 .frame(maxWidth: .infinity).frame(height: 34)
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? t.accent : t.surface))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? .clear : t.lineStrong, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? .clear : t.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
