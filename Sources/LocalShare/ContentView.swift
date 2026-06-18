@@ -735,14 +735,17 @@ private struct SettingsScreen: View {
                     }
                 }
 
-                // MARK: 更新（仅 updater 已启动时出现——dev/未签名构建不显示）
-                if updater.isActive {
-                    SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
-                    settingRow(title: "自动更新",
-                               desc: "关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查") {
-                        ToggleSwitch(t: t, isOn: updater.automaticChecks) {
-                            updater.setAutomaticChecks(!updater.automaticChecks)
-                        }
+                // MARK: 更新
+                // 始终展示这一组：开关留在设置里，用户才能确认「自动更新」这个功能确实存在。
+                // dev / 未签名构建里 updater 未启动（占位 EdDSA 公钥），此时只把开关置灰、并改说明文案
+                // 点明原因——是「此构建未启用」而非把整段藏掉。isActive 只决定可用态，不决定是否渲染。
+                SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
+                settingRow(title: "自动更新",
+                           desc: updater.isActive
+                                ? "关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查"
+                                : "开发构建未启用更新，正式版生效") {
+                    ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
+                        updater.setAutomaticChecks(!updater.automaticChecks)
                     }
                 }
 
