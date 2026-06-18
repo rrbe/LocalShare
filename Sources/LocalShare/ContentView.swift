@@ -32,7 +32,7 @@ struct ContentView: View {
         ZStack {
             t.bg.ignoresSafeArea()
             content
-                .frame(maxWidth: 430)
+                .frame(maxWidth: 470)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         // 最小宽度对齐默认宽度（共用同一常量）：留出 min↔默认 的缝隙时，切换屏幕的瞬间内容会被
@@ -216,6 +216,7 @@ private struct ShareScreen: View {
                 Spacer(minLength: 8)
                 StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
                            port: state.isRunning ? state.port : state.configuredPort)
+                    .layoutPriority(1)   // IP:端口是数据，缺宽时让品牌标题先缩（它有 minimumScaleFactor），地址不被截断
                 IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
@@ -734,14 +735,17 @@ private struct SettingsScreen: View {
                     }
                 }
 
-                // MARK: 更新（仅 updater 已启动时出现——dev/未签名构建不显示）
-                if updater.isActive {
-                    SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
-                    settingRow(title: "自动检查更新",
-                               desc: "关闭后不再自动弹出更新提示；仍可在菜单「检查更新…」手动查") {
-                        ToggleSwitch(t: t, isOn: updater.automaticChecks) {
-                            updater.setAutomaticChecks(!updater.automaticChecks)
-                        }
+                // MARK: 更新
+                // 始终展示这一组：开关留在设置里，用户才能确认「自动更新」这个功能确实存在。
+                // dev / 未签名构建里 updater 未启动（占位 EdDSA 公钥），此时只把开关置灰、并改说明文案
+                // 点明原因——是「此构建未启用」而非把整段藏掉。isActive 只决定可用态，不决定是否渲染。
+                SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
+                settingRow(title: "自动更新",
+                           desc: updater.isActive
+                                ? "关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查"
+                                : "开发构建未启用更新，正式版生效") {
+                    ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
+                        updater.setAutomaticChecks(!updater.automaticChecks)
                     }
                 }
 

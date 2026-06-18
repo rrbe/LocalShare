@@ -21,7 +21,8 @@ final class UpdaterController: ObservableObject {
 
     private let controller: SPUStandardUpdaterController
 
-    // updater 是否真正启动（配了真实 EdDSA 公钥）。未启动时设置页不展示更新开关——控件本无意义。
+    // updater 是否真正启动（配了真实 EdDSA 公钥）。未启动时设置页仍展示「自动更新」开关、只置灰，
+    // 让人能看到功能确实在，而非把整段藏掉（藏起来会让人以为没做）。
     let isActive: Bool
 
     // 绑定到菜单项的可用态：Sparkle 正在检查时为 false，置灰「检查更新…」避免重复触发。
