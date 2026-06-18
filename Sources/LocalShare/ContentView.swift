@@ -35,7 +35,10 @@ struct ContentView: View {
                 .frame(maxWidth: 430)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(minWidth: 390, minHeight: 620)
+        // 最小宽度对齐默认宽度（共用同一常量）：留出 min↔默认 的缝隙时，切换屏幕的瞬间内容会被
+        // 短暂提议到更小的最小宽度再弹回，表现为一次横向闪烁；锁成同一值即无缝可闪。高度无此问题——
+        // 内容恒比最小高度高（可滚动），永不会被压到最小高度。
+        .frame(minWidth: AppState.defaultWindowWidth, minHeight: 620)
         .preferredColorScheme(forced)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted.animation(.easeOut(duration: 0.15))) { handleDrop($0) }
         .overlay { if isDropTargeted { dropOverlay } }
@@ -124,17 +127,23 @@ private struct ScreenFrame<Header: View, Body: View>: View {
 // 鼠标用户在系统「始终显示滚动条」下，默认会拿到常驻、挤占右侧宽度的 legacy 滚动条
 //（`.scrollIndicators(.hidden)` 也压不住它）；改 overlay 后与触控板一致——空闲隐藏、
 // 滚动/悬停时才细细淡入，且不占布局宽度。挂在内容里靠 enclosingScrollView 反查容器。
+// 关键：必须在首帧绘制前同步改样式。若拖到下一个 runloop（DispatchQueue.async）才改，
+// 内容超出视口的页（如设置页）会先按 legacy 滚动条占走右侧 ~15px 布一次，下一拍切 overlay
+// 再把这 15px 还回去——肉眼即「内容向右撑开」的闪动。故改用视图入树回调即时应用，不延后。
 private struct OverlayScrollers: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let v = NSView(frame: .zero)
-        DispatchQueue.main.async { apply(from: v) }
-        return v
-    }
+    func makeNSView(context: Context) -> NSView { ScrollerStyler() }
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { apply(from: nsView) }
+        (nsView as? ScrollerStyler)?.applyOverlay()
     }
-    private func apply(from view: NSView) {
-        guard let scroll = view.enclosingScrollView else { return }
+}
+
+// 入树即应用：viewDidMoveToSuperview / ToWindow 都在首帧绘制前同步触发，反查 enclosingScrollView
+// 并切 overlay；任一时机还拿不到容器，后一个时机补上，全程无 async 延迟。
+private final class ScrollerStyler: NSView {
+    override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); applyOverlay() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); applyOverlay() }
+    func applyOverlay() {
+        guard let scroll = enclosingScrollView else { return }
         scroll.scrollerStyle = .overlay
         scroll.autohidesScrollers = true
     }
@@ -156,6 +165,7 @@ private struct EmptyScreen: View {
                 }
                 Spacer()
                 IdlePill(t: t, port: state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 0) {
@@ -206,6 +216,7 @@ private struct ShareScreen: View {
                 Spacer(minLength: 8)
                 StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
                            port: state.isRunning ? state.port : state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 16) {
@@ -542,6 +553,7 @@ private struct NoNetworkScreen: View {
                 Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
                 Spacer()
                 StatusPill(t: t, running: false, port: state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
             }
         } content: {
             VStack(spacing: 14) {
@@ -560,16 +572,20 @@ private struct NoNetworkScreen: View {
     }
 }
 
-// MARK: - 设置（端口 + 只读权限）
+// MARK: - 设置（网络 / 访问权限 / 外观 / 主界面 / 命令行工具）
 
 private struct SettingsScreen: View {
     let t: Theme
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
     var body: some View {
-        let pv = validatePort(portText)
+        // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
+        // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
+        let effectivePort = portText.isEmpty ? String(state.configuredPort) : portText
+        let pv = validatePort(effectivePort)
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
-        let changed = (Int(portText) ?? -1) != Int(state.configuredPort)
+        let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
         let ps = permSummary(state.permission)
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
@@ -579,8 +595,10 @@ private struct SettingsScreen: View {
             }
         } content: {
             VStack(alignment: .leading, spacing: 0) {
-                // 端口
-                SectionLabel(t: t, text: "监听端口").padding(.bottom, 8)
+                // MARK: 网络（监听端口 + 可见范围）
+                SectionLabel(t: t, text: "网络").padding(.bottom, 8)
+
+                // 监听端口：IP 前缀 + 端口输入框 + 实时可用性校验。
                 HStack(spacing: 10) {
                     Text("\(state.selectedInterface?.ip ?? "本机") :").font(.mono(14)).foregroundStyle(t.inkMute)
                     TextField("", text: $portText)
@@ -646,24 +664,17 @@ private struct SettingsScreen: View {
                     .padding(.top, 12)
                 }
 
-                // 网络可见范围：仅绑选中网卡（默认关=对全部网络开放）。只有同时连了多个网络时才有意义，
+                // 仅当前网络可见：同属网络设置，紧随端口、以分隔线归组。只有同时连了多个网络时才有意义，
                 // 故描述按是否多网卡分两种措辞，避免单网卡时给出空泛的“其它网络”字样。
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("仅当前网络可见").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                        Text(state.interfaces.count > 1
-                             ? "只在选中的信号源上开放，电脑连着的其它网络访问不到"
-                             : "只在当前网络开放，日后接入别的网络时也访问不到")
-                            .font(.sans(11.5)).foregroundStyle(t.inkMute)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
+                settingRow(top: true, title: "仅当前网络可见",
+                           desc: state.interfaces.count > 1
+                                ? "只在选中的信号源上开放，电脑连着的其它网络访问不到"
+                                : "只在当前网络开放，日后接入别的网络时也访问不到") {
                     ToggleSwitch(t: t, isOn: state.bindSelectedOnly) { state.setBindSelectedOnly(!state.bindSelectedOnly) }
                 }
-                .padding(.top, 20).padding(.bottom, 13)
-                .overlay(alignment: .bottom) { Rectangle().fill(t.line).frame(height: 1) }
+                .padding(.top, 14)
 
-                // 权限
+                // MARK: 访问权限
                 HStack {
                     SectionLabel(t: t, text: "访问权限")
                     Spacer()
@@ -679,7 +690,7 @@ private struct SettingsScreen: View {
                 permRow(name: "允许上传",
                         desc: state.canToggleUpload ? "访客可把文件传进这个文件夹" : "仅分享单个文件夹时可用",
                         locked: !state.canToggleUpload,
-                        on: state.permission.add) {
+                        on: state.permission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
 
@@ -704,20 +715,7 @@ private struct SettingsScreen: View {
                 }
                 .padding(.top, 12)
 
-                // 最近分享
-                SectionLabel(t: t, text: "最近分享").padding(.top, 24).padding(.bottom, 4)
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("在主界面展示").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                        Text("关闭后主界面不再列出最近分享").font(.sans(11.5)).foregroundStyle(t.inkMute)
-                    }
-                    Spacer()
-                    ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
-                }
-                .padding(.vertical, 13)
-                .overlay(alignment: .top) { Rectangle().fill(t.line).frame(height: 1) }
-
-                // 外观
+                // MARK: 外观
                 SectionLabel(t: t, text: "外观").padding(.top, 24).padding(.bottom, 8)
                 HStack(spacing: 8) {
                     appearanceSeg("跟随系统", .system)
@@ -725,18 +723,30 @@ private struct SettingsScreen: View {
                     appearanceSeg("深色", .dark)
                 }
 
-                // 窗口
-                SectionLabel(t: t, text: "窗口").padding(.top, 24).padding(.bottom, 8)
-                HStack(spacing: 12) {
-                    Text("恢复默认窗口尺寸").font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                    Spacer(minLength: 8)
+                // MARK: 主界面（最近分享展示 + 窗口尺寸）
+                SectionLabel(t: t, text: "主界面").padding(.top, 24).padding(.bottom, 4)
+                settingRow(title: "展示最近分享", desc: "关闭后主界面不再列出最近分享") {
+                    ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
+                }
+                settingRow(top: true, title: "恢复默认窗口尺寸") {
                     GhostButton(t: t, title: "恢复默认", systemImage: "arrow.counterclockwise") {
                         state.resetWindowSize()
                     }
                 }
-                .padding(.vertical, 4)
 
-                // 命令行工具。裸二进制（swift run）没有 .app 可指：不给安装按钮，状态/卸载照常。
+                // MARK: 更新（仅 updater 已启动时出现——dev/未签名构建不显示）
+                if updater.isActive {
+                    SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
+                    settingRow(title: "自动检查更新",
+                               desc: "关闭后不再自动弹出更新提示；仍可在菜单「检查更新…」手动查") {
+                        ToggleSwitch(t: t, isOn: updater.automaticChecks) {
+                            updater.setAutomaticChecks(!updater.automaticChecks)
+                        }
+                    }
+                }
+
+                // MARK: 命令行工具
+                // 裸二进制（swift run）没有 .app 可指：不给安装按钮，状态/卸载照常。
                 SectionLabel(t: t, text: "命令行工具").padding(.top, 24).padding(.bottom, 8)
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -800,8 +810,28 @@ private struct SettingsScreen: View {
         .buttonStyle(.plain)
     }
 
-    // locked 且无 action = 锁定常开（读取）；locked 且有 action = 当前形态不可用（开关置灰）。
-    private func permRow(name: String, desc: String, locked: Bool, on: Bool,
+    // 通用设置行：「标题 +（可选）说明 + 右侧控件」。同一分组内多行靠 top 顶部分隔线对齐，
+    // 紧贴小节标题的首行不画线（top 默认 false）——分隔线只用来区隔相邻行，不重复标题已有的分隔。
+    private func settingRow<Trailing: View>(top: Bool = false, title: String, desc: String? = nil,
+                                            @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                if let desc {
+                    Text(desc).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .top) { if top { Rectangle().fill(t.line).frame(height: 1) } }
+    }
+
+    // 权限专用行（带「始终开启」标记与可锁定开关）。locked 且无 action = 锁定常开（读取）；
+    // locked 且有 action = 当前形态不可用（开关置灰）。top 同 settingRow：仅相邻行间画分隔线。
+    private func permRow(name: String, desc: String, locked: Bool, on: Bool, top: Bool = false,
                          action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -815,7 +845,7 @@ private struct SettingsScreen: View {
             ToggleSwitch(t: t, isOn: on, locked: locked, action: action ?? {})
         }
         .padding(.vertical, 13)
-        .overlay(alignment: .top) { Rectangle().fill(t.line).frame(height: 1) }
+        .overlay(alignment: .top) { if top { Rectangle().fill(t.line).frame(height: 1) } }
     }
 
     private func apply(_ pv: PortCheck, changed: Bool) {

@@ -29,7 +29,7 @@ struct LocalShareApp: App {
 
     var body: some Scene {
         Window("LocalShare", id: "main") {
-            ContentView().environmentObject(state)
+            ContentView().environmentObject(state).environmentObject(updater)
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：暖底铺到顶，红绿灯浮于内容之上
         // 票据风竖窗（设计稿 400×720）。数字与「恢复默认尺寸」共用 AppState 的常量。
