@@ -60,6 +60,7 @@ enum Lang: String {
                 let kv = s.trimmingCharacters(in: .whitespaces)
                 if kv.hasPrefix("q=") { q = Double(kv.dropFirst(2)) ?? 1.0 }
             }
+            guard q > 0 else { continue }   // q=0 即「明确不接受该语言」（RFC 9110），跳过
             if q > bestQ { bestQ = q; best = lang }   // 严格大于：同 q 保留先出现者
         }
         return best ?? .zh
@@ -577,7 +578,13 @@ enum LStr {
         return "{" + parts.joined(separator: ",") + "}"
     }
 
+    // 值注入 <script> 内联块：除 \ 与 " 外，还把 < 转义（挡 </script> 提前收尾）、换行转义（破 JS 串）。
+    // \ 必须先处理，免得把后面引入的转义序列再次反斜杠化。
     private static func jsEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
+         .replacingOccurrences(of: "<", with: "\\u003c")
+         .replacingOccurrences(of: "\n", with: "\\n")
+         .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

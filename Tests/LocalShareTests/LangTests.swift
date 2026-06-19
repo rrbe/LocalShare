@@ -33,6 +33,13 @@ final class LangTests: XCTestCase {
         XCTAssertEqual(Lang.fromAcceptLanguage("zh,en"), .zh)
     }
 
+    func testAcceptLanguageQZeroRejected() {
+        // q=0 即「明确不接受」：en 被排除，落到 zh；后者更高 q 也仍胜出
+        XCTAssertEqual(Lang.fromAcceptLanguage("en;q=0,zh;q=0.5"), .zh)
+        // 全部 q=0 → 无可接受项 → 回退基准 zh
+        XCTAssertEqual(Lang.fromAcceptLanguage("en;q=0,zh;q=0"), .zh)
+    }
+
     func testAcceptLanguageFallbackToZh() {
         XCTAssertEqual(Lang.fromAcceptLanguage(nil), .zh)
         XCTAssertEqual(Lang.fromAcceptLanguage(""), .zh)

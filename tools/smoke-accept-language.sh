@@ -23,7 +23,7 @@ bad(){ echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 PORT=$(( (RANDOM % 10000) + 40000 ))
 LS_HEADLESS=1 LS_FOLDER="$BASE" LS_TOKEN="$TOK" LS_PORT="$PORT" "$BIN" >/dev/null 2>&1 &
 SRV=$!
-PORT2=$(( (RANDOM % 10000) + 40000 ))
+PORT2=$(( PORT + 1 ))   # 紧邻 PORT，确保两台 server 端口不撞（同摇随机有 1/10000 撞号概率）
 LS_HEADLESS=1 LS_FOLDERS="$M1/one.txt:$M2/two.txt" LS_TOKEN="$TOK" LS_PORT="$PORT2" "$BIN" >/dev/null 2>&1 &
 SRV2=$!
 trap 'kill $SRV $SRV2 2>/dev/null; wait $SRV $SRV2 2>/dev/null; rm -rf "$BASE" "$M1" "$M2"' EXIT

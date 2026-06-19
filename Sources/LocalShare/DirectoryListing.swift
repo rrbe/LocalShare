@@ -482,9 +482,11 @@ enum DirectoryListing {
             bar.classList.add('on');bar.classList.toggle('err',!!err);
             nm.textContent=msg;pct.textContent=p==null?'':p+'%';fill.style.width=(p||0)+'%';
           }
+          // 文件名按字面替换：用函数式 replace，避免名字里的 $&/$1 等被当成替换模式。
+          function withName(t,name){return t.replace('{name}',function(){return name})}
           function enqueue(files){
             for(var i=0;i<files.length;i++){
-              if(files[i].size>MAX){show(LS_I18N.upOverLimit.replace('{name}',files[i].name),null,true);continue}
+              if(files[i].size>MAX){show(withName(LS_I18N.upOverLimit,files[i].name),null,true);continue}
               queue.push(files[i]);
             }
             if(!busy)next();
@@ -503,10 +505,10 @@ enum DirectoryListing {
               if(e.lengthComputable)show(f.name,Math.round(e.loaded*100/e.total));
             };
             xhr.onload=function(){
-              if(xhr.status===200){done++}else{show(LS_I18N.upFailed.replace('{name}',f.name),null,true)}
+              if(xhr.status===200){done++}else{show(withName(LS_I18N.upFailed,f.name),null,true)}
               next();
             };
-            xhr.onerror=function(){show(LS_I18N.upFailed.replace('{name}',f.name),null,true);next();};
+            xhr.onerror=function(){show(withName(LS_I18N.upFailed,f.name),null,true);next();};
             var fd=new FormData();fd.append('file',f,f.name);
             xhr.send(fd);
           }
