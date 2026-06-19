@@ -7,9 +7,10 @@ struct NetworkInterface: Identifiable, Hashable {
     let ip: String // 私网 IPv4，如 192.168.1.20
     var id: String { "\(name)|\(ip)" }
 
-    var displayName: String {
+    // 在 GUI 信号源选择器展示，故按 app 语言；由调用方传入 lang。
+    func displayName(_ lang: Lang) -> String {
         if name == "en0" { return "Wi‑Fi · \(ip)" }
-        if name.hasPrefix("en") { return "以太网 \(name) · \(ip)" }
+        if name.hasPrefix("en") { return "\(lang == .zh ? "以太网" : "Ethernet") \(name) · \(ip)" }
         return "\(name) · \(ip)"
     }
 }

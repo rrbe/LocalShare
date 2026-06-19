@@ -108,6 +108,7 @@ struct IconButton: View {
 // 现直接落到卡上，运行中也能一键清空回到初始。
 struct ClearButton: View {
     let t: Theme
+    var lang: Lang
     let action: () -> Void
     @State private var hover = false
     var body: some View {
@@ -119,7 +120,7 @@ struct ClearButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain).onHover { hover = $0 }
-        .help("清除当前分享 · 回到初始")
+        .help(L.clearShareHelp(lang))
     }
 }
 
@@ -157,7 +158,7 @@ struct StatusPill: View {
 // 待命胶囊：空状态用，无脉冲。端口取「配置端口」作占位读数。
 struct IdlePill: View {
     let t: Theme
-    var label = "待命"
+    var label: String   // 由调用方传入已本地化文案
     var port: in_port_t
     var body: some View {
         HStack(spacing: 8) {
@@ -307,6 +308,7 @@ struct HoverIcon: View {
 // 显示与复制是同一字符串（完整 URL，含 token），超长仅由 UI 中段省略——所见即所复制。
 struct CopyPill: View {
     let t: Theme
+    var lang: Lang
     var value: String
     var withOpen = true
     var compact = false
@@ -320,10 +322,10 @@ struct CopyPill: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 12)
             HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
-                      color: copied ? t.ok : t.inkMute, help: "复制") { copy() }
+                      color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
             if withOpen {
                 HoverIcon(t: t, systemImage: "arrow.up.forward.square",
-                          color: t.inkMute, help: "在浏览器打开") { onOpen?() }
+                          color: t.inkMute, help: L.openInBrowser(lang)) { onOpen?() }
             }
         }
         .frame(height: compact ? 42 : 48)
@@ -344,19 +346,20 @@ struct CopyPill: View {
 // 「备用 ·」是行标签；其后展示的 URL 与复制结果逐字一致，超长仅由 UI 中段省略。
 struct BackupAddressRow: View {
     let t: Theme
+    var lang: Lang
     let full: String          // 完整 http URL（含 token），显示/复制/打开都用它
     let onOpen: () -> Void
     @State private var copied = false
-    private var display: String { "备用 · " + full }
+    private var display: String { L.backupPrefix(lang) + full }
     var body: some View {
         HStack(spacing: 4) {
             Text(display).font(.mono(10)).foregroundStyle(t.inkFaint)
                 .lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
             MiniIconButton(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
-                           tint: copied ? t.ok : t.inkFaint, help: "复制备用地址") { copyURL() }
+                           tint: copied ? t.ok : t.inkFaint, help: L.copyBackup(lang)) { copyURL() }
             MiniIconButton(t: t, systemImage: "arrow.up.forward.square",
-                           tint: t.inkFaint, help: "在浏览器打开", action: onOpen)
+                           tint: t.inkFaint, help: L.openInBrowser(lang), action: onOpen)
         }
     }
     private func copyURL() {
@@ -466,6 +469,7 @@ struct SectionLabel: View {
 // 点按在 Finder 中定位；右侧按钮拷贝完整绝对路径（成功显示绿 check 1.3s）。
 struct PathRow: View {
     let t: Theme
+    var lang: Lang
     let url: URL
     let isFile: Bool
     @State private var hover = false
@@ -481,7 +485,7 @@ struct PathRow: View {
                 .contentShape(Rectangle())
                 .onTapGesture { reveal() }
                 .onHover { h in hover = h; if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
-                .help(isFile ? "在 Finder 中显示该文件" : "在 Finder 中打开该文件夹")
+                .help(isFile ? L.revealFileHelp(lang) : L.openFolderHelp(lang))
             Spacer(minLength: 6)
             Button { copyPath() } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
@@ -490,7 +494,7 @@ struct PathRow: View {
                     .frame(width: 16, height: 16)   // 固定框：checkmark 与 doc.on.doc 字形高度不同，不锁尺寸整行会抖一下
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).help("拷贝完整路径")
+            .buttonStyle(.plain).help(L.copyPathHelp(lang))
         }
     }
     private func reveal() {

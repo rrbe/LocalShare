@@ -19,7 +19,7 @@ enum DirectoryListing {
 
     // 真实目录页：枚举目录 → 目录在前/名称序 → 交给渲染核心（href 基路径 = 请求路径）。
     // canUpload：单文件夹分享且开了访客上传时为 true，页面出上传按钮 + 整页拖拽，措辞联动「可读写」。
-    static func html(directory: URL, requestPath: String, rootName: String, canUpload: Bool = false) -> String {
+    static func html(directory: URL, requestPath: String, rootName: String, canUpload: Bool = false, lang: Lang) -> String {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(
             at: directory,
@@ -35,23 +35,23 @@ enum DirectoryListing {
 
         let base = requestPath.hasSuffix("/") ? requestPath : requestPath + "/"
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
-        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName, canUpload: canUpload)
+        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName, canUpload: canUpload, lang: lang)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
     // href 基路径为根 `/`，请求路径为 `/`（面包屑只显根名）；同样目录在前/名称序。
-    static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String) -> String {
+    static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String, lang: Lang) -> String {
         let sorted = items.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
-        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName, canUpload: false)
+        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName, canUpload: false, lang: lang)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
-                               base: String, requestPath: String, rootName: String, canUpload: Bool) -> String {
+                               base: String, requestPath: String, rootName: String, canUpload: Bool, lang: Lang) -> String {
         let fm = FileManager.default
         var rows = ""
         var folderCount = 0
@@ -66,10 +66,10 @@ enum DirectoryListing {
             let meta: String
             if dir {
                 let n = (try? fm.contentsOfDirectory(at: e.url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]).count) ?? 0
-                meta = "\(n) 项"
+                meta = LStr.itemCount(n, lang)
             } else {
                 let size = vals?.fileSize ?? 0
-                meta = "\(cat.displayName) · \(formatSize(size))"
+                meta = "\(cat.displayName(lang)) · \(formatSize(size))"
             }
             rows += row(href: href, name: e.name, meta: meta, dir: dir, cat: cat, date: date, idx: idx)
         }
@@ -77,10 +77,10 @@ enum DirectoryListing {
         let total = entries.count
         let title = requestPath == "/" ? rootName : ((requestPath as NSString).lastPathComponent)
         let crumbs = breadcrumb(requestPath: requestPath, rootName: rootName)
-        let chips = filterChips(folderCount: folderCount, counts: counts, total: total)
+        let chips = filterChips(folderCount: folderCount, counts: counts, total: total, lang: lang)
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
                     isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
-                    backHref: parentHref(of: requestPath))
+                    backHref: parentHref(of: requestPath), lang: lang)
     }
 
     // MARK: - 片段
@@ -112,16 +112,16 @@ enum DirectoryListing {
     }
 
     // 类型筛选 chips：全部 + 目录(若有) + 当前出现的文件类别。少于两组时不显示（无须筛选）。
-    private static func filterChips(folderCount: Int, counts: [FileCategory: Int], total: Int) -> String {
+    private static func filterChips(folderCount: Int, counts: [FileCategory: Int], total: Int, lang: Lang) -> String {
         let presentFile = FileType.order.filter { $0 != .dir && (counts[$0] ?? 0) > 0 }
         let groups = (folderCount > 0 ? 1 : 0) + presentFile.count
         guard groups >= 2 else { return "" }
-        var s = "<button class=\"chip on\" data-type=\"__all\">全部 <i>\(total)</i></button>"
+        var s = "<button class=\"chip on\" data-type=\"__all\">\(L.webFilterAll(lang)) <i>\(total)</i></button>"
         if folderCount > 0 {
-            s += "<button class=\"chip\" data-type=\"__dir\">目录 <i>\(folderCount)</i></button>"
+            s += "<button class=\"chip\" data-type=\"__dir\">\(L.webFilterDir(lang)) <i>\(folderCount)</i></button>"
         }
         for cat in presentFile {
-            s += "<button class=\"chip\" data-type=\"\(cat.rawValue)\">\(cat.displayName) <i>\(counts[cat] ?? 0)</i></button>"
+            s += "<button class=\"chip\" data-type=\"\(cat.rawValue)\">\(cat.displayName(lang)) <i>\(counts[cat] ?? 0)</i></button>"
         }
         return "<div class=\"chips\">\(s)</div>"
     }
@@ -153,34 +153,34 @@ enum DirectoryListing {
     }
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
-                             isEmpty: Bool, total: Int, canUpload: Bool, backHref: String?) -> String {
+                             isEmpty: Bool, total: Int, canUpload: Bool, backHref: String?, lang: Lang) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI），网页端只有「上传」一个写权限会出现
-        let ps = permSummary(Permission(add: canUpload))
+        let ps = permSummary(Permission(add: canUpload), lang)
         let uploadButton = canUpload ? """
-        <button class="upbtn" id="upbtn"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4 7l4-3.5L12 7"/></svg><span class="lbl">上传</span></button><input type="file" id="fi" multiple hidden>
+        <button class="upbtn" id="upbtn"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4 7l4-3.5L12 7"/></svg><span class="lbl">\(L.webUpload(lang))</span></button><input type="file" id="fi" multiple hidden>
         """ : ""
         let uploadExtras = canUpload ? """
         <div class="upbar" id="upbar"><div class="upmeta"><span id="upname"></span><span id="uppct"></span></div><div class="track"><i id="upfill"></i></div></div>
         """ : ""
         let dropMask = canUpload ? """
-        <div class="dropmask" id="dropmask"><div class="dropcard">松手上传到这里</div></div>
+        <div class="dropmask" id="dropmask"><div class="dropcard">\(L.webDropHere(lang))</div></div>
         """ : ""
         // 非根列表首行固定「返回上一级」：静态 first(免双描边)，JS 不将其纳入搜索/排序/过滤。
         let backRow = backHref.map { """
         <li class="row back first"><a href="\(htmlAttr($0))">\
         <span class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 7.5L8.5 3.5l-4 4"/><path d="M16.5 16.5h-5a3 3 0 0 1-3-3v-10"/></svg></span>\
-        <span class="meta"><span class="nm">返回上一级</span></span></a></li>
+        <span class="meta"><span class="nm">\(L.webBackToParent(lang))</span></span></a></li>
         """ } ?? ""
-        let emptyHint = #"<div class="empty"><span class="big">○</span>这个文件夹是空的</div>"#
+        let emptyHint = #"<div class="empty"><span class="big">○</span>\#(L.webEmptyFolder(lang))</div>"#
         let listInner: String
         if isEmpty {
             // 空目录也保留返回行，访客不至于走进死胡同
             listInner = (backRow.isEmpty ? "" : "<ul class=\"list\">\(backRow)</ul>") + emptyHint
         } else {
-            listInner = #"<ul class="list">\#(backRow)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">未找到匹配的文件</div><div class="nr-s">试试其他关键词</div></div>"#
+            listInner = #"<ul class="list">\#(backRow)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div><div class="nr-s">\#(L.webNoMatchSub(lang))</div></div>"#
         }
         return """
-        <!doctype html><html lang="zh"><head>
+        <!doctype html><html lang="\(lang.htmlLang)"><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
         <title>\(htmlText(title))</title>
@@ -349,26 +349,26 @@ enum DirectoryListing {
           <div class="kicker"><span class="dot"></span><span>\(htmlText(ps.eyebrow))</span></div>
           <h1>\(htmlText(title))</h1>
           <nav class="crumbs">\(crumbs)</nav>
-          <div class="countline"><span class="count" data-total="\(total)">\(total) 项</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span></div>
+          <div class="countline"><span class="count" data-total="\(total)">\(LStr.itemCount(total, lang))</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span></div>
 
           <div class="toolbar">
             <div class="search" id="search">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.3"/><path d="M10.3 10.3L14 14"/></svg>
-              <input type="text" id="q" placeholder="搜索此文件夹…" autocomplete="off" autocapitalize="off" spellcheck="false">
-              <button class="clr" id="clr" title="清除"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+              <input type="text" id="q" placeholder="\(L.webSearchFolder(lang))" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button class="clr" id="clr" title="\(L.webClear(lang))"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
             </div>
             <div class="sortwrap">
               <button class="sortbtn" id="sortbtn">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h9M4.5 8h7M6 11h4"/></svg>
-                <span class="lbl" id="sortlbl">排序</span>
+                <span class="lbl" id="sortlbl">\(L.webSortLabel(lang))</span>
                 <svg class="cv" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6l3 3 3-3"/></svg>
               </button>
               <div class="menu" id="menu">
-                <button data-k="default" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>默认顺序</button>
-                <button data-k="name" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>名称 · A → Z</button>
-                <button data-k="name" data-d="desc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>名称 · Z → A</button>
-                <button data-k="time" data-d="desc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>时间 · 新 → 旧</button>
-                <button data-k="time" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>时间 · 旧 → 新</button>
+                <button data-k="default" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>\(L.webSortDefault(lang))</button>
+                <button data-k="name" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>\(L.webSortNameAsc(lang))</button>
+                <button data-k="name" data-d="desc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>\(L.webSortNameDesc(lang))</button>
+                <button data-k="time" data-d="desc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>\(L.webSortTimeDesc(lang))</button>
+                <button data-k="time" data-d="asc"><svg class="ck" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>\(L.webSortTimeAsc(lang))</button>
               </div>
             </div>
             \(uploadButton)
@@ -379,9 +379,10 @@ enum DirectoryListing {
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>
             \(listInner)
           </section>
-          <div class="colophon">由 <b>LocalShare</b> 提供 · \(htmlText(ps.tag))</div>
+          <div class="colophon">\(L.webProvidedBy(lang)) · \(htmlText(ps.tag))</div>
         </main>
         \(dropMask)
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
         <script>
         (function(){
           // 在线心跳：每 15s ping 一次，刷新本机活跃时间并取回在线数；
@@ -390,7 +391,7 @@ enum DirectoryListing {
           function ping(){
             fetch('/ls/ping'+location.search,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
               var n=d.viewers||0;
-              vwn.textContent=n+' 人正在浏览';
+              vwn.textContent=LS_I18N.viewersN.replace('{n}',n);
               vw.classList.toggle('on',n>=2);
             }).catch(function(){});
           }
@@ -436,7 +437,7 @@ enum DirectoryListing {
             vis.forEach(function(r,i){r.style.display='';if(i===0&&!hasBack)r.classList.add('first');list.appendChild(r);});
             if(noresult)noresult.style.display=vis.length?'none':'';
             var filtering=query!==''||active!=='__all';
-            countEl.textContent=(filtering? vis.length+' / '+total : total)+' 项';
+            countEl.textContent=filtering? LS_I18N.countFiltered.replace('{shown}',vis.length).replace('{total}',total) : LS_I18N.countItems.replace('{n}',total);
             list.classList.toggle('sort-time', key==='time');
           }
 
@@ -460,7 +461,7 @@ enum DirectoryListing {
               key=b.getAttribute('data-k'); dir=b.getAttribute('data-d');
               [].slice.call(menu.querySelectorAll('button')).forEach(function(x){x.classList.toggle('on',x===b)});
               sortbtn.classList.toggle('active', key!=='default');
-              sortlbl.textContent = key==='default' ? '排序' : b.textContent.trim();
+              sortlbl.textContent = key==='default' ? LS_I18N.sort : b.textContent.trim();
               closeMenu(); render();
             });
           });
@@ -483,7 +484,7 @@ enum DirectoryListing {
           }
           function enqueue(files){
             for(var i=0;i<files.length;i++){
-              if(files[i].size>MAX){show(files[i].name+' · 超过 500MB 上限',null,true);continue}
+              if(files[i].size>MAX){show(LS_I18N.upOverLimit.replace('{name}',files[i].name),null,true);continue}
               queue.push(files[i]);
             }
             if(!busy)next();
@@ -502,10 +503,10 @@ enum DirectoryListing {
               if(e.lengthComputable)show(f.name,Math.round(e.loaded*100/e.total));
             };
             xhr.onload=function(){
-              if(xhr.status===200){done++}else{show(f.name+' · 上传失败',null,true)}
+              if(xhr.status===200){done++}else{show(LS_I18N.upFailed.replace('{name}',f.name),null,true)}
               next();
             };
-            xhr.onerror=function(){show(f.name+' · 上传失败',null,true);next();};
+            xhr.onerror=function(){show(LS_I18N.upFailed.replace('{name}',f.name),null,true);next();};
             var fd=new FormData();fd.append('file',f,f.name);
             xhr.send(fd);
           }

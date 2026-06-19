@@ -8,12 +8,12 @@ enum PreviewPage {
     // body：内容区 HTML，自带卡片元素（用 .card 取得 surface 底 + 描边 + 圆角，如
     // `<article class="card md">…</article>`）。css：查看器专属样式。scripts：依序各成一个
     // <script>（vendored 库与启动脚本分开传，启动脚本约定从 location.pathname + '?raw=1' 取原文）。
-    static func html(fileName: String, crumbs: String?, canUpload: Bool,
+    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang,
                      body: String, css: String, scripts: [String]) -> String {
-        let ps = permSummary(Permission(add: canUpload))
+        let ps = permSummary(Permission(add: canUpload), lang)
         let scriptTags = scripts.map { "<script>\($0)</script>" }.joined(separator: "\n")
         return """
-        <!doctype html><html lang="zh"><head>
+        <!doctype html><html lang="\(lang.htmlLang)"><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
         <title>\(esc(fileName))</title>
@@ -80,14 +80,15 @@ enum PreviewPage {
           <h1 class="t">\(esc(fileName))</h1>
           <div class="subline">
             <nav class="crumbs">\(crumbs ?? "")</nav>
-            <a class="rawlink" href="?raw=1">查看原文</a>
+            <a class="rawlink" href="?raw=1">\(L.webViewRaw(lang))</a>
           </div>
           <section class="ledger">
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>
             \(body)
           </section>
-          <div class="colophon">由 <b>LocalShare</b> 提供 · \(esc(ps.tag))</div>
+          <div class="colophon">\(L.webProvidedBy(lang)) · \(esc(ps.tag))</div>
         </main>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
         <script>
         (function(){
           // 与列表页同款在线心跳（仅保活，不显示人数）。鉴权走已种下的 cookie / 首次进入的 ?t=。

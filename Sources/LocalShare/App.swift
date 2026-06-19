@@ -42,7 +42,7 @@ struct LocalShareApp: App {
             }
             // 设置入口移到 macOS 应用菜单（About 下方那一格），标准 ⌘, 打开应用内「分享设置」屏。
             CommandGroup(replacing: .appSettings) {
-                Button("Settings…") { state.openSettings() }
+                Button(L.settings(Lang.current) + "…") { state.openSettings() }
                     .keyboardShortcut(",", modifiers: .command)
             }
         }
@@ -88,9 +88,9 @@ private struct MenuBarMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("显示 LocalShare") { showMainWindow(openWindow) }
+        Button(L.showLocalShare(Lang.current)) { showMainWindow(openWindow) }
         Divider()
-        Button("退出") { NSApp.terminate(nil) }
+        Button(L.quit(Lang.current)) { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }

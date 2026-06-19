@@ -20,7 +20,7 @@ enum HeadlessServer {
         } else if let single = env["LS_FOLDER"] {
             paths = [single]
         } else {
-            FileHandle.standardError.write(Data("LS_FOLDER / LS_FOLDERS 未设置\n".utf8))
+            FileHandle.standardError.write(Data((L.hsEnvMissing(Lang.systemDefault) + "\n").utf8))
             exit(2)
         }
 
@@ -33,7 +33,7 @@ enum HeadlessServer {
             print("LS_URL http://127.0.0.1:\(bound)/?t=\(token)")
             fflush(stdout)
         } catch {
-            FileHandle.standardError.write(Data("启动失败: \(error)\n".utf8))
+            FileHandle.standardError.write(Data((LStr.hsStartFailed("\(error)", Lang.systemDefault) + "\n").utf8))
             exit(1)
         }
         RunLoop.main.run()
@@ -51,7 +51,7 @@ enum HeadlessServer {
             let bound = try server.start(preferredPorts: preferredPorts)
             let ip = NetworkInfo.privateIPv4Interfaces().first?.ip
             if ip == nil {
-                FileHandle.standardError.write(Data("未发现局域网地址，手机可能无法访问，请确认已连接 WiFi。\n".utf8))
+                FileHandle.standardError.write(Data((L.hsNoLan(Lang.systemDefault) + "\n").utf8))
             }
             // 单文件分享直链该文件（口径同 GUI 的 AppState.makeURL）。
             var path = "/"
@@ -68,11 +68,11 @@ enum HeadlessServer {
             // 二维码只在交互终端打印；输出被管道接走时保持纯文本，方便脚本取 URL。
             if isatty(STDOUT_FILENO) != 0 {
                 if let qr = QRCode.ansi(for: url) { print("\n\(qr)") }
-                print("同一 WiFi 下扫码访问 · 按 Ctrl-C 停止分享")
+                print(L.hsScanHint(Lang.systemDefault))
             }
             fflush(stdout)
         } catch {
-            FileHandle.standardError.write(Data("启动失败: \(error)\n".utf8))
+            FileHandle.standardError.write(Data((LStr.hsStartFailed("\(error)", Lang.systemDefault) + "\n").utf8))
             exit(1)
         }
         RunLoop.main.run()

@@ -33,6 +33,7 @@ final class AppState: ObservableObject {
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
+    @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
 
@@ -51,6 +52,7 @@ final class AppState: ObservableObject {
     private let bindSelectedOnlyKey = "bindSelectedOnly"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
+    private let langPrefKey = "languagePref"
     private let showRecentsKey = "showRecentShares"
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
@@ -60,6 +62,8 @@ final class AppState: ObservableObject {
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
+        if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
+        Lang.current = Lang.resolve(langPref)   // 同步快照，供菜单/命令构造处读取
         // bool(forKey:) 对未写入的键返回 false，会把默认「展示」误判成关闭，故先探键存在性。
         if UserDefaults.standard.object(forKey: showRecentsKey) != nil {
             showRecents = UserDefaults.standard.bool(forKey: showRecentsKey)
@@ -134,16 +138,16 @@ final class AppState: ObservableObject {
 
     // MARK: - 选择分享对象
 
-    func pickFolder() { pick(files: false, directories: true, message: "选择要广播到局域网的文件夹") }
-    func pickFile()   { pick(files: true, directories: false, message: "选择要单独分享的文件（扫码直接打开它）") }
-    func pickAny()    { pick(files: true, directories: true, message: "选择文件或文件夹，可多选") }
+    func pickFolder() { pick(files: false, directories: true, message: L.pickFolderMsg(lang)) }
+    func pickFile()   { pick(files: true, directories: false, message: L.pickFileMsg(lang)) }
+    func pickAny()    { pick(files: true, directories: true, message: L.pickAnyMsg(lang)) }
 
     private func pick(files: Bool, directories: Bool, message: String) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = files
         panel.canChooseDirectories = directories
         panel.allowsMultipleSelection = true   // 允许一次选多个文件/目录
-        panel.prompt = "分享"
+        panel.prompt = L.sharePrompt(lang)
         panel.message = message
         if panel.runModal() == .OK, !panel.urls.isEmpty { setShared(panel.urls) }
     }
@@ -183,14 +187,14 @@ final class AppState: ObservableObject {
     private func describeShared() {
         guard let first = sharedItems.first else { sharedDetail = nil; return }
         if isMultiple {
-            sharedDetail = "\(sharedItems.count) 项"
+            sharedDetail = LStr.itemCount(sharedItems.count, lang)
         } else if sharedIsFile {
             let bytes = (try? first.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             sharedDetail = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         } else {
             let entries = (try? FileManager.default.contentsOfDirectory(
                 at: first, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-            sharedDetail = "\(entries.count) 项"
+            sharedDetail = LStr.itemCount(entries.count, lang)
         }
     }
 
@@ -262,12 +266,12 @@ final class AppState: ObservableObject {
                     port = p
                     server = fs
                     isRunning = true
-                    lastError = "选定网卡暂不可用，已临时对全部网络开放。"
+                    lastError = LStr.ifaceUnavailable(lang)
                     startViewerPolling()
                     return
                 }
             }
-            lastError = "启动服务失败：\(error.localizedDescription)"
+            lastError = LStr.startFailed(error.localizedDescription, lang)
             isRunning = false
         }
     }
@@ -343,7 +347,7 @@ final class AppState: ObservableObject {
         stop()
         start()
         if isRunning && port != p {
-            lastError = "端口 \(p) 不可用，已自动改用 \(port)。"
+            lastError = LStr.portFallback(requested: p, actual: port, lang)
         }
     }
 
@@ -365,13 +369,13 @@ final class AppState: ObservableObject {
         let existing = r.paths.filter { fm.fileExists(atPath: $0) }
         guard !existing.isEmpty else {
             recents.removeAll { $0.id == r.id }; saveRecents()
-            lastError = "该分享的文件已不存在，已从历史移除。"
+            lastError = LStr.shareGone(lang)
             return
         }
         recents.removeAll { $0.id == r.id }   // 路径子集变化时，避免残留旧记录
         setShared(existing.map { URL(fileURLWithPath: $0) })
         if existing.count < r.paths.count {
-            lastError = "有 \(r.paths.count - existing.count) 项已不存在，已自动跳过。"
+            lastError = LStr.someItemsGone(r.paths.count - existing.count, lang)
         }
     }
 
@@ -411,6 +415,15 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(a.rawValue, forKey: appearanceKey)
     }
 
+    // 当前原生界面语言（每个原生调用点读它；改 langPref 即触发全屏重渲染，与切外观同机制）。
+    var lang: Lang { Lang.resolve(langPref) }
+
+    func setLangPref(_ p: LangPref) {
+        langPref = p
+        UserDefaults.standard.set(p.rawValue, forKey: langPrefKey)
+        Lang.current = Lang.resolve(p)   // 同步快照给菜单/命令构造处
+    }
+
     func setShowRecents(_ on: Bool) {
         showRecents = on
         UserDefaults.standard.set(on, forKey: showRecentsKey)
@@ -429,10 +442,11 @@ final class AppState: ObservableObject {
     }
 
     // 安装/修复或卸载 symlink。提权对话框会阻塞，放后台线程跑完再回主线程刷状态。
-    func installCLI()   { cliTask("安装") { try CLIInstaller.install() } }
-    func uninstallCLI() { cliTask("卸载") { try CLIInstaller.uninstall() } }
+    func installCLI()   { cliTask(install: true) { try CLIInstaller.install() } }
+    func uninstallCLI() { cliTask(install: false) { try CLIInstaller.uninstall() } }
 
-    private func cliTask(_ verb: String, _ work: @escaping @Sendable () throws -> Void) {
+    private func cliTask(install: Bool, _ work: @escaping @Sendable () throws -> Void) {
+        let lang = self.lang   // 在 MainActor 上快照，detached 任务里直接用
         Task.detached { [weak self] in
             var failure: String?
             do {
@@ -440,7 +454,7 @@ final class AppState: ObservableObject {
             } catch is CLIInstaller.Cancelled {
                 // 用户在授权框点了取消，不当作错误
             } catch {
-                failure = "\(verb)命令行工具失败：\(error.localizedDescription)"
+                failure = LStr.cliTaskFailed(install: install, reason: error.localizedDescription, lang)
             }
             await MainActor.run { [weak self, failure] in
                 guard let self else { return }
@@ -471,8 +485,9 @@ struct RecentShare: Codable, Identifiable, Equatable {
 
     var isMultiple: Bool { paths.count > 1 }
     var id: String { paths.joined(separator: "\n") }
-    var name: String {
-        if isMultiple { return "\(paths.count) 个项目" }
+    // 多选给本地化计数名，单项给文件名。由调用方（持有 state.lang 的 View）传入语言。
+    func displayName(_ lang: Lang) -> String {
+        if isMultiple { return LStr.multiItemName(paths.count, lang) }
         return paths.first.map { ($0 as NSString).lastPathComponent } ?? ""
     }
     // 多选：只要还有一项存在即可重新分享（reshare 时再剔除缺失项）。
@@ -520,17 +535,17 @@ struct PortCheck {
 
 // 输入即校验：空 / 越界 → invalid；命中常用占用端口 → occupied + 建议下一个可用；其余 → ok。
 // 占用集合为启发式（与设计稿一致）；真正能否绑定以「应用」时实际 start 结果为准。
-func validatePort(_ raw: String) -> PortCheck {
+func validatePort(_ raw: String, _ lang: Lang) -> PortCheck {
     let occupied: Set<Int> = [80, 443, 3000, 5000, 5432, 3306, 8000, 7890]
     let v = raw.trimmingCharacters(in: .whitespaces)
-    guard !v.isEmpty else { return PortCheck(state: .invalid, message: "请输入端口号", suggest: nil) }
-    guard let n = Int(v) else { return PortCheck(state: .invalid, message: "端口需为数字", suggest: nil) }
-    if n < 1024  { return PortCheck(state: .invalid, message: "需 ≥ 1024 · 1023 以下为系统保留端口", suggest: nil) }
-    if n > 65535 { return PortCheck(state: .invalid, message: "超出范围 · 端口最大为 65535", suggest: nil) }
+    guard !v.isEmpty else { return PortCheck(state: .invalid, message: L.portEmptyMsg(lang), suggest: nil) }
+    guard let n = Int(v) else { return PortCheck(state: .invalid, message: L.portNotNumberMsg(lang), suggest: nil) }
+    if n < 1024  { return PortCheck(state: .invalid, message: L.portTooLowMsg(lang), suggest: nil) }
+    if n > 65535 { return PortCheck(state: .invalid, message: L.portTooHighMsg(lang), suggest: nil) }
     if occupied.contains(n) {
         var s = n + 1
         while occupied.contains(s) || s > 65535 { s = s > 65535 ? 1024 : s + 1 }
-        return PortCheck(state: .occupied, message: "端口 \(v) 已被其他程序占用", suggest: in_port_t(s))
+        return PortCheck(state: .occupied, message: LStr.portOccupied(v, lang), suggest: in_port_t(s))
     }
-    return PortCheck(state: .ok, message: "端口可用", suggest: nil)
+    return PortCheck(state: .ok, message: L.portOk(lang), suggest: nil)
 }

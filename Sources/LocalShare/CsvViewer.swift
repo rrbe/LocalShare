@@ -5,17 +5,17 @@ import Foundation
 // 首行恒作表头。点击表头排序（采样判定数值列走数值比较）、输入框按任意单元格筛选行；
 // 排序/筛选作用于全量数据，DOM 按 1000 行一档「再显示」渐进渲染——几十 MB 不卡死页面。
 enum CsvViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool) -> String {
+    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: fileName, crumbs: crumbs, canUpload: canUpload,
+            fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
             <div class="card">
               <div class="vbar">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.3"/><path d="M10.3 10.3L14 14"/></svg>
-                <input id="q" placeholder="筛选行…" autocomplete="off" autocapitalize="off" spellcheck="false">
+                <input id="q" placeholder="\(L.webFilterRows(lang))" autocomplete="off" autocapitalize="off" spellcheck="false">
                 <span class="vmeta" id="meta"></span>
               </div>
-              <div class="vbody" id="view"><p class="ld">正在加载…</p></div>
+              <div class="vbody" id="view"><p class="ld">\(L.webLoading(lang))</p></div>
             </div>
             """,
             css: css, scripts: [boot])
@@ -58,7 +58,7 @@ enum CsvViewer {
 
           function fmtSize(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB'}
           function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-          function fail(){view.innerHTML='<p class="ld">解析失败 · <a href="?raw=1">查看原文</a></p>'}
+          function fail(){view.innerHTML='<p class="ld">'+LS_I18N.parseFailed+' · <a href="?raw=1">'+LS_I18N.viewRaw+'</a></p>'}
 
           // RFC4180：引号字段、"" 转义、字段内换行；\\r 忽略。
           function parse(text,sep){
@@ -115,7 +115,7 @@ enum CsvViewer {
                 return x.localeCompare(y,'zh')*dir;
               });
             }
-            meta.textContent=(s?SHOWN.length+' / ':'')+ROWS.length+' 行 × '+HEADER.length+' 列 · '+fmtSize(SIZE);
+            meta.textContent=(s?SHOWN.length+' / ':'')+LS_I18N.csvRowsCols.replace('{rows}',ROWS.length).replace('{cols}',HEADER.length)+' · '+fmtSize(SIZE);
             renderTable();
           }
           function headHTML(){
@@ -141,12 +141,12 @@ enum CsvViewer {
           }
           function renderTable(){
             if(!SHOWN.length){
-              view.innerHTML='<div class="nores">'+(ROWS.length?'未找到匹配的行':'这个文件没有数据行')+'</div>';
+              view.innerHTML='<div class="nores">'+(ROWS.length?LS_I18N.noRows:LS_I18N.noDataRows)+'</div>';
               return;
             }
             var to=Math.min(CHUNK,SHOWN.length);
             view.innerHTML='<table class="cv"><thead>'+headHTML()+'</thead><tbody>'+rowsHTML(0,to)+'</tbody></table>'
-              +(to<SHOWN.length?'<div class="morewrap"><button class="more">再显示 '+Math.min(CHUNK,SHOWN.length-to)+' 行（剩 '+(SHOWN.length-to)+'）</button></div>':'');
+              +(to<SHOWN.length?'<div class="morewrap"><button class="more">'+LS_I18N.moreRows.replace('{n}',Math.min(CHUNK,SHOWN.length-to)).replace('{r}',SHOWN.length-to)+'</button></div>':'');
             var shownTo=to;
             var moreBtn=view.querySelector('.more');
             if(moreBtn)moreBtn.onclick=function(){
@@ -154,7 +154,7 @@ enum CsvViewer {
               view.querySelector('tbody').insertAdjacentHTML('beforeend',rowsHTML(shownTo,next));
               shownTo=next;
               if(next>=SHOWN.length)moreBtn.parentNode.remove();
-              else moreBtn.textContent='再显示 '+Math.min(CHUNK,SHOWN.length-next)+' 行（剩 '+(SHOWN.length-next)+'）';
+              else moreBtn.textContent=LS_I18N.moreRows.replace('{n}',Math.min(CHUNK,SHOWN.length-next)).replace('{r}',SHOWN.length-next);
             };
             view.querySelectorAll('th').forEach(function(th){
               th.onclick=function(){
@@ -174,12 +174,12 @@ enum CsvViewer {
             return r.text();
           }).then(function(t){
             SIZE=SIZE||t.length;
-            view.innerHTML='<p class="ld">正在解析…</p>';
+            view.innerHTML='<p class="ld">'+LS_I18N.parsing+'</p>';
             setTimeout(function(){
               try{
                 var sep=/\\.tsv(\\?|$)/i.test(location.pathname)?'\\t':detectSep(t);
                 var rows=parse(t,sep);
-                if(!rows.length){view.innerHTML='<div class="nores">这个文件是空的</div>';meta.textContent='0 行';return}
+                if(!rows.length){view.innerHTML='<div class="nores">'+LS_I18N.emptyFile+'</div>';meta.textContent=LS_I18N.rowsZero;return}
                 HEADER=rows[0];ROWS=rows.slice(1);
                 detectNumeric();
                 applyView();

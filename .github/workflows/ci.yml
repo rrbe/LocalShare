@@ -47,3 +47,6 @@ jobs:
 
       - name: Markdown 链接 / 图片协议卫生
         run: node tools/smoke-md-link-sanitize.cjs
+
+      - name: 网页逐请求语言（Accept-Language）
+        run: ./tools/smoke-accept-language.sh

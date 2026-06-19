@@ -11,21 +11,22 @@ import UniformTypeIdentifiers
 enum FileCategory: String {
     case dir, html, pdf, image, markdown, excel, doc, slide, video, audio, archive, other
 
-    // 中文名：目录页筛选条用；原生卡片印章亦取此（dir/other 由 UI 另行就地适配为「文件夹」「文件」）。
-    var displayName: String {
+    // 类别显示名：目录页筛选条用；原生卡片印章亦取此（dir/other 由 UI 另行就地适配为「文件夹」「文件」）。
+    // 原生用 app 语言、网页用请求语言，故由调用方传入 lang。PDF/Markdown 等语言中立项不分语言。
+    func displayName(_ lang: Lang) -> String {
         switch self {
-        case .dir:      return "目录"
-        case .html:     return "网页"
+        case .dir:      return lang == .zh ? "目录" : "Folder"
+        case .html:     return lang == .zh ? "网页" : "Web"
         case .pdf:      return "PDF"
-        case .image:    return "图片"
+        case .image:    return lang == .zh ? "图片" : "Image"
         case .markdown: return "Markdown"
-        case .excel:    return "表格"
-        case .doc:      return "文档"
-        case .slide:    return "幻灯片"
-        case .video:    return "视频"
-        case .audio:    return "音频"
-        case .archive:  return "压缩包"
-        case .other:    return "其他"
+        case .excel:    return lang == .zh ? "表格" : "Sheet"
+        case .doc:      return lang == .zh ? "文档" : "Doc"
+        case .slide:    return lang == .zh ? "幻灯片" : "Slides"
+        case .video:    return lang == .zh ? "视频" : "Video"
+        case .audio:    return lang == .zh ? "音频" : "Audio"
+        case .archive:  return lang == .zh ? "压缩包" : "Archive"
+        case .other:    return lang == .zh ? "其他" : "Other"
         }
     }
 
