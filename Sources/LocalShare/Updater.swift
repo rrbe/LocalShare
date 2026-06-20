@@ -68,7 +68,7 @@ struct CheckForUpdatesView: View {
     @ObservedObject var updater: UpdaterController
 
     var body: some View {
-        Button("检查更新…") { updater.checkForUpdates() }
+        Button(L.checkForUpdates(Lang.current)) { updater.checkForUpdates() }
             .disabled(!updater.canCheckForUpdates)
     }
 }

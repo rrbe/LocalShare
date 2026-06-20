@@ -6,17 +6,17 @@ import Foundation
 // 全量遍历键与原始值，命中以「完整路径 + 值」平铺列出（上限 500），清空即回树。
 // 长字符串截断 200 字符、点击展开全文。解析失败给「查看原文」出口。
 enum JsonViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool) -> String {
+    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: fileName, crumbs: crumbs, canUpload: canUpload,
+            fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
             <div class="card">
               <div class="vbar">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.3"/><path d="M10.3 10.3L14 14"/></svg>
-                <input id="q" placeholder="搜索键或值…" autocomplete="off" autocapitalize="off" spellcheck="false">
+                <input id="q" placeholder="\(L.webSearchJSON(lang))" autocomplete="off" autocapitalize="off" spellcheck="false">
                 <span class="vmeta" id="meta"></span>
               </div>
-              <div class="vbody" id="view"><p class="ld">正在加载…</p></div>
+              <div class="vbody" id="view"><p class="ld">\(L.webLoading(lang))</p></div>
             </div>
             """,
             css: css, scripts: [boot])
@@ -69,12 +69,12 @@ enum JsonViewer {
           function isObj(v){return v!==null&&typeof v==='object'}
           function badge(v){return Array.isArray(v)?'['+v.length+']':'{'+Object.keys(v).length+'}'}
           function kindLabel(v){
-            if(Array.isArray(v))return '数组 · '+v.length+' 项';
-            if(isObj(v))return '对象 · '+Object.keys(v).length+' 键';
-            return typeof v==='string'?'字符串':v===null?'null':typeof v==='number'?'数字':'布尔';
+            if(Array.isArray(v))return LS_I18N.jsonArray.replace('{n}',v.length);
+            if(isObj(v))return LS_I18N.jsonObject.replace('{n}',Object.keys(v).length);
+            return typeof v==='string'?LS_I18N.typeString:v===null?'null':typeof v==='number'?LS_I18N.typeNumber:LS_I18N.typeBool;
           }
           function baseMeta(){meta.textContent=kindLabel(DATA)+' · '+fmtSize(SIZE)}
-          function fail(){view.innerHTML='<p class="ld">解析失败 · <a href="?raw=1">查看原文</a></p>'}
+          function fail(){view.innerHTML='<p class="ld">'+LS_I18N.parseFailed+' · <a href="?raw=1">'+LS_I18N.viewRaw+'</a></p>'}
 
           function keySpan(k){var s=document.createElement('span');s.className='k';s.textContent=k;return s}
           function valueSpan(v){
@@ -82,8 +82,8 @@ enum JsonViewer {
             if(typeof v==='string'){
               s.className='v t-str';
               if(v.length>CUT){
-                var brief=JSON.stringify(v.slice(0,CUT))+'… ('+v.length+' 字符)';
-                s.classList.add('cut');s.textContent=brief;s.title='点击展开全文';
+                var brief=JSON.stringify(v.slice(0,CUT))+LS_I18N.jsonChars.replace('{n}',v.length);
+                s.classList.add('cut');s.textContent=brief;s.title=LS_I18N.expandFull;
                 s.onclick=function(){
                   var full=s.classList.toggle('full');
                   s.textContent=full?JSON.stringify(v):brief;
@@ -124,7 +124,7 @@ enum JsonViewer {
             }
             if(to<len){
               var m=document.createElement('button');m.className='more';
-              m.textContent='再显示 '+Math.min(CHUNK,len-to)+' 项（剩 '+(len-to)+'）';
+              m.textContent=LS_I18N.moreItems.replace('{n}',Math.min(CHUNK,len-to)).replace('{r}',len-to);
               m.onclick=function(){m.remove();fill(box,v,to,depth)};
               box.appendChild(m);
             }
@@ -157,9 +157,9 @@ enum JsonViewer {
                 if(isObj(c))walk(c,p);
               }
             })(DATA,'');
-            meta.textContent=(hits.length>=MAXHIT?MAXHIT+'+':hits.length)+' 处匹配';
+            meta.textContent=LS_I18N.jsonMatches.replace('{n}',hits.length>=MAXHIT?MAXHIT+'+':hits.length);
             var box=document.createElement('div');
-            if(!hits.length)box.innerHTML='<div class="nores">未找到匹配</div>';
+            if(!hits.length)box.innerHTML='<div class="nores">'+LS_I18N.noMatch+'</div>';
             else hits.forEach(function(h){
               var r=document.createElement('div');r.className='mrow';
               var p=document.createElement('span');p.className='mpath';p.textContent=h.p;

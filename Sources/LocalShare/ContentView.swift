@@ -67,8 +67,8 @@ struct ContentView: View {
             t.bg.opacity(0.72)
             VStack(spacing: 14) {
                 Image(systemName: "tray.and.arrow.down").font(.system(size: 40)).foregroundStyle(t.accent)
-                Text("松开即可分享").font(.display(22)).foregroundStyle(t.ink)
-                Text("文件夹 / 多项 → 列表浏览 · 单个文件 → 扫码直接打开")
+                Text(L.dropToShare(state.lang)).font(.display(22)).foregroundStyle(t.ink)
+                Text(L.dropHint(state.lang))
                     .font(.mono(10.5)).foregroundStyle(t.inkMute)
             }
         }
@@ -156,7 +156,7 @@ private struct EmptyScreen: View {
     var dragging: Bool
     @EnvironmentObject var state: AppState
     var body: some View {
-        let ps = permSummary(state.permission)
+        let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -164,14 +164,14 @@ private struct EmptyScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                IdlePill(t: t, port: state.configuredPort)
-                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
+                IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
+                IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
             VStack(spacing: 0) {
                 dropZone
                 if state.showRecents {
-                    RecentSharesView(t: t, items: state.recents.filter { $0.exists },
+                    RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
                 }
             }
@@ -185,9 +185,9 @@ private struct EmptyScreen: View {
                 .frame(width: 56, height: 56)
                 .overlay(Image(systemName: "arrow.up.to.line").font(.system(size: 24, weight: .medium)).foregroundStyle(t.accent))
                 .padding(.bottom, 14)
-            Text("拖拽文件或文件夹到这里").font(.sans(15.5, .semibold)).foregroundStyle(t.ink)
-            Text("同一 Wi-Fi 下的设备即可扫码访问").font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
-            PrimaryButton(t: t, title: "选择文件或文件夹", systemImage: "doc.badge.plus") { state.pickAny() }
+            Text(L.dropZoneTitle(state.lang)).font(.sans(15.5, .semibold)).foregroundStyle(t.ink)
+            Text(L.dropZoneSub(state.lang)).font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
+            PrimaryButton(t: t, title: L.pickAnyButton(state.lang), systemImage: "doc.badge.plus") { state.pickAny() }
                 .padding(.top, 18)
         }
         .frame(maxWidth: .infinity)
@@ -208,7 +208,7 @@ private struct ShareScreen: View {
     @EnvironmentObject var state: AppState
     @State private var showViewers = false   // 在线访客明细弹窗（点摘要行展开）
     var body: some View {
-        let ps = permSummary(state.permission)
+        let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
             HStack(spacing: 8) {
                 Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
@@ -217,7 +217,7 @@ private struct ShareScreen: View {
                 StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
                            port: state.isRunning ? state.port : state.configuredPort)
                     .layoutPriority(1)   // IP:端口是数据，缺宽时让品牌标题先缩（它有 minimumScaleFactor），地址不被截断
-                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
+                IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
             VStack(spacing: 16) {
@@ -226,7 +226,7 @@ private struct ShareScreen: View {
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
-                    RecentSharesView(t: t, items: state.recents.filter { $0.exists && Set($0.paths) != state.currentSharePaths },
+                    RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists && Set($0.paths) != state.currentSharePaths },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
                 }
             }
@@ -246,25 +246,26 @@ private struct ShareScreen: View {
     // 多项存根：叠放印章 + 「正在分享 N 项」+ 文件/文件夹分项概要 + 前几项名称预览。
     private func multipleStub(_ ps: PermSummary) -> some View {
         let items = state.sharedItems
+        let lang = state.lang
         let dirCount = items.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }.count
         let fileCount = items.count - dirCount
         var parts: [String] = []
-        if fileCount > 0 { parts.append("\(fileCount) 个文件") }
-        if dirCount > 0 { parts.append("\(dirCount) 个文件夹") }
-        let preview = items.prefix(3).map(\.lastPathComponent).joined(separator: "、")
-            + (items.count > 3 ? " 等" : "")
+        if fileCount > 0 { parts.append(LStr.fileCount(fileCount, lang)) }
+        if dirCount > 0 { parts.append(LStr.folderCount(dirCount, lang)) }
+        let preview = items.prefix(3).map(\.lastPathComponent).joined(separator: lang == .zh ? "、" : ", ")
+            + (items.count > 3 ? (lang == .zh ? " 等" : " …") : "")
         return VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .top, spacing: 12) {
                 MultiGlyph(t: t, size: 42)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("正在分享 · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
-                    Text("\(items.count) 项").font(.sans(16, .bold)).foregroundStyle(t.ink)
+                    Text("\(L.sharingKicker(lang)) · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                    Text(LStr.itemCount(items.count, lang)).font(.sans(16, .bold)).foregroundStyle(t.ink)
                     Text(parts.joined(separator: " · ")).font(.mono(11.5)).foregroundStyle(t.inkMute)
                 }
                 Spacer(minLength: 8)
-                ClearButton(t: t) { state.clearShare() }
+                ClearButton(t: t, lang: lang) { state.clearShare() }
             }
-            MultiPreviewMenu(t: t, items: items, preview: preview) { state.revealInFinder($0) }
+            MultiPreviewMenu(t: t, lang: lang, items: items, preview: preview) { state.revealInFinder($0) }
         }
         .padding(.horizontal, 18).padding(.vertical, 16)
     }
@@ -273,7 +274,7 @@ private struct ShareScreen: View {
     private func fileStub(_ ps: PermSummary) -> some View {
         let url = state.sharedURL ?? URL(fileURLWithPath: "/")
         let cat = FileType.category(of: url, isDir: false)
-        let catName = (cat == .other) ? "文件" : cat.displayName
+        let catName = (cat == .other) ? L.fileKind(state.lang) : cat.displayName(state.lang)
         return VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .top, spacing: 12) {
                 TypeGlyph(t: t, category: cat, ext: url.pathExtension.lowercased(), size: 42)
@@ -284,9 +285,9 @@ private struct ShareScreen: View {
                     Text("\(state.sharedDetail ?? "") · \(catName)").font(.mono(11.5)).foregroundStyle(t.inkMute)
                 }
                 Spacer(minLength: 8)
-                ClearButton(t: t) { state.clearShare() }
+                ClearButton(t: t, lang: state.lang) { state.clearShare() }
             }
-            PathRow(t: t, url: url, isFile: true)
+            PathRow(t: t, lang: state.lang, url: url, isFile: true)
         }
         .padding(.horizontal, 18).padding(.vertical, 16)
     }
@@ -298,16 +299,16 @@ private struct ShareScreen: View {
             HStack(alignment: .top, spacing: 12) {
                 FolderGlyph(t: t, size: 42)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("正在分享文件夹 · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                    Text("\(L.sharingFolderKicker(state.lang)) · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                     Text(url.lastPathComponent).font(.sans(16, .bold)).foregroundStyle(t.ink)
                         .lineLimit(1).truncationMode(.middle)
                     Text(state.sharedDetail ?? "").font(.mono(11.5)).foregroundStyle(t.inkMute)
                 }
                 Spacer(minLength: 8)
-                ClearButton(t: t) { state.clearShare() }
+                ClearButton(t: t, lang: state.lang) { state.clearShare() }
             }
             .padding(.horizontal, 18).padding(.top, 16)
-            PathRow(t: t, url: url, isFile: false)
+            PathRow(t: t, lang: state.lang, url: url, isFile: false)
                 .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 12)
             HStack(spacing: 6) {
                 ForEach(Array(ps.chips.enumerated()), id: \.offset) { i, c in
@@ -315,7 +316,7 @@ private struct ShareScreen: View {
                 }
                 Spacer()
                 Button { state.openSettings() } label: {
-                    Text("改权限 ›").font(.sans(11)).foregroundStyle(t.accent)
+                    Text(L.changePerm(state.lang)).font(.sans(11)).foregroundStyle(t.accent)
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal, 18).padding(.bottom, 14)
@@ -327,15 +328,15 @@ private struct ShareScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Circle().fill(t.accent).frame(width: 6, height: 6)
-                Text("新收到").font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Text(L.received(state.lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                 Spacer()
                 if state.received.count > 3 {
-                    Text("\(state.received.count) 项").font(.mono(11)).foregroundStyle(t.inkFaint)
+                    Text(LStr.itemCount(state.received.count, state.lang)).font(.mono(11)).foregroundStyle(t.inkFaint)
                 }
             }
             .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 5)
             ForEach(state.received.prefix(3), id: \.self) { url in
-                ReceivedRow(t: t, url: url) { state.revealReceived(url) }
+                ReceivedRow(t: t, lang: state.lang, url: url) { state.revealReceived(url) }
             }
         }
         .padding(.bottom, 8)
@@ -346,16 +347,16 @@ private struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.isMultiple ? "扫码浏览已选项目 · 同一 Wi-Fi"
-            : (state.sharedIsFile ? "扫码查看 · 同一 Wi-Fi" : "扫码浏览全部文件 · 同一 Wi-Fi")
+        let caption = state.isMultiple ? L.scanCaptionMultiple(state.lang)
+            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang))
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
-            Text(running ? caption : "已停止广播").font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, value: state.primaryURL ?? "—",
+            Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
+            CopyPill(t: t, lang: state.lang, value: state.primaryURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)
             if let local = state.localURL {
                 // 备用地址（主机名 / .local）紧贴主地址、归入卡内，保持内聚。左缩进对齐上方地址文字。
-                BackupAddressRow(t: t, full: local) {
+                BackupAddressRow(t: t, lang: state.lang, full: local) {
                     if let url = URL(string: local) { NSWorkspace.shared.open(url) }
                 }
                 .padding(.top, 7).padding(.leading, 12)
@@ -375,7 +376,7 @@ private struct ShareScreen: View {
                 .padding(.top, 12)
                 .transition(.opacity)
                 .popover(isPresented: $showViewers, arrowEdge: .bottom) {
-                    ViewerListPopover(t: t, viewers: state.viewers)
+                    ViewerListPopover(t: t, lang: state.lang, viewers: state.viewers)
                 }
             }
         }
@@ -386,24 +387,20 @@ private struct ShareScreen: View {
     // 在线访客摘要：反查到设备名才领衔具名（单台直呼其名、多台「领衔 + 等 N 人」）；
     // 查不到则统一「N 人正在浏览」——不在摘要露 IP 尾号，完整 IP 留给展开列表。
     private var viewerText: String {
-        let n = state.viewerCount
-        if let name = state.viewers.first?.name, !name.isEmpty {
-            return n <= 1 ? "\(name) 正在浏览" : "\(name) 等 \(n) 人正在浏览"
-        }
-        return "\(n) 人正在浏览"
+        LStr.viewerSummary(name: state.viewers.first?.name, count: state.viewerCount, state.lang)
     }
 
     @ViewBuilder private var actions: some View {
         if state.isRunning {
             HStack(spacing: 10) {
-                GhostButton(t: t, title: state.sharedIsFile ? "更换文件" : "更换",
+                GhostButton(t: t, title: state.sharedIsFile ? L.replaceFile(state.lang) : L.replace(state.lang),
                             systemImage: "arrow.left.arrow.right", fullWidth: true) { state.pickAny() }
-                DangerButton(t: t, title: "停止") { state.stop() }
+                DangerButton(t: t, title: L.stop(state.lang)) { state.stop() }
             }
         } else {
             HStack(spacing: 10) {
-                PrimaryButton(t: t, title: "重新广播", systemImage: "play.fill", fullWidth: true) { state.start() }
-                GhostButton(t: t, title: "清除") { state.clearShare() }
+                PrimaryButton(t: t, title: L.rebroadcast(state.lang), systemImage: "play.fill", fullWidth: true) { state.start() }
+                GhostButton(t: t, title: L.clear(state.lang)) { state.clearShare() }
             }
         }
     }
@@ -411,12 +408,12 @@ private struct ShareScreen: View {
     private var interfacePicker: some View {
         Menu {
             ForEach(state.interfaces) { iface in
-                Button(iface.displayName) { state.selectInterface(iface) }
+                Button(iface.displayName(state.lang)) { state.selectInterface(iface) }
             }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 11))
-                Text(state.selectedInterface?.displayName ?? "选择信号源").font(.mono(11))
+                Text(state.selectedInterface?.displayName(state.lang) ?? L.selectSource(state.lang)).font(.mono(11))
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
             }
             .foregroundStyle(t.ink)
@@ -436,13 +433,14 @@ private struct ShareScreen: View {
 // 选中即在 Finder 中显示——与单项分享的 PathRow、收件行同一交互语言（hover 下划线 + 手型）。
 private struct MultiPreviewMenu: View {
     let t: Theme
+    let lang: Lang
     let items: [URL]
     let preview: String
     let reveal: (URL) -> Void
     @State private var hover = false
     var body: some View {
         Menu {
-            Section("在 Finder 中显示") {
+            Section(L.revealInFinder(lang)) {
                 ForEach(items, id: \.self) { url in
                     Button(url.lastPathComponent) { reveal(url) }
                 }
@@ -464,13 +462,14 @@ private struct MultiPreviewMenu: View {
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .fixedSize(horizontal: false, vertical: true)
         .onHover { h in hover = h; if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
-        .help("在 Finder 中显示分享项")
+        .help(L.revealShareItems(lang))
     }
 }
 
 // 收件单行：类型小图标 + 文件名，悬停亮出跳转箭头（点击在 Finder 中显示）。
 private struct ReceivedRow: View {
     let t: Theme
+    let lang: Lang
     let url: URL
     let reveal: () -> Void
     @State private var hover = false
@@ -492,7 +491,7 @@ private struct ReceivedRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .help("在 Finder 中显示")
+        .help(L.revealInFinder(lang))
     }
 }
 
@@ -500,14 +499,15 @@ private struct ReceivedRow: View {
 // 仅分享者本机可见——网页端永不外泄身份（见 FileServer.activeViewers）。
 private struct ViewerListPopover: View {
     let t: Theme
+    let lang: Lang
     let viewers: [ViewerInfo]
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Circle().fill(t.ok).frame(width: 6, height: 6)
-                Text("正在浏览").font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Text(L.viewing(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                 Spacer(minLength: 16)
-                Text("\(viewers.count) 人").font(.mono(11)).foregroundStyle(t.inkFaint)
+                Text(LStr.viewerCountLabel(viewers.count, lang)).font(.mono(11)).foregroundStyle(t.inkFaint)
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
             ForEach(viewers) { v in
@@ -522,7 +522,7 @@ private struct ViewerListPopover: View {
                         }
                     }
                     Spacer(minLength: 8)
-                    Text(elapsedText(v.since)).font(.sans(10.5)).foregroundStyle(t.inkFaint)
+                    Text(LStr.elapsed(v.since, lang)).font(.sans(10.5)).foregroundStyle(t.inkFaint)
                         .fixedSize()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -531,15 +531,6 @@ private struct ViewerListPopover: View {
         }
         .padding(.bottom, 8)
         .frame(width: 230)
-    }
-
-    // 「开始浏览」至今的时长，口语化粗粒度即可（随 AppState 2s 轮询刷新）。
-    private func elapsedText(_ since: Date) -> String {
-        let s = Int(Date().timeIntervalSince(since))
-        if s < 60 { return "刚刚" }
-        if s < 3600 { return "\(s / 60) 分钟前" }
-        if s < 86400 { return "\(s / 3600) 小时前" }
-        return "\(s / 86400) 天前"
     }
 }
 
@@ -554,17 +545,17 @@ private struct NoNetworkScreen: View {
                 Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
                 Spacer()
                 StatusPill(t: t, running: false, port: state.configuredPort)
-                IconButton(t: t, systemImage: "gearshape", help: "设置") { state.openSettings() }
+                IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
             VStack(spacing: 14) {
                 Spacer(minLength: 60)
                 Image(systemName: "wifi.slash").font(.system(size: 46)).foregroundStyle(t.inkFaint)
-                Text("未接入局域网").font(.display(21)).foregroundStyle(t.ink)
-                Text("先把这台 Mac 接入与目标设备相同的\nWi-Fi / 有线网络，再点下方刷新。")
+                Text(L.noNetwork(state.lang)).font(.display(21)).foregroundStyle(t.ink)
+                Text(L.noNetworkHint(state.lang))
                     .font(.sans(13)).foregroundStyle(t.inkMute)
                     .multilineTextAlignment(.center).lineSpacing(3)
-                GhostButton(t: t, title: "刷新网络", systemImage: "arrow.clockwise") { state.refreshNetwork() }
+                GhostButton(t: t, title: L.refresh(state.lang), systemImage: "arrow.clockwise") { state.refreshNetwork() }
                     .padding(.top, 4)
                 Spacer(minLength: 40)
             }
@@ -583,25 +574,26 @@ private struct SettingsScreen: View {
     var body: some View {
         // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
         // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
+        let lang = state.lang
         let effectivePort = portText.isEmpty ? String(state.configuredPort) : portText
-        let pv = validatePort(effectivePort)
+        let pv = validatePort(effectivePort, lang)
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
         let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
-        let ps = permSummary(state.permission)
+        let ps = permSummary(state.permission, lang)
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
-                IconButton(t: t, systemImage: "chevron.left", help: "返回") { state.goShare() }
-                Text("分享设置").font(.display(21, .semibold)).foregroundStyle(t.ink)
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
+                Text(L.shareSettings(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
             }
         } content: {
             VStack(alignment: .leading, spacing: 0) {
                 // MARK: 网络（监听端口 + 可见范围）
-                SectionLabel(t: t, text: "网络").padding(.bottom, 8)
+                SectionLabel(t: t, text: L.sectionNetwork(lang)).padding(.bottom, 8)
 
                 // 监听端口：IP 前缀 + 端口输入框 + 实时可用性校验。
                 HStack(spacing: 10) {
-                    Text("\(state.selectedInterface?.ip ?? "本机") :").font(.mono(14)).foregroundStyle(t.inkMute)
+                    Text("\(state.selectedInterface?.ip ?? L.thisMachine(lang)) :").font(.mono(14)).foregroundStyle(t.inkMute)
                     TextField("", text: $portText)
                         .textFieldStyle(.plain)
                         .font(.mono(15, .bold)).foregroundStyle(t.ink)
@@ -616,7 +608,7 @@ private struct SettingsScreen: View {
                     HStack(spacing: 5) {
                         Image(systemName: pv.state == .ok ? "checkmark" : "questionmark.circle")
                             .font(.system(size: 13, weight: .bold))
-                        Text(pv.state == .ok ? "可用" : (pv.state == .occupied ? "被占用" : "无效"))
+                        Text(pv.state == .ok ? L.portOk(lang) : (pv.state == .occupied ? L.portOccupied(lang) : L.portInvalid(lang)))
                             .font(.sans(11.5, .bold))
                     }
                     .foregroundStyle(pColor)
@@ -627,14 +619,14 @@ private struct SettingsScreen: View {
                     .strokeBorder(pv.state == .ok ? t.line : pColor, lineWidth: 1))
 
                 HStack(alignment: .top, spacing: 8) {
-                    Text(pv.state == .ok ? "端口可用 · 修改后会重启服务，已分发的链接需更新。" : pv.message)
+                    Text(pv.state == .ok ? L.portOkHint(lang) : pv.message)
                         .font(.sans(11.5, pv.state == .ok ? .regular : .semibold))
                         .foregroundStyle(pv.state == .ok ? t.inkMute : pColor)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 4)
                     if let s = pv.suggest {
                         Button { portText = String(s) } label: {
-                            Text("改用 :\(String(s))").font(.sans(11.5, .bold)).foregroundStyle(t.accent)
+                            Text(LStr.changeToPort(s, lang)).font(.sans(11.5, .bold)).foregroundStyle(t.accent)
                                 .padding(.horizontal, 10).frame(height: 24)
                                 .background(Capsule().fill(t.accentSoft))
                         }.buttonStyle(.plain)
@@ -650,14 +642,14 @@ private struct SettingsScreen: View {
                         Button { portText = String(state.configuredPort) } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
-                                Text("放弃修改").font(.sans(13, .semibold))
+                                Text(L.discardChanges(lang)).font(.sans(13, .semibold))
                             }
                             .foregroundStyle(t.inkMute)
                         }
                         .buttonStyle(.plain)
                         if pv.state != .invalid {
                             Button { apply(pv, changed: changed) } label: {
-                                Text("应用并重启").font(.sans(13, .semibold)).foregroundStyle(t.accent)
+                                Text(L.applyRestart(lang)).font(.sans(13, .semibold)).foregroundStyle(t.accent)
                             }
                             .buttonStyle(.plain)
                         }
@@ -667,19 +659,19 @@ private struct SettingsScreen: View {
 
                 // 仅当前网络可见：同属网络设置，紧随端口、以分隔线归组。只有同时连了多个网络时才有意义，
                 // 故描述按是否多网卡分两种措辞，避免单网卡时给出空泛的“其它网络”字样。
-                settingRow(top: true, title: "仅当前网络可见",
+                settingRow(top: true, title: L.bindOnlyTitle(lang),
                            desc: state.interfaces.count > 1
-                                ? "只在选中的信号源上开放，电脑连着的其它网络访问不到"
-                                : "只在当前网络开放，日后接入别的网络时也访问不到") {
+                                ? L.bindOnlyDescMulti(lang)
+                                : L.bindOnlyDescSingle(lang)) {
                     ToggleSwitch(t: t, isOn: state.bindSelectedOnly) { state.setBindSelectedOnly(!state.bindSelectedOnly) }
                 }
                 .padding(.top, 14)
 
                 // MARK: 访问权限
                 HStack {
-                    SectionLabel(t: t, text: "访问权限")
+                    SectionLabel(t: t, text: L.sectionPermission(lang))
                     Spacer()
-                    Text("当前：\(ps.tag)").font(.sans(11, .bold))
+                    Text("\(L.currentColon(lang))\(ps.tag)").font(.sans(11, .bold))
                         .foregroundStyle(ps.writable ? t.accent : t.inkMute)
                         .padding(.horizontal, 9).padding(.vertical, 2)
                         .background(Capsule().fill(ps.writable ? t.accentSoft : .clear))
@@ -687,9 +679,9 @@ private struct SettingsScreen: View {
                 }
                 .padding(.top, 24).padding(.bottom, 4)
 
-                permRow(name: "读取与下载", desc: "允许查看和下载文件", locked: true, on: true)
-                permRow(name: "允许上传",
-                        desc: state.canToggleUpload ? "访客可把文件传进这个文件夹" : "仅分享单个文件夹时可用",
+                permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
+                permRow(name: L.permUploadName(lang),
+                        desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
                         locked: !state.canToggleUpload,
                         on: state.permission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
@@ -697,9 +689,7 @@ private struct SettingsScreen: View {
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
-                    Text(ps.writable
-                         ? "已开启上传 · 访客可向这个文件夹写入文件，请只把二维码交给信任的人。"
-                         : "当前为只读分享 · 访客只能查看和下载。")
+                    Text(ps.writable ? L.permInfoWritable(lang) : L.permInfoReadonly(lang))
                         .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
                     Spacer(minLength: 0)
                 }
@@ -710,27 +700,35 @@ private struct SettingsScreen: View {
                 // 明文传输提示：纯 LAN 不加密，公共网络下同网的人能看到内容。用克制的灰字、不进彩底警告框。
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "lock.open").font(.system(size: 13)).foregroundStyle(t.inkMute).padding(.top, 1)
-                    Text("同一网络下传输不加密 · 公共 Wi-Fi（咖啡馆 / 机场等）下同网的人可能看到内容，敏感文件别在这种网络分享。")
+                    Text(L.plaintextWarning(lang))
                         .font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
                     Spacer(minLength: 0)
                 }
                 .padding(.top, 12)
 
                 // MARK: 外观
-                SectionLabel(t: t, text: "外观").padding(.top, 24).padding(.bottom, 8)
+                SectionLabel(t: t, text: L.sectionAppearance(lang)).padding(.top, 24).padding(.bottom, 8)
                 HStack(spacing: 8) {
-                    appearanceSeg("跟随系统", .system)
-                    appearanceSeg("浅色", .light)
-                    appearanceSeg("深色", .dark)
+                    appearanceSeg(L.appearanceFollow(lang), .system)
+                    appearanceSeg(L.appearanceLight(lang), .light)
+                    appearanceSeg(L.appearanceDark(lang), .dark)
+                }
+
+                // MARK: 语言
+                SectionLabel(t: t, text: L.sectionLanguage(lang)).padding(.top, 24).padding(.bottom, 8)
+                HStack(spacing: 8) {
+                    langSeg(L.langFollow(lang), .system)
+                    langSeg("中文", .zh)        // 语言名用本族文字，不翻译
+                    langSeg("English", .en)
                 }
 
                 // MARK: 主界面（最近分享展示 + 窗口尺寸）
-                SectionLabel(t: t, text: "主界面").padding(.top, 24).padding(.bottom, 4)
-                settingRow(title: "展示最近分享", desc: "关闭后主界面不再列出最近分享") {
+                SectionLabel(t: t, text: L.sectionMain(lang)).padding(.top, 24).padding(.bottom, 4)
+                settingRow(title: L.showRecentsTitle(lang), desc: L.showRecentsDesc(lang)) {
                     ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
                 }
-                settingRow(top: true, title: "恢复默认窗口尺寸") {
-                    GhostButton(t: t, title: "恢复默认", systemImage: "arrow.counterclockwise") {
+                settingRow(top: true, title: L.resetWindowTitle(lang)) {
+                    GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
                         state.resetWindowSize()
                     }
                 }
@@ -739,11 +737,11 @@ private struct SettingsScreen: View {
                 // 始终展示这一组：开关留在设置里，用户才能确认「自动更新」这个功能确实存在。
                 // dev / 未签名构建里 updater 未启动（占位 EdDSA 公钥），此时只把开关置灰、并改说明文案
                 // 点明原因——是「此构建未启用」而非把整段藏掉。isActive 只决定可用态，不决定是否渲染。
-                SectionLabel(t: t, text: "更新").padding(.top, 24).padding(.bottom, 4)
-                settingRow(title: "自动更新",
+                SectionLabel(t: t, text: L.sectionUpdate(lang)).padding(.top, 24).padding(.bottom, 4)
+                settingRow(title: L.autoUpdate(lang),
                            desc: updater.isActive
-                                ? "关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查"
-                                : "开发构建未启用更新，正式版生效") {
+                                ? L.autoUpdateDescOn(lang)
+                                : L.autoUpdateDescOff(lang)) {
                     ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
                         updater.setAutomaticChecks(!updater.automaticChecks)
                     }
@@ -751,7 +749,7 @@ private struct SettingsScreen: View {
 
                 // MARK: 命令行工具
                 // 裸二进制（swift run）没有 .app 可指：不给安装按钮，状态/卸载照常。
-                SectionLabel(t: t, text: "命令行工具").padding(.top, 24).padding(.bottom, 8)
+                SectionLabel(t: t, text: L.sectionCLI(lang)).padding(.top, 24).padding(.bottom, 8)
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("localshare").font(.mono(13.5, .bold)).foregroundStyle(t.ink)
@@ -761,7 +759,7 @@ private struct SettingsScreen: View {
                     Spacer(minLength: 8)
                     if state.cliStatus != .notInstalled {
                         Button { state.uninstallCLI() } label: {
-                            Text("卸载").font(.sans(13, .semibold)).foregroundStyle(t.inkMute)
+                            Text(L.uninstall(lang)).font(.sans(13, .semibold)).foregroundStyle(t.inkMute)
                         }
                         .buttonStyle(.plain)
                         .padding(.trailing, 4)
@@ -769,12 +767,12 @@ private struct SettingsScreen: View {
                     if state.cliStatus == .installed {
                         HStack(spacing: 5) {
                             Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
-                            Text("已安装").font(.sans(11.5, .bold))
+                            Text(L.installed(lang)).font(.sans(11.5, .bold))
                         }
                         .foregroundStyle(t.ok)
                     } else if CLIInstaller.binaryPath() != nil {
                         GhostButton(t: t,
-                                    title: state.cliStatus == .notInstalled ? "安装" : "重新安装",
+                                    title: state.cliStatus == .notInstalled ? L.install(lang) : L.reinstall(lang),
                                     systemImage: "terminal") {
                             state.installCLI()
                         }
@@ -798,13 +796,26 @@ private struct SettingsScreen: View {
         case .stale(let dest):
             return "→ " + (dest as NSString).abbreviatingWithTildeInPath
         case .notInstalled:
-            return CLIInstaller.binaryPath() != nil ? "在终端用 localshare 分享文件" : "以 app 包运行时可安装"
+            return CLIInstaller.binaryPath() != nil ? L.cliHintAvailable(state.lang) : L.cliHintUnavailable(state.lang)
         }
     }
 
     private func appearanceSeg(_ label: String, _ pref: AppState.AppearancePref) -> some View {
         let on = state.appearance == pref
         return Button { state.setAppearance(pref) } label: {
+            Text(label).font(.sans(13, on ? .semibold : .medium))
+                .foregroundStyle(on ? .white : t.ink)
+                .frame(maxWidth: .infinity).frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? t.accent : t.surface))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? .clear : t.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // 语言分段：结构同 appearanceSeg，绑 langPref / setLangPref。
+    private func langSeg(_ label: String, _ pref: LangPref) -> some View {
+        let on = state.langPref == pref
+        return Button { state.setLangPref(pref) } label: {
             Text(label).font(.sans(13, on ? .semibold : .medium))
                 .foregroundStyle(on ? .white : t.ink)
                 .frame(maxWidth: .infinity).frame(height: 34)
@@ -841,7 +852,7 @@ private struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(name).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                    if locked && action == nil { Text("始终开启").font(.sans(11)).foregroundStyle(t.inkFaint) }
+                    if locked && action == nil { Text(L.alwaysOn(state.lang)).font(.sans(11)).foregroundStyle(t.inkFaint) }
                 }
                 Text(desc).font(.sans(11.5)).foregroundStyle(t.inkMute)
             }
@@ -867,12 +878,12 @@ private struct HistoryScreen: View {
     var body: some View {
         ScreenFrame(t: t) {
             HStack(spacing: 10) {
-                IconButton(t: t, systemImage: "chevron.left", help: "返回") { state.goShare() }
-                Text("分享历史").font(.display(21, .semibold)).foregroundStyle(t.ink)
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
+                Text(L.shareHistory(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
                 if !state.recents.isEmpty {
                     Button { state.clearRecents() } label: {
-                        Text("清空").font(.sans(12)).foregroundStyle(t.inkMute)
+                        Text(L.clearAll(state.lang)).font(.sans(12)).foregroundStyle(t.inkMute)
                     }.buttonStyle(.plain)
                 }
             }
@@ -881,7 +892,7 @@ private struct HistoryScreen: View {
                 VStack(spacing: 8) {
                     Spacer(minLength: 80)
                     Image(systemName: "clock.arrow.circlepath").font(.system(size: 38)).foregroundStyle(t.inkFaint)
-                    Text("暂无分享历史").font(.sans(14, .semibold)).foregroundStyle(t.inkMute)
+                    Text(L.noHistory(state.lang)).font(.sans(14, .semibold)).foregroundStyle(t.inkMute)
                 }.frame(maxWidth: .infinity)
             } else {
                 VStack(spacing: 0) {
@@ -899,23 +910,23 @@ private struct HistoryScreen: View {
             RecentGlyph(t: t, item: h, size: 38)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
-                    Text(h.name).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                    Text(h.displayName(state.lang)).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
                         .lineLimit(1).truncationMode(.middle)
                     if live {
                         HStack(spacing: 4) {
                             StatusDot(color: t.accent, live: true, size: 5)
-                            Text("进行中").font(.sans(10.5, .bold)).foregroundStyle(t.accent)
+                            Text(L.live(state.lang)).font(.sans(10.5, .bold)).foregroundStyle(t.accent)
                         }
                     }
                 }
-                Text("\(h.detail) · \(friendlyDate(h.date))").font(.mono(11.5)).foregroundStyle(t.inkMute)
+                Text("\(h.detail) · \(LStr.friendlyDate(h.date, state.lang))").font(.mono(11.5)).foregroundStyle(t.inkMute)
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
             if live {
-                DangerButton(t: t, title: "停止") { state.stop() }
+                DangerButton(t: t, title: L.stop(state.lang)) { state.stop() }
             } else {
-                GhostButton(t: t, title: "重新分享", systemImage: "arrow.left.arrow.right") { state.reshare(h) }
+                GhostButton(t: t, title: L.reshare(state.lang), systemImage: "arrow.left.arrow.right") { state.reshare(h) }
             }
         }
         .padding(.vertical, 13)
@@ -927,6 +938,7 @@ private struct HistoryScreen: View {
 
 private struct RecentSharesView: View {
     let t: Theme
+    let lang: Lang
     var items: [RecentShare]
     var onAll: () -> Void
     var onReshare: (RecentShare) -> Void
@@ -936,9 +948,9 @@ private struct RecentSharesView: View {
         } else {
             VStack(spacing: 0) {
                 HStack {
-                    SectionLabel(t: t, text: "最近分享")
+                    SectionLabel(t: t, text: L.sectionRecent(lang))
                     Spacer()
-                    Button { onAll() } label: { Text("查看全部").font(.sans(12)).foregroundStyle(t.accent) }
+                    Button { onAll() } label: { Text(L.viewAll(lang)).font(.sans(12)).foregroundStyle(t.accent) }
                         .buttonStyle(.plain)
                 }
                 .padding(.bottom, 6)
@@ -946,12 +958,12 @@ private struct RecentSharesView: View {
                     HStack(spacing: 11) {
                         RecentGlyph(t: t, item: h, size: 30)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(h.name).font(.sans(13, .semibold)).foregroundStyle(t.ink)
+                            Text(h.displayName(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
                                 .lineLimit(1).truncationMode(.middle)
-                            Text(friendlyDate(h.date)).font(.mono(11)).foregroundStyle(t.inkMute)
+                            Text(LStr.friendlyDate(h.date, lang)).font(.mono(11)).foregroundStyle(t.inkMute)
                         }
                         Spacer(minLength: 4)
-                        GhostButton(t: t, title: "重新分享", systemImage: "arrow.left.arrow.right") { onReshare(h) }
+                        GhostButton(t: t, title: L.reshare(lang), systemImage: "arrow.left.arrow.right") { onReshare(h) }
                     }
                     .padding(.vertical, 9)
                     .overlay(alignment: .top) { if i > 0 { Rectangle().fill(t.line).frame(height: 1) } }
@@ -984,27 +996,29 @@ private struct RecentGlyph: View {
 
 private struct HelpRow: View {
     let t: Theme
+    @EnvironmentObject var state: AppState
     @State private var show = false
     var body: some View {
-        HStack {
+        let lang = state.lang
+        return HStack {
             Button { show.toggle() } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "questionmark.circle").font(.system(size: 12))
-                    Text("连不上?").font(.sans(12.5, .medium))
+                    Text(L.cantConnect(lang)).font(.sans(12.5, .medium))
                 }
                 .foregroundStyle(t.inkMute)
             }
             .buttonStyle(.plain)
             .popover(isPresented: $show, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 11) {
-                    Text("连不上？逐条排查").font(.sans(12, .semibold)).foregroundStyle(t.ink)
-                    row("1", "确认两台设备连的是同一个 Wi-Fi / 网络。")
-                    row("2", "首次启动若弹出防火墙提示，请点「允许」。")
-                    row("3", "公司 / 公共 Wi-Fi 常开「设备隔离」，会阻止互访，换个网络试试。")
+                    Text(L.cantConnectTitle(lang)).font(.sans(12, .semibold)).foregroundStyle(t.ink)
+                    row("1", L.help1(lang))
+                    row("2", L.help2(lang))
+                    row("3", L.help3(lang))
                     Rectangle().fill(t.line).frame(height: 1).padding(.vertical, 1)
                     HStack(alignment: .top, spacing: 9) {
                         Image(systemName: "lock.open").font(.system(size: 11)).foregroundStyle(t.inkMute).frame(width: 16)
-                        Text("传输不加密：公共 Wi-Fi 下同网的人可能看到内容，敏感文件别在这种网络分享。")
+                        Text(L.helpPlaintext(lang))
                             .font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
                         Spacer(minLength: 0)
                     }
@@ -1031,14 +1045,4 @@ private struct HelpRow: View {
 // 版本号取自 bundle；裸二进制无 bundle 回退 dev。
 private var appVersion: String {
     (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "v\($0)" } ?? "dev"
-}
-
-// 友好日期：今天/昨天 + 时刻，更早只给「M月d日」。
-private func friendlyDate(_ date: Date) -> String {
-    let cal = Calendar.current
-    let f = DateFormatter()
-    if cal.isDateInToday(date) { f.dateFormat = "今天 HH:mm" }
-    else if cal.isDateInYesterday(date) { f.dateFormat = "昨天 HH:mm" }
-    else { f.dateFormat = "M月d日" }
-    return f.string(from: date)
 }

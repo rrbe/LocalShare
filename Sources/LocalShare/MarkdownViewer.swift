@@ -6,10 +6,10 @@ import Foundation
 // （MarkedJS.source），页面加载后 fetch 同 URL 的 ?raw=1 取原文解析；
 // 原始 HTML 块/行内标签一律转义展示（own-files 威胁面小，仍默认不执行）。
 enum MarkdownViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool) -> String {
+    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: fileName, crumbs: crumbs, canUpload: canUpload,
-            body: #"<article class="card md" id="md"><p class="ld">正在加载…</p></article>"#,
+            fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
+            body: #"<article class="card md" id="md"><p class="ld">\#(L.webLoading(lang))</p></article>"#,
             css: css, scripts: [MarkedJS.source, rendererConfig, boot])
     }
 
@@ -91,7 +91,7 @@ enum MarkdownViewer {
         (function(){
           var box=document.getElementById('md');
           function fail(){
-            box.innerHTML='<p class="ld">加载失败 · <a href="?raw=1">查看原文</a></p>';
+            box.innerHTML='<p class="ld">'+LS_I18N.loadFailed+' · <a href="?raw=1">'+LS_I18N.viewRaw+'</a></p>';
           }
           fetch(location.pathname+'?raw=1',{cache:'no-store'}).then(function(r){
             if(!r.ok)throw 0;return r.text();

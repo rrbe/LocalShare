@@ -19,17 +19,18 @@ struct PermSummary {
     let chips: [String]    // 只读 = [只读, 可下载]；可写 = [可下载, 可上传?, 可编辑?, 可删除?]
 }
 
-func permSummary(_ p: Permission) -> PermSummary {
+func permSummary(_ p: Permission, _ lang: Lang) -> PermSummary {
     var writes: [String] = []
-    if p.add { writes.append("上传") }
-    if p.edit { writes.append("编辑") }
-    if p.del { writes.append("删除") }
+    var writeChips: [String] = []
+    if p.add { writes.append(L.permWriteUpload(lang)); writeChips.append(L.chipCanUpload(lang)) }
+    if p.edit { writes.append(L.permWriteEdit(lang)); writeChips.append(L.chipCanEdit(lang)) }
+    if p.del { writes.append(L.permWriteDelete(lang)); writeChips.append(L.chipCanDelete(lang)) }
     let writable = !writes.isEmpty
     return PermSummary(
         writable: writable,
         writes: writes,
-        tag: writable ? "可读写" : "只读",
-        eyebrow: writable ? "局域网 · 可读写分享" : "局域网 · 只读分享",
-        chips: writable ? ["可下载"] + writes.map { "可" + $0 } : ["只读", "可下载"]
+        tag: writable ? L.permWritable(lang) : L.permReadonly(lang),
+        eyebrow: writable ? L.eyebrowWritable(lang) : L.eyebrowReadonly(lang),
+        chips: writable ? [L.chipDownloadable(lang)] + writeChips : [L.chipReadonly(lang), L.chipDownloadable(lang)]
     )
 }

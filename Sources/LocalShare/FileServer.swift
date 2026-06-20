@@ -58,8 +58,8 @@ final class FileServer {
         }
     }
 
-    // 多选虚拟根的显示名（列表页 H1 / 面包屑根）。多选无共同磁盘根，故给个中性名。
-    static let multipleRootName = "分享内容"
+    // 多选虚拟根的显示名（列表页 H1 / 面包屑根）。多选无共同磁盘根，故给个中性名。仅网页用，按请求语言。
+    static func multipleRootName(_ lang: Lang) -> String { lang == .zh ? "分享内容" : "Shared items" }
 
     private let server = HttpServer()
 
@@ -216,7 +216,7 @@ final class FileServer {
             var probe = in_addr()
             guard inet_pton(AF_INET, addr, &probe) == 1 else {
                 throw NSError(domain: "FileServer", code: -2,
-                              userInfo: [NSLocalizedDescriptionKey: "非法监听地址：\(addr)"])
+                              userInfo: [NSLocalizedDescriptionKey: LStr.invalidBindAddress(addr, Lang.systemDefault)])
             }
         }
         // nil → INADDR_ANY（全接口）；非 nil → 只绑该 IPv4。forceIPv4 取 listenAddressIPv4。
@@ -242,10 +242,12 @@ final class FileServer {
         // 1. 鉴权：query ?t= 或 cookie 任一匹配当前分享的 token（每请求取一次快照，
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
+        // 网页语言逐请求决定：按浏览器 Accept-Language，与原生 app 设置无关。往下穿进每个 HTML 生产者。
+        let lang = Lang.fromAcceptLanguage(req.headers["accept-language"])
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
         let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
         guard viaQuery || viaCookie else {
-            return htmlResponse(403, "Forbidden", Self.forbiddenPage)
+            return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
         }
         // 经 query 放行且尚无（有效）cookie 时，种会话 cookie，后续资源请求免带 token。
         // 不设 Max-Age：随浏览器会话走；token 轮换后旧值反正立即失效。页面 JS 不读它，HttpOnly。
@@ -293,71 +295,72 @@ final class FileServer {
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
         // 否则单文件模式下 POST 会拿到文件本体）。
         if req.method == "POST" {
-            return handleUpload(decodedPath: decodedPath, req: req, extra: extra)
+            return handleUpload(decodedPath: decodedPath, req: req, lang: lang, extra: extra)
         }
 
         // 单文件模式：任何路径都只发这一个文件（已过 token），不暴露同目录其它文件。
         // md 预览照常可用（壳页 fetch ?raw=1 时本分支返回文件本体）；相对图片无从谈起，属设计内。
         if case .file(let fileURL) = share {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
+                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
             }
-            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, extra: extra)
+            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, lang: lang, extra: extra)
         }
 
         // 多选模式：虚拟根列出选中项；首段 key 映射到对应真实项后落地（目录项再走子树服务）。
         if case .multiple(let items) = share {
+            let rootName = Self.multipleRootName(lang)
             let trimmed = decodedPath.drop { $0 == "/" }
             if trimmed.isEmpty {
                 let entries = items.map { (name: $0.key, url: $0.url, isDir: $0.isDir) }
-                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: Self.multipleRootName), extra: extra)
+                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, lang: lang), extra: extra)
             }
             var segs = decodedPath.split(separator: "/").map(String.init)
             let key = segs.removeFirst()
             guard let item = items.first(where: { $0.key == key }) else {
-                return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
+                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
             }
             let rest = segs.joined(separator: "/")
             if !item.isDir {
                 // 文件项：不暴露任何子路径。md 项的相对引用恰好可用——虚拟根以 lastPathComponent
                 // 为 key，同父目录的兄弟项保持原名，`assets/x.png` 解析到 `/assets/…` 即命中。
                 guard rest.isEmpty, FileManager.default.fileExists(atPath: item.url.path) else {
-                    return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
+                    return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
                 }
-                let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: Self.multipleRootName)
-                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, extra: extra)
+                let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
+                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, lang: lang, extra: extra)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
-                             decodedPath: decodedPath, rootName: Self.multipleRootName,
-                             canUpload: false, viewer: wantsViewer, extra: extra)
+                             decodedPath: decodedPath, rootName: rootName,
+                             canUpload: false, viewer: wantsViewer, lang: lang, extra: extra)
         }
 
         guard case .directory(let rootURL) = share else { return .internalServerError }
         let rel = String(decodedPath.drop { $0 == "/" })
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
-                         canUpload: uploadEnabled, viewer: wantsViewer, extra: extra)
+                         canUpload: uploadEnabled, viewer: wantsViewer, lang: lang, extra: extra)
     }
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
     // 其余发文件本体。新增预览类型只需在此登记，壳页骨架见 PreviewPage。
     private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
-                                 canUpload: Bool, extra: [String: String]) -> HttpResponse {
-        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload) {
+                                 canUpload: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
+        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload, lang: lang) {
             return htmlResponse(200, "OK", html, extra: extra)
         }
-        return fileResponse(url, extra: extra)
+        return fileResponse(url, lang: lang, extra: extra)
     }
 
-    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool) -> String? {
+    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool, lang: Lang) -> String? {
         let name = url.lastPathComponent
         switch url.pathExtension.lowercased() {
         case "md", "markdown":
-            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
         case "json", "geojson":
-            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
         case "csv", "tsv":
-            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload)
+            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
         default:
             return nil
         }
@@ -382,17 +385,17 @@ final class FileServer {
     // 单根目录与多选里的每个目录项共用此函数（多选时 rootURL=项目本身、relPath=去掉 key 段后的剩余）。
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
                            decodedPath: String, rootName: String, canUpload: Bool,
-                           viewer: Bool, extra: [String: String]) -> HttpResponse {
+                           viewer: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
         // 防目录穿越：判据抽进 resolveWithinRoot，与 handleUpload 共用一份，避免两处漂移。
         guard let target = Self.resolveWithinRoot(rootURL, relPath: relPath) else {
-            return htmlResponse(403, "Forbidden", Self.forbiddenPage)
+            return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
         }
         let targetPath = target.path
 
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: targetPath, isDirectory: &isDir) else {
-            return htmlResponse(404, "Not Found", "<h2>404</h2><p>文件不存在</p>", extra: extra)
+            return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
         }
 
         if isDir.boolValue {
@@ -404,15 +407,15 @@ final class FileServer {
             }
             let indexURL = target.appendingPathComponent("index.html")
             if fm.fileExists(atPath: indexURL.path) {
-                return fileResponse(indexURL, extra: extra)
+                return fileResponse(indexURL, lang: lang, extra: extra)
             }
             let html = DirectoryListing.html(directory: target, requestPath: decodedPath,
-                                             rootName: rootName, canUpload: canUpload)
+                                             rootName: rootName, canUpload: canUpload, lang: lang)
             return htmlResponse(200, "OK", html, extra: extra)
         }
 
         let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, extra: extra)
+        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, lang: lang, extra: extra)
     }
 
     // MARK: - 上传处理
@@ -420,24 +423,24 @@ final class FileServer {
     // POST multipart/form-data → 写入访客当前浏览的目录。
     // 安全：开关 + 仅 .directory 分享；目标目录过与读取同一套防穿越校验；
     // 文件名只取末段并清洗；重名 -2 兜底（同 makeItems 策略）；先写临时文件再原子换名。
-    private func handleUpload(decodedPath: String, req: HttpRequest, extra: [String: String]) -> HttpResponse {
+    private func handleUpload(decodedPath: String, req: HttpRequest, lang: Lang, extra: [String: String]) -> HttpResponse {
         guard uploadEnabled, case .directory(let rootURL) = share else {
-            return jsonResponse(403, "Forbidden", #"{"error":"上传未开启"}"#, extra: extra)
+            return jsonResponse(403, "Forbidden", errorJSON(L.upDisabled(lang)), extra: extra)
         }
         guard req.body.count <= Self.uploadLimit else {
-            return jsonResponse(413, "Payload Too Large", #"{"error":"超过 500MB 上限"}"#, extra: extra)
+            return jsonResponse(413, "Payload Too Large", errorJSON(L.upOverLimit(lang)), extra: extra)
         }
 
         // 落点目录：同 serveTree 的防穿越判据（共用 resolveWithinRoot）
         let rel = String(decodedPath.drop { $0 == "/" })
         guard let target = Self.resolveWithinRoot(rootURL, relPath: rel) else {
-            return jsonResponse(403, "Forbidden", #"{"error":"路径不允许"}"#, extra: extra)
+            return jsonResponse(403, "Forbidden", errorJSON(L.upPathDenied(lang)), extra: extra)
         }
         let targetPath = target.path
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: targetPath, isDirectory: &isDir), isDir.boolValue else {
-            return jsonResponse(404, "Not Found", #"{"error":"目录不存在"}"#, extra: extra)
+            return jsonResponse(404, "Not Found", errorJSON(L.upDirMissing(lang)), extra: extra)
         }
 
         let fileParts = req.parseMultiPartFormData().filter { $0.fileName != nil }
@@ -453,14 +456,14 @@ final class FileServer {
                 try Data(part.body).write(to: tmp)
                 try fm.moveItem(at: tmp, to: dest)
             } catch {
-                return jsonResponse(500, "Internal Server Error", #"{"error":"写入失败"}"#, extra: extra)
+                return jsonResponse(500, "Internal Server Error", errorJSON(L.upWriteFailed(lang)), extra: extra)
             }
             Self.markQuarantine(dest)
             saved.append(dest.lastPathComponent)
             onUpload?(dest)
         }
         guard !saved.isEmpty else {
-            return jsonResponse(400, "Bad Request", #"{"error":"没有可保存的文件"}"#, extra: extra)
+            return jsonResponse(400, "Bad Request", errorJSON(L.upNoFiles(lang)), extra: extra)
         }
         let names = saved.map { "\"\(Self.jsonEscape($0))\"" }.joined(separator: ",")
         return jsonResponse(200, "OK", #"{"saved":[\#(names)]}"#, extra: extra)
@@ -526,6 +529,11 @@ final class FileServer {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 
+    // 上传错误 JSON：{"error":"<已本地化文案>"}，文案经 jsonEscape 兜底（现有文案本无引号，仍防御）。
+    private func errorJSON(_ message: String) -> String {
+        #"{"error":"\#(Self.jsonEscape(message))"}"#
+    }
+
     private func jsonResponse(_ code: Int, _ reason: String, _ json: String, extra: [String: String]) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = "application/json"
@@ -534,7 +542,7 @@ final class FileServer {
         return .raw(code, reason, headers) { writer in try? writer.write(body) }
     }
 
-    private func fileResponse(_ url: URL, extra: [String: String]) -> HttpResponse {
+    private func fileResponse(_ url: URL, lang: Lang, extra: [String: String]) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = Mime.contentType(forExtension: url.pathExtension)
         // 关掉浏览器的 MIME 猜测兜底：一律按上面声明的类型处理。已正确声明类型的文件照常内联显示，
@@ -545,7 +553,7 @@ final class FileServer {
         }
         return .raw(200, "OK", headers) { writer in
             guard let handle = try? FileHandle(forReadingFrom: url) else {
-                try? writer.write(Data("读取失败".utf8))
+                try? writer.write(Data(L.webReadFailed(lang).utf8))
                 return
             }
             defer { try? handle.close() }
@@ -575,10 +583,16 @@ final class FileServer {
         return nil
     }
 
-    private static let forbiddenPage = """
-    <!doctype html><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px;color:#444">
-    <h2>🔒 无法访问</h2><p>请通过电脑上显示的二维码扫码进入。</p></body>
-    """
+    private static func forbiddenPage(_ lang: Lang) -> String {
+        """
+        <!doctype html><html lang="\(lang.htmlLang)"><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px;color:#444">
+        <h2>🔒 \(L.webForbiddenTitle(lang))</h2><p>\(L.webForbiddenBody(lang))</p></body></html>
+        """
+    }
+
+    private static func notFoundPage(_ lang: Lang) -> String {
+        "<!doctype html><html lang=\"\(lang.htmlLang)\"><meta charset=\"utf-8\"><h2>404</h2><p>\(L.webFileNotFound(lang))</p></html>"
+    }
 }

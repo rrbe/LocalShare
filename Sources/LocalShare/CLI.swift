@@ -31,7 +31,7 @@ enum CLI {
             case "--port":
                 i += 1
                 guard i < args.count, let n = Int(args[i]), (1...65535).contains(n) else {
-                    fail("--port 需要 1–65535 的端口号")
+                    fail(L.cliPortRange(Lang.systemDefault))
                 }
                 port = in_port_t(n)
             case "--help", "-h":
@@ -44,7 +44,7 @@ enum CLI {
                 if a.hasPrefix("-psn_") { break } // 旧 LaunchServices 进程序号，忽略
                 if a.hasPrefix("-") {
                     // 未知选项：明确的 CLI 调用就报错；否则视为 AppKit 噪音，按 GUI 启动。
-                    if viaSymlink { fail("未知选项 \(a)") }
+                    if viaSymlink { fail(LStr.cliUnknownOption(a, Lang.systemDefault)) }
                     return nil
                 }
                 paths.append(a)
@@ -53,10 +53,10 @@ enum CLI {
         }
 
         if headless {
-            if paths.isEmpty { fail("--headless 需要至少一个文件或文件夹路径") }
+            if paths.isEmpty { fail(L.cliHeadlessNeedsPath(Lang.systemDefault)) }
             return .headless(resolve(paths), port: port)
         }
-        if port != nil { fail("--port 仅在 --headless 模式下有效") }
+        if port != nil { fail(L.cliPortHeadlessOnly(Lang.systemDefault)) }
         if !paths.isEmpty { return .open(resolve(paths)) }
         if viaSymlink { return .open([]) } // `localshare` 不带参数：只唤起窗口
         return nil
@@ -65,7 +65,7 @@ enum CLI {
     static func run(_ mode: Mode) -> Never {
         switch mode {
         case .help:
-            print(usage)
+            print(LStr.cliUsage(Lang.systemDefault))
             exit(0)
         case .version:
             let info = hostAppURL().flatMap { NSDictionary(contentsOf: $0.appendingPathComponent("Contents/Info.plist")) }
@@ -90,12 +90,12 @@ enum CLI {
     // （否则 Dock 会闪出第二个图标）。
     private static func forwardToGUI(_ urls: [URL]) -> Never {
         guard let app = hostAppURL() else {
-            die("未找到 LocalShare.app，请先把它放进「应用程序」文件夹。")
+            die(L.cliAppNotFound(Lang.systemDefault))
         }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         let done: (NSRunningApplication?, Error?) -> Void = { _, error in
-            if let error { die("唤起 LocalShare 失败：\(error.localizedDescription)") }
+            if let error { die(LStr.cliLaunchFailed(error.localizedDescription, Lang.systemDefault)) }
             exit(0)
         }
         if urls.isEmpty {
@@ -129,26 +129,13 @@ enum CLI {
     private static func resolve(_ paths: [String]) -> [URL] {
         let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
         for url in urls where !FileManager.default.fileExists(atPath: url.path) {
-            die("路径不存在：\(url.path)")
+            die(LStr.cliPathMissing(url.path, Lang.systemDefault))
         }
         return urls
     }
 
-    private static let usage = """
-    用法：localshare [选项] <路径> …
-
-      localshare a.html b.pdf       在 LocalShare 窗口里分享这些文件
-      localshare --headless ./dir   不开窗口，在终端打印链接和二维码
-
-    选项：
-      --headless     前台运行，不打开窗口（Ctrl-C 停止）
-      --port <端口>  headless 模式的监听端口（默认 8080，占用时自动回退）
-      --version      打印版本号
-      -h, --help     打印本帮助
-    """
-
     private static func fail(_ message: String) -> Never {
-        FileHandle.standardError.write(Data("\(message)\n\n\(usage)\n".utf8))
+        FileHandle.standardError.write(Data("\(message)\n\n\(LStr.cliUsage(Lang.systemDefault))\n".utf8))
         exit(2)
     }
 

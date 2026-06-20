@@ -1,2 +1,2 @@
-- [ ] i18N
+- [x] i18N（简体中文 + English；原生 app 设置里选语言、网页随浏览器 Accept-Language；见 Lang.swift）
 - [ ] 在线编辑 / 删除权限（访客上传已在 0.6 落地；编辑 / 删除后端未实现，规划见 PLAN.md §7）
