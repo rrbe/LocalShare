@@ -36,6 +36,7 @@
 | 分发 | Xcode ad-hoc 签名 · 你首次帮同事过一次 Gatekeeper（放行被持久记住） |
 | 自动更新 | Sparkle（二进制 framework，`@rpath` 内置进 `Contents/Frameworks/`）· 自动后台检查、发现新版弹提示由用户确认 · 信任链走 **EdDSA 签名**（与 ad-hoc 代码签名无关，故未公证也安全）· appcast 作为 GitHub Release 资产上传，feed 走 `releases/latest/download/appcast.xml` 固定地址，**发布对仓库零写入**（仓库根 `appcast.xml` 已于 0.7.0 冻结，仅供老客户端迁移） |
 | 沙盒 | **不开 App Sandbox**（内部手发、不上 App Store），省掉沙盒对“读任意文件夹”的限制 |
+| 国际化 | 简体中文 + English 双语（0.9）。文案编进二进制（`Lang.swift`，不依赖资源 bundle，同 MarkedJS 思路）；**两个解析域彼此独立**——原生 app 跟设置（跟随系统 / 中文 / English），网页**逐请求**按浏览器 `Accept-Language` 协商、绝不读 app 设置。加语言只需在 `L`/`LStr` 各补一支 |
 
 ---
 
@@ -60,6 +61,7 @@ lan-file-share/
     QRCode.swift           # CoreImage 生成 QR → NSImage
     Token.swift            # 随机 url-safe token
     Mime.swift             # 扩展名 → MIME 映射（text 类带 charset=utf-8）
+    Lang.swift             # i18n：编进二进制的中英文案表（L/LStr/i18nJSON）；app 跟设置、网页跟 Accept-Language
     HeadlessServer.swift   # LS_HEADLESS=1 无界面模式（测试/自动化用）+ CLI 前台模式
     CLI.swift              # 命令行入口：argv 解析、转发 GUI（NSWorkspace）、--headless 分流
     CLIInstaller.swift     # /usr/local/bin/localshare symlink 的检测/安装（含 osascript 提权）
@@ -161,6 +163,13 @@ lan-file-share/
 - 首次 start 触发 macOS 防火墙“是否允许接受传入连接”——UI 文案引导点**允许**（误点拒绝是现实中“扫了码却打不开”头号原因）。
 - 二维码下常驻一行：“打不开？→ 确认两台设备在同一 WiFi，且该 WiFi 未开启‘访客/设备隔离’。”
 
+### 国际化（i18n，0.9）
+- **形态**：简体中文（基准）+ English 双语，全部用户可见文案做成**编进二进制的 Swift 字符串表**（`Lang.swift`），不依赖任何资源 bundle——与 `MarkedJS.source`、`permSummary` 同一思路，三条启动路径（GUI / CLI / headless）都无须定位文件，升级整文件替换。
+- **两个解析域彼此独立**：① 原生 app 语言来自设置（`AppState.langPref`：跟随系统 / 中文 / English，持久化），`Lang.current` 是给拿不到 `AppState` 的菜单/命令构造处（`App.swift` / `Updater.swift`）读的静态快照，由 `AppState.init` / `setLangPref` 同步；② 网页**逐请求**由浏览器 `Accept-Language` 决定（`Lang.fromAcceptLanguage`：按 `q` 值降序、同 q 保留先出现者、`q=0` 即「明确不接受该语言」跳过），**绝不读 app 设置**——同一台 Mac 分享，电脑界面可中文而手机按自己的系统语言显示。
+- **文案分三类**：静态文案走 `L`（`CaseIterable` 枚举键，`switch` 返回 `(zh, en)`，编译器强制穷尽、无 Optional / 强解包，新增即加一个 case）；带插值 / 复数 / 中英语序差异的走 `LStr`（按 `lang` 分支拼装）；网页里由 JS 在浏览器侧拼接的走 `LStr.i18nJSON`（注入一个带 `{占位符}` 的字典，JS 只做 replace，语序逻辑仍留在 Swift 侧；`DirectoryListing` / `PreviewPage` 两个生成页都 emit `<script>var LS_I18N=…</script>`）。
+- **安全**：`i18nJSON` 的值注入 `<script>` 内联块，`jsEscape` 除转义 `\` / `"` / 换行外还把 `<` 转成 `\u003c`，挡 `</script>` 提前收尾（与全站 XSS 硬化同一精神）。
+- 测试：`Tests/LocalShareTests/LangTests.swift`（`Accept-Language` 协商、`q` 值优先级、`L` 穷尽性）+ `tools/smoke-accept-language.sh`（无头 + curl 验网页逐请求语言切换），均已挂进 CI。
+
 ---
 
 ## 4. 构建与运行
@@ -218,6 +227,13 @@ open dist/LocalShare.app     # 本机自测
       抛错而非静默绑全接口。冒烟 `tools/smoke-bind-interface.sh`。
 - [x] 明文风险提示（0.7.x，PR #15）：底部「连不上?」气泡 + 设置·访问权限 区各一行克制灰字，告知公共
       Wi-Fi 下传输不加密、同网可能被嗅探（与 §1 威胁模型一致；自签 TLS 仍不做）。
+- [x] 国际化 i18n（0.9，PR #22）：简体中文 + English 双语，文案编进二进制（`Lang.swift`，不依赖资源
+      bundle，三条启动路径都无须定位文件）。两个解析域独立——原生 app 跟设置（跟随系统 / 中文 / English，
+      `AppState.langPref`，设置页加「语言」分段），网页**逐请求**按浏览器 `Accept-Language` 协商（`q` 值
+      降序、`q=0` 跳过），绝不读 app 设置。文案分 `L`（静态，编译器强制穷尽）/ `LStr`（插值 / 复数 / 语序）
+      / `LStr.i18nJSON`（JS 侧拼接，`jsEscape` 防 `</script>`）。详见 §3「国际化（i18n）」。
+      已验证：`LangTests` 单测（协商 / q 值 / 穷尽）+ `tools/smoke-accept-language.sh` 冒烟，CI 全过；
+      release 编译通过。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
