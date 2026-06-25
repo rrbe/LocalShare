@@ -159,7 +159,6 @@ private struct TextEntrySheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
-    @FocusState private var focused: Bool
 
     init(t: Theme, initial: String, isUpdate: Bool) {
         self.t = t; self.isUpdate = isUpdate
@@ -177,15 +176,15 @@ private struct TextEntrySheet: View {
                 IconButton(t: t, systemImage: "xmark", help: L.back(lang)) { dismiss() }
             }
             ZStack(alignment: .topLeading) {
+                // placeholder 与编辑器文字起点都恰好落在 inset(8) 处：编辑器内部 lineFragmentPadding 归零、
+                // textContainerInset 设成 (8,8)，placeholder 也用同值内边距 + 同字号等宽字体 → 严丝合缝。
                 if text.isEmpty {
-                    Text(L.textEditorPlaceholder(lang)).font(.sans(13)).foregroundStyle(t.inkFaint)
-                        .padding(.horizontal, 9).padding(.vertical, 10).allowsHitTesting(false)
+                    Text(L.textEditorPlaceholder(lang)).font(.mono(13)).foregroundStyle(t.inkFaint)
+                        .padding(.horizontal, 8).padding(.vertical, 8).allowsHitTesting(false)
                 }
-                TextEditor(text: $text)
-                    .font(.mono(13)).foregroundStyle(t.ink)
-                    .scrollContentBackground(.hidden)
-                    .padding(4).frame(minHeight: 210)
-                    .focused($focused)
+                PlainTextEditor(text: $text, textColor: NSColor(t.ink), caret: NSColor(t.accent),
+                                inset: 8, autoFocus: true)
+                    .frame(minHeight: 210)
             }
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
@@ -200,7 +199,58 @@ private struct TextEntrySheet: View {
         .padding(20)
         .frame(width: 380, height: 380)
         .background(t.bg)
-        .onAppear { focused = true }
+    }
+}
+
+// 自带 NSTextView 的纯文本编辑器。SwiftUI 的 TextEditor 底层 NSTextView 还有一层 .padding() 控不到的
+// 内部内边距（textContainerInset + textContainer.lineFragmentPadding 默认 5），叠 placeholder 时光标/
+// 占位/实际文字对不齐。这里把 lineFragmentPadding 归零、textContainerInset 显式设成 (inset,inset)，
+// 文字起点完全由 inset 决定——与同值 SwiftUI 内边距、同字号等宽字体的 placeholder 严丝合缝。
+private struct PlainTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var textColor: NSColor
+    var caret: NSColor
+    var inset: CGFloat
+    var autoFocus: Bool
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        guard let tv = scroll.documentView as? NSTextView else { return scroll }
+        tv.delegate = context.coordinator
+        tv.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        tv.textColor = textColor
+        tv.insertionPointColor = caret
+        tv.drawsBackground = false
+        tv.isRichText = false
+        tv.allowsUndo = true
+        tv.textContainerInset = NSSize(width: inset, height: inset)
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.string = text
+        if autoFocus {
+            DispatchQueue.main.async { [weak tv] in tv?.window?.makeFirstResponder(tv) }
+        }
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.parent = self   // 让回调里的 binding 始终指向最新的
+        guard let tv = scroll.documentView as? NSTextView else { return }
+        if tv.string != text { tv.string = text }   // 仅在外部值变化时回写，避免打断输入光标
+        tv.textColor = textColor
+        tv.insertionPointColor = caret
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: PlainTextEditor
+        init(_ parent: PlainTextEditor) { self.parent = parent }
+        func textDidChange(_ note: Notification) {
+            guard let tv = note.object as? NSTextView else { return }
+            parent.text = tv.string
+        }
     }
 }
 
