@@ -78,6 +78,7 @@ enum L: CaseIterable {
     // 通用动作 / 标签
     case settings, back, refresh, stop, clear, rebroadcast, replace, replaceFile
     case discardChanges, applyRestart, resetDefault, reshare, viewAll, clearAll
+    case cancel, clearAllConfirm
     case install, reinstall, uninstall, installed, alwaysOn
 
     // 空状态 / 拖拽
@@ -192,6 +193,8 @@ enum L: CaseIterable {
         case .reshare:         return ("重新分享", "Reshare")
         case .viewAll:         return ("查看全部", "View All")
         case .clearAll:        return ("清空", "Clear")
+        case .cancel:          return ("取消", "Cancel")
+        case .clearAllConfirm: return ("清空全部分享历史？", "Clear all share history?")
         case .install:         return ("安装", "Install")
         case .reinstall:       return ("重新安装", "Reinstall")
         case .uninstall:       return ("卸载", "Uninstall")

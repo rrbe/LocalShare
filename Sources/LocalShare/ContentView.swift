@@ -1086,6 +1086,7 @@ private struct SettingsScreen: View {
 private struct HistoryScreen: View {
     let t: Theme
     @EnvironmentObject var state: AppState
+    @State private var confirmClear = false   // 「清空全部」是批量销毁，需二次确认（单条 ✕ 不需要）
     var body: some View {
         ScreenFrame(t: t) {
             HStack(spacing: 10) {
@@ -1093,9 +1094,13 @@ private struct HistoryScreen: View {
                 Text(L.shareHistory(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
                 if !state.recents.isEmpty {
-                    Button { state.clearRecents() } label: {
+                    Button { confirmClear = true } label: {
                         Text(L.clearAll(state.lang)).font(.sans(12)).foregroundStyle(t.inkMute)
                     }.buttonStyle(.plain)
+                    .confirmationDialog(L.clearAllConfirm(state.lang), isPresented: $confirmClear, titleVisibility: .visible) {
+                        Button(L.clearAll(state.lang), role: .destructive) { state.clearRecents() }
+                        Button(L.cancel(state.lang), role: .cancel) {}
+                    }
                 }
             }
         } content: {
