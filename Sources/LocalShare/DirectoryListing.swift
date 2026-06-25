@@ -35,23 +35,26 @@ enum DirectoryListing {
 
         let base = requestPath.hasSuffix("/") ? requestPath : requestPath + "/"
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
-        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName, canUpload: canUpload, lang: lang)
+        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName, canUpload: canUpload, textPreview: nil, lang: lang)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
     // href 基路径为根 `/`，请求路径为 `/`（面包屑只显根名）；同样目录在前/名称序。
-    static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String, lang: Lang) -> String {
+    // textPreview 非 nil：在文件项之上钉一个指向 /ls/text 的「文本」行（首行预览）——文本与文件共存、
+    // 或纯文本分享（items 为空）时由 FileServer 传入；它不参与搜索/排序/筛选（同「返回上一级」行）。
+    static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String, textPreview: String? = nil, lang: Lang) -> String {
         let sorted = items.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
-        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName, canUpload: false, lang: lang)
+        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName, canUpload: false, textPreview: textPreview, lang: lang)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
-                               base: String, requestPath: String, rootName: String, canUpload: Bool, lang: Lang) -> String {
+                               base: String, requestPath: String, rootName: String, canUpload: Bool,
+                               textPreview: String?, lang: Lang) -> String {
         let fm = FileManager.default
         var rows = ""
         var folderCount = 0
@@ -80,7 +83,7 @@ enum DirectoryListing {
         let chips = filterChips(folderCount: folderCount, counts: counts, total: total, lang: lang)
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
                     isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
-                    backHref: parentHref(of: requestPath), lang: lang)
+                    backHref: parentHref(of: requestPath), textPreview: textPreview, lang: lang)
     }
 
     // MARK: - 片段
@@ -153,7 +156,8 @@ enum DirectoryListing {
     }
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
-                             isEmpty: Bool, total: Int, canUpload: Bool, backHref: String?, lang: Lang) -> String {
+                             isEmpty: Bool, total: Int, canUpload: Bool, backHref: String?,
+                             textPreview: String?, lang: Lang) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI），网页端只有「上传」一个写权限会出现
         let ps = permSummary(Permission(add: canUpload), lang)
         let uploadButton = canUpload ? """
@@ -171,13 +175,33 @@ enum DirectoryListing {
         <span class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 7.5L8.5 3.5l-4 4"/><path d="M16.5 16.5h-5a3 3 0 0 1-3-3v-10"/></svg></span>\
         <span class="meta"><span class="nm">\(L.webBackToParent(lang))</span></span></a></li>
         """ } ?? ""
+        // 文本行（指向 /ls/text）：钉在文件项之上，不参与搜索/排序/筛选（同返回行）。名取首行预览，
+        // 纯空白回退「文本」；副标识固定「文本」。虚拟根无返回行，故它常是首行（.first 免双描边）。
+        let textRow: String
+        if let textPreview {
+            let display = textPreview.isEmpty ? L.webText(lang) : textPreview
+            let firstCls = backRow.isEmpty ? " first" : ""
+            textRow = """
+            <li class="row txtentry\(firstCls)"><a href="/ls/text">\
+            <span class="ic ic-text"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h7.5L16 7v9.5H5z"/><path d="M12 3.5V7h3.5"/><path d="M7.5 10.5h6M7.5 13h4"/></svg></span>\
+            <span class="meta"><span class="nm">\(htmlText(display))</span>\
+            <span class="sub2">\(L.webText(lang))</span></span>\
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg></a></li>
+            """
+        } else {
+            textRow = ""
+        }
+        let pinned = backRow + textRow   // 固定行（返回 + 文本），始终在最前、不参与前端处理
         let emptyHint = #"<div class="empty"><span class="big">○</span>\#(L.webEmptyFolder(lang))</div>"#
         let listInner: String
-        if isEmpty {
+        if isEmpty && textRow.isEmpty {
             // 空目录也保留返回行，访客不至于走进死胡同
             listInner = (backRow.isEmpty ? "" : "<ul class=\"list\">\(backRow)</ul>") + emptyHint
+        } else if isEmpty {
+            // 无文件项但有文本（纯文本分享的虚拟根回退页）：只列文本行，不显示空文件夹提示
+            listInner = "<ul class=\"list\">\(pinned)</ul>"
         } else {
-            listInner = #"<ul class="list">\#(backRow)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div><div class="nr-s">\#(L.webNoMatchSub(lang))</div></div>"#
+            listInner = #"<ul class="list">\#(pinned)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div><div class="nr-s">\#(L.webNoMatchSub(lang))</div></div>"#
         }
         return """
         <!doctype html><html lang="\(lang.htmlLang)"><head>
@@ -311,6 +335,7 @@ enum DirectoryListing {
         .ic-markdown{background:rgba(122,90,224,.13);color:#7a5ae0}
         .ic-doc{background:rgba(180,120,40,.13);color:#a9772a}
         .ic-slide{background:rgba(180,86,42,.13);color:#b5562a}
+        .ic-text{background:var(--accentSoft);color:var(--accent)}
         @media(prefers-color-scheme:dark){
           .ic-html,.ic-excel,.ic-image,.ic-pdf,.ic-markdown,.ic-doc,.ic-slide{background:rgba(255,255,255,.06)}
         }
@@ -398,9 +423,10 @@ enum DirectoryListing {
           ping();setInterval(ping,15000);
 
           var list=document.querySelector('.list'); if(!list)return;
-          // 返回行不参与搜索/排序/过滤，始终钉在首行（render 只 appendChild 内容行，它天然留在最前）
-          var all=[].slice.call(list.querySelectorAll('.row:not(.back)'));
-          var hasBack=!!list.querySelector('.row.back');
+          // 固定行（返回上一级 / 文本）不参与搜索/排序/过滤，始终钉在最前（render 只 appendChild 内容行，
+          // 它们天然留在前面）。
+          var all=[].slice.call(list.querySelectorAll('.row:not(.back):not(.txtentry)'));
+          var hasBack=!!list.querySelector('.row.back')||!!list.querySelector('.row.txtentry');
           var chips=[].slice.call(document.querySelectorAll('.chip'));
           var q=document.getElementById('q'), search=document.getElementById('search'), clr=document.getElementById('clr');
           var sortbtn=document.getElementById('sortbtn'), menu=document.getElementById('menu'), sortlbl=document.getElementById('sortlbl');

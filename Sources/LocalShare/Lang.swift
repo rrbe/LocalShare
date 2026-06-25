@@ -78,6 +78,7 @@ enum L: CaseIterable {
     // 通用动作 / 标签
     case settings, back, refresh, stop, clear, rebroadcast, replace, replaceFile
     case discardChanges, applyRestart, resetDefault, reshare, viewAll, clearAll
+    case cancel, clearAllConfirm
     case install, reinstall, uninstall, installed, alwaysOn
 
     // 空状态 / 拖拽
@@ -143,6 +144,11 @@ enum L: CaseIterable {
     // 单文件存根「其他」类回退名
     case fileKind
 
+    // 传递文本（v1）
+    case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
+    case sharingTextKicker, scanCaptionText, editTextButton
+    case rememberTextTitle, rememberTextDesc, deleteEntry
+
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
     case webNoMatch, webNoMatchSub, webSearchFolder, webClear
@@ -150,6 +156,7 @@ enum L: CaseIterable {
     case webSortTimeDesc, webSortTimeAsc
     case webFilterAll, webFilterDir, webProvidedBy
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
+    case webText, webTextHint, webCopy, webViewRawText
 
     // —— 网页错误页 / 上传 JSON ——
     case webForbiddenTitle, webForbiddenBody, webFileNotFound, webReadFailed
@@ -186,6 +193,8 @@ enum L: CaseIterable {
         case .reshare:         return ("重新分享", "Reshare")
         case .viewAll:         return ("查看全部", "View All")
         case .clearAll:        return ("清空", "Clear")
+        case .cancel:          return ("取消", "Cancel")
+        case .clearAllConfirm: return ("清空全部分享历史？", "Clear all share history?")
         case .install:         return ("安装", "Install")
         case .reinstall:       return ("重新安装", "Reinstall")
         case .uninstall:       return ("卸载", "Uninstall")
@@ -308,6 +317,18 @@ enum L: CaseIterable {
 
         case .fileKind:        return ("文件", "File")
 
+        case .shareTextButton:      return ("分享文本", "Share Text")   // 空态入口 + 编辑弹层标题共用
+        case .textEditorPlaceholder: return ("在此粘贴或输入要分享的文本", "Paste or type the text to share")
+        case .textShareAction:      return ("分享", "Share")
+        case .textUpdateAction:     return ("更新", "Update")
+        case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
+        case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
+        case .editTextButton:       return ("编辑文本", "Edit Text")
+        case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
+        case .rememberTextDesc:     return ("重启后回填上次内容供再次分享；关闭则退出即忘",
+                                           "Refills the last text after restart for reuse; off forgets it on quit")
+        case .deleteEntry:          return ("删除", "Delete")
+
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")
         case .webBackToParent: return ("返回上一级", "Up one level")
@@ -329,6 +350,10 @@ enum L: CaseIterable {
         case .webLoading:      return ("正在加载…", "Loading…")
         case .webSearchJSON:   return ("搜索键或值…", "Search keys or values…")
         case .webFilterRows:   return ("筛选行…", "Filter rows…")
+        case .webText:         return ("文本", "Text")
+        case .webTextHint:     return ("分享者发来的一段文本", "A snippet shared from the host")
+        case .webCopy:         return ("复制", "Copy")
+        case .webViewRawText:  return ("查看原始文本", "View raw text")
 
         case .webForbiddenTitle: return ("无法访问", "No access")
         case .webForbiddenBody:  return ("请通过电脑上显示的二维码扫码进入。", "Scan the QR code shown on the computer to enter.")
@@ -390,6 +415,11 @@ enum LStr {
     // 历史多选记录名："3 个项目" / "3 items"
     static func multiItemName(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 个项目" : "\(n) item\(n == 1 ? "" : "s")"
+    }
+
+    // 文本字数（文本历史条目的副标识）："128 字" / "128 chars"
+    static func charCount(_ n: Int, _ lang: Lang) -> String {
+        lang == .zh ? "\(n) 字" : "\(n) char\(n == 1 ? "" : "s")"
     }
 
     // 在线访客明细右栏的人数："3 人" / "3 people"
@@ -551,6 +581,8 @@ enum LStr {
             // 预览壳 / 各 viewer
             ("viewRaw",      "查看原文",                 "View source"),
             ("loadFailed",   "加载失败",                 "Load failed"),
+            // 文本页复制按钮（按钮「复制」初始文案由服务端 L.webCopy 渲染、JS 捕获后复原，故此处只需「已复制」）
+            ("copied",       "已复制",                   "Copied"),
             ("parseFailed",  "解析失败",                 "Parse failed"),
             ("parsing",      "正在解析…",                "Parsing…"),
             // JSON viewer
@@ -578,13 +610,26 @@ enum LStr {
         return "{" + parts.joined(separator: ",") + "}"
     }
 
-    // 值注入 <script> 内联块：除 \ 与 " 外，还把 < 转义（挡 </script> 提前收尾）、换行转义（破 JS 串）。
-    // \ 必须先处理，免得把后面引入的转义序列再次反斜杠化。
-    private static func jsEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\")
-         .replacingOccurrences(of: "\"", with: "\\\"")
-         .replacingOccurrences(of: "<", with: "\\u003c")
-         .replacingOccurrences(of: "\n", with: "\\n")
-         .replacingOccurrences(of: "\r", with: "\\r")
+    // 把任意字符串转义成可安全内联进 <script> 的 JS 字符串内容（不含外层引号）。i18nJSON 与 TextViewer
+    // 共用这一份——「挡 </script> 截断」是安全关键逻辑，不能两处各写一份漂移。转义：\ " < （< 挡 </script>）、
+    // 换行/回车/行分隔符 U+2028/U+2029（裸现于 JS 串里会破坏语法）、其余控制符走 \uXXXX。逐 unicode 标量遍历，
+    // \ 天然先于后续引入的转义序列处理，无链式 replace 的二次反斜杠化问题。
+    static func jsEscape(_ s: String) -> String {
+        var out = ""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\\": out += "\\\\"
+            case "\"": out += "\\\""
+            case "<": out += "\\u003c"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\u{2028}": out += "\\u2028"
+            case "\u{2029}": out += "\\u2029"
+            default:
+                if u.value < 0x20 { out += String(format: "\\u%04x", u.value) }
+                else { out.unicodeScalars.append(u) }
+            }
+        }
+        return out
     }
 }

@@ -104,11 +104,12 @@ struct IconButton: View {
     }
 }
 
-// 票据卡右上角「清除当前分享」小钮：低调 ✕，hover 显淡底圆。原本藏在头部「⋯」菜单里，
-// 现直接落到卡上，运行中也能一键清空回到初始。
+// 低调 ✕ 小钮：hover 显淡底圆。票据卡用作「清除当前分享」，历史/最近行用作「删除这条记录」——
+// 同一视觉语言，仅 help 文案随用途传入（默认「清除当前分享」）。
 struct ClearButton: View {
     let t: Theme
     var lang: Lang
+    var help: String? = nil
     let action: () -> Void
     @State private var hover = false
     var body: some View {
@@ -120,7 +121,7 @@ struct ClearButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain).onHover { hover = $0 }
-        .help(L.clearShareHelp(lang))
+        .help(help ?? L.clearShareHelp(lang))
     }
 }
 
@@ -220,6 +221,18 @@ struct FolderGlyph: View {
             .fill(t.accentSoft)
             .frame(width: size, height: size)
             .overlay(Image(systemName: "folder.fill").font(.system(size: size * 0.42)).foregroundStyle(t.accent))
+    }
+}
+
+// 文本图标：圆角方块 + accentSoft 底 + accent 文本行形，表示「分享的一段文本」。
+struct TextGlyph: View {
+    let t: Theme
+    var size: CGFloat = 40
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(t.accentSoft)
+            .frame(width: size, height: size)
+            .overlay(Image(systemName: "text.alignleft").font(.system(size: size * 0.4)).foregroundStyle(t.accent))
     }
 }
 

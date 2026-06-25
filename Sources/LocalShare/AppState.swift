@@ -17,6 +17,8 @@ final class AppState: ObservableObject {
     @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
     @Published var sharedIsFile = false   // 仅单项有意义：true=单个文件，false=单个文件夹
     @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹/多选→项数
+    @Published var sharedText: String?    // 当前广播的一段文本（nil=未分享文本）；与 sharedItems 正交
+    @Published var textDraft = ""         // 文本编辑器草稿（重启回填、再次编辑用）；与 sharedText 解耦
     @Published var isRunning = false
     @Published var port: in_port_t = 0    // 实际绑定端口（可能因占用回退而异于 configuredPort）
     @Published var interfaces: [NetworkInterface] = []
@@ -35,6 +37,7 @@ final class AppState: ObservableObject {
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
     @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
+    @Published var persistText = false              // 「记住分享的文本」开关（默认关，持久化）
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
@@ -54,6 +57,8 @@ final class AppState: ObservableObject {
     private let appearanceKey = "appearancePref"
     private let langPrefKey = "languagePref"
     private let showRecentsKey = "showRecentShares"
+    private let persistTextKey = "persistSharedText"   // 是否记住分享的文本（默认关）
+    private let sharedTextKey = "lastSharedText"        // 上次分享的文本（仅 persistText 开时写入）
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
@@ -67,6 +72,12 @@ final class AppState: ObservableObject {
         // bool(forKey:) 对未写入的键返回 false，会把默认「展示」误判成关闭，故先探键存在性。
         if UserDefaults.standard.object(forKey: showRecentsKey) != nil {
             showRecents = UserDefaults.standard.bool(forKey: showRecentsKey)
+        }
+        persistText = UserDefaults.standard.bool(forKey: persistTextKey)   // 未写入默认 false
+        // 记住分享文本时回填草稿（编辑器预填上次内容），但**不**放进 sharedText、不自动广播——
+        // 文本常是密码/口令，自动重新广播会在 LAN 上悄悄重现，故重启需用户手动「分享」（见 PLAN.md）。
+        if persistText, let t = UserDefaults.standard.string(forKey: sharedTextKey), !t.isEmpty {
+            textDraft = t
         }
         loadRecents()
         refreshNetwork()
@@ -93,8 +104,11 @@ final class AppState: ObservableObject {
 
     // MARK: - 选择态派生
 
-    var isEmpty: Bool { sharedItems.isEmpty }
+    // 「空」= 既无文件项也无文本（决定起服务/二维码/空状态屏）。文本可独立存在，故不能只看 sharedItems。
+    var isEmpty: Bool { sharedItems.isEmpty && !hasText }
     var isMultiple: Bool { sharedItems.count > 1 }
+    var hasText: Bool { !(sharedText?.isEmpty ?? true) }
+    var isTextOnly: Bool { sharedItems.isEmpty && hasText }   // 只分享文本、无文件
     var sharedURL: URL? { sharedItems.first }   // 单项便利访问；UI 仅在单项时使用
     var currentSharePaths: Set<String> { Set(sharedItems.map(\.path)) }
 
@@ -103,7 +117,10 @@ final class AppState: ObservableObject {
     // 文件夹/多选模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
     private func makeURL(host: String) -> String {
         let q = "?t=\(token)"
-        if sharedIsFile, let name = sharedItems.first?.lastPathComponent,
+        // 纯文本分享：二维码直指 /ls/text（扫码即落文本页，等同单文件直链）。
+        if isTextOnly { return "http://\(host):\(port)/ls/text\(q)" }
+        // 单文件直链该文件（文本与文件共存时走虚拟根，不直链，故附带 !hasText）。
+        if sharedIsFile, !hasText, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
             return "http://\(host):\(port)/\(enc)\(q)"
         }
@@ -166,11 +183,40 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)   // 清理旧单值键
         recordRecent()
         screen = .share
+        if isRunning { pushToServer() }   // 运行中不重启（端口不变）
+        else { start() }
+    }
+
+    // 运行中把当前分享态推给 server（不重启、端口不变）。顺序不变式：先换钥匙(token) 再推内容
+    // (sharedText / share)——杜绝旧 token 读到新分享的瞬间窗口（见 CLAUDE.md 线程模型）。setShared / setSharedText 共用。
+    private func pushToServer() {
+        server?.token = token
+        server?.sharedText = hasText ? sharedText : nil
+        server?.share = currentShare
+    }
+
+    // 分享 / 更新一段文本（Mac→手机）。离散提交快照：调用即把当前文本作为新分享广播，轮换 token
+    // （旧链接/cookie/二维码作废）。传 nil/空白即撤下文本——若同时也无文件则停服务、回到空状态。
+    // 文本与已分享的文件正交：设了文本不动文件、撤了文本也不动文件。
+    func setSharedText(_ raw: String?) {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newText: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        token = Token.generate()   // 内容变更=新分享：换钥匙
+        sharedText = newText
+        textDraft = newText ?? ""
+        describeShared()
+        // 持久化：仅「记住分享的文本」开启且确有文本时写盘；撤下文本（newText==nil）或未开持久化一律抹掉——
+        // 即「撤下即清」，杜绝用户明确撤下后磁盘仍残留旧口令、下次启动又被回填进编辑器。
+        if persistText, let newText { UserDefaults.standard.set(newText, forKey: sharedTextKey) }
+        else { UserDefaults.standard.removeObject(forKey: sharedTextKey) }
+        // 仅纯文本分享记历史（文本条目，且仅 persistText 开时真正落库，见 recordRecent）；
+        // 文本+文件时不调——否则「只改了文本」会把已有的文件条目刷到历史顶部、刷新时间戳。
+        if isTextOnly { recordRecent() }
+        screen = .share
         if isRunning {
-            // 运行中不重启（端口不变），先换钥匙再换内容——杜绝旧 token 可读新分享的瞬间
-            server?.token = token
-            server?.share = currentShare
-        } else {
+            if isEmpty { stop() }   // 撤下文本且无文件 → 拆掉服务，回到初始
+            else { pushToServer() }
+        } else if !isEmpty {
             start()
         }
     }
@@ -198,7 +244,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    // 有文本时一律走虚拟根：纯文本→makeItems([])=空虚拟根（二维码另直指 /ls/text）；
+    // 文本+文件→文件项的虚拟根（文本经 server.sharedText 单独挂上、不进 items）。文本经 /ls/text 提供。
     private var currentShare: FileServer.Share {
+        if hasText { return .multiple(FileServer.Share.makeItems(sharedItems)) }
         switch sharedItems.count {
         case 0:  return .directory(URL(fileURLWithPath: NSTemporaryDirectory()))
         case 1:  return sharedIsFile ? .file(sharedItems[0]) : .directory(sharedItems[0])
@@ -209,7 +258,8 @@ final class AppState: ObservableObject {
     // MARK: - 访客上传
 
     // 仅「单个文件夹」分享有上传落点；单文件/多选时设置页开关置灰。
-    var canToggleUpload: Bool { sharedItems.count == 1 && !sharedIsFile }
+    // 附带文本会把分享转成虚拟根（无单一落点），故此时上传也不可用。
+    var canToggleUpload: Bool { sharedItems.count == 1 && !sharedIsFile && !hasText }
 
     func setUploadAllowed(_ on: Bool) {
         permission.add = on && canToggleUpload
@@ -241,9 +291,10 @@ final class AppState: ObservableObject {
     // MARK: - 启停 / 端口
 
     func start() {
-        guard !sharedItems.isEmpty else { return }
+        guard !isEmpty else { return }
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
+        fs.sharedText = hasText ? sharedText : nil
         fs.uploadEnabled = permission.add && canToggleUpload
         fs.onUpload = { url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
@@ -333,9 +384,12 @@ final class AppState: ObservableObject {
         sharedItems = []
         sharedIsFile = false
         sharedDetail = nil
+        sharedText = nil   // 撤下当前广播的文本
+        textDraft = ""     // 「清除」是彻底复位：连草稿一起清，不在内存里留着上次文本
         resetUpload()
         UserDefaults.standard.removeObject(forKey: sharedPathsKey)
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 不在磁盘上残留文本（同「撤下即清」）
         screen = .share
     }
 
@@ -343,7 +397,7 @@ final class AppState: ObservableObject {
     func applyPort(_ p: in_port_t) {
         configuredPort = p
         UserDefaults.standard.set(Int(p), forKey: portKey)
-        guard isRunning, !sharedItems.isEmpty else { return }
+        guard isRunning, !isEmpty else { return }
         stop()
         start()
         if isRunning && port != p {
@@ -354,17 +408,32 @@ final class AppState: ObservableObject {
     // MARK: - 最近分享 / 历史
 
     private func recordRecent() {
-        guard !sharedItems.isEmpty else { return }
-        let entry = RecentShare(paths: sharedItems.map(\.path), isFile: sharedIsFile,
-                                detail: sharedDetail ?? "", date: Date())
+        let entry: RecentShare?
+        if !sharedItems.isEmpty {
+            entry = RecentShare(paths: sharedItems.map(\.path), isFile: sharedIsFile,
+                                detail: sharedDetail ?? "", date: Date(), text: nil)
+        } else if hasText, persistText, let text = sharedText {
+            // 纯文本分享：仅在「记住分享的文本」开启时落历史（默认关 → 文本不留痕、可删见 deleteRecent）。
+            entry = RecentShare(paths: [], isFile: false, detail: LStr.charCount(text.count, lang),
+                                date: Date(), text: text)
+        } else {
+            entry = nil
+        }
+        guard let entry else { return }
         recents.removeAll { $0.id == entry.id }
         recents.insert(entry, at: 0)
         if recents.count > 12 { recents = Array(recents.prefix(12)) }
         saveRecents()
     }
 
-    // 重新分享某条历史：等价于重新选中它。多选时过滤掉已不存在的项，全缺失才移除该条。
+    // 重新分享某条历史：等价于重新选中它。文本条目直接重新广播该段文本；
+    // 文件条目按路径恢复——多选时过滤掉已不存在的项，全缺失才移除该条。
     func reshare(_ r: RecentShare) {
+        if let text = r.text {
+            recents.removeAll { $0.id == r.id }   // setSharedText 会把它重新记到顶部（若 persistText 开）
+            setSharedText(text)
+            return
+        }
         let fm = FileManager.default
         let existing = r.paths.filter { fm.fileExists(atPath: $0) }
         guard !existing.isEmpty else {
@@ -379,17 +448,29 @@ final class AppState: ObservableObject {
         }
     }
 
-    // 清空历史，但保留当前正在分享的那条。
+    // 清空历史，但保留当前选中的那条分享（文本/文件一视同仁）；无当前分享则全清。
     func clearRecents() {
-        let cur = currentSharePaths
-        if !cur.isEmpty { recents.removeAll { Set($0.paths) != cur } }
-        else { recents.removeAll() }
+        if isEmpty { recents.removeAll() }
+        else { recents.removeAll { !isCurrentShare($0) } }
         saveRecents()
     }
 
-    // 是否为当前正在广播的那条历史。
+    // 是否为「当前选中的分享」那条：文本比内容、文件比路径集合（不要求正在运行）。
+    private func isCurrentShare(_ r: RecentShare) -> Bool {
+        if let text = r.text { return isTextOnly && sharedText == text }
+        return !r.paths.isEmpty && Set(r.paths) == currentSharePaths
+    }
+
+    // 删除单条历史（文本/文件一视同仁）。不影响当前正在直播的分享——历史与 live 是两回事。
+    func deleteRecent(_ r: RecentShare) {
+        recents.removeAll { $0.id == r.id }
+        saveRecents()
+    }
+
+    // 是否为当前正在广播的那条历史。文本条目：纯文本分享且内容一致；文件条目：路径集合一致。
     func isLive(_ r: RecentShare) -> Bool {
-        isRunning && Set(r.paths) == currentSharePaths
+        if let text = r.text { return isRunning && isTextOnly && sharedText == text }
+        return isRunning && Set(r.paths) == currentSharePaths
     }
 
     private func loadRecents() {
@@ -427,6 +508,19 @@ final class AppState: ObservableObject {
     func setShowRecents(_ on: Bool) {
         showRecents = on
         UserDefaults.standard.set(on, forKey: showRecentsKey)
+    }
+
+    // 「记住分享的文本」开关。开：把当前文本写盘；关：抹掉持久化的文本 + 历史里所有文本条目（隐私默认收敛）。
+    func setPersistText(_ on: Bool) {
+        persistText = on
+        UserDefaults.standard.set(on, forKey: persistTextKey)
+        if on {
+            if let t = sharedText, !t.isEmpty { UserDefaults.standard.set(t, forKey: sharedTextKey) }
+        } else {
+            UserDefaults.standard.removeObject(forKey: sharedTextKey)
+            recents.removeAll { $0.text != nil }
+            saveRecents()
+        }
     }
 
     // 请求唤回主窗口（已关闭则重建）。openWindow 只能在活着的视图环境里拿，
@@ -476,42 +570,52 @@ final class AppState: ObservableObject {
     }
 }
 
-// 一条最近分享记录（持久化到 UserDefaults）。paths 支持多选（1=单项、N=多选）。
+// 一条最近分享记录（持久化到 UserDefaults）。paths 支持多选（1=单项、N=多选）；
+// text 非 nil 即「文本分享」条目（paths 为空，仅在「记住分享的文本」开启时落库）。
 struct RecentShare: Codable, Identifiable, Equatable {
     let paths: [String]
     let isFile: Bool       // 仅单项有意义
     let detail: String
     let date: Date
+    let text: String?      // 文本分享条目的原文；文件条目为 nil
 
+    var isText: Bool { text != nil }
     var isMultiple: Bool { paths.count > 1 }
-    var id: String { paths.joined(separator: "\n") }
-    // 多选给本地化计数名，单项给文件名。由调用方（持有 state.lang 的 View）传入语言。
+    // 文本条目以内容作身份（同一段文本去重、重分享移到顶部）；文件条目以路径**集合**作身份
+    //（排序后拼接，与 isLive / isCurrentShare 的 Set(paths) 口径一致——同一组文件不同选中顺序视作同一条，避免去重失效）。
+    var id: String { text.map { "\u{1}text\u{1}\($0)" } ?? Set(paths).sorted().joined(separator: "\n") }
+    // 文本给首行预览（空白回退「文本」），多选给本地化计数名，单项给文件名。由持有 lang 的 View 传入。
     func displayName(_ lang: Lang) -> String {
+        if let text { let p = FileServer.textPreview(text); return p.isEmpty ? L.webText(lang) : p }
         if isMultiple { return LStr.multiItemName(paths.count, lang) }
         return paths.first.map { ($0 as NSString).lastPathComponent } ?? ""
     }
-    // 多选：只要还有一项存在即可重新分享（reshare 时再剔除缺失项）。
+    // 文本条目恒可重分享；文件条目只要还有一项存在即可（reshare 时再剔除缺失项）。
     var exists: Bool {
+        if text != nil { return true }
         let fm = FileManager.default
         return paths.contains { fm.fileExists(atPath: $0) }
     }
 
-    init(paths: [String], isFile: Bool, detail: String, date: Date) {
-        self.paths = paths; self.isFile = isFile; self.detail = detail; self.date = date
+    init(paths: [String], isFile: Bool, detail: String, date: Date, text: String? = nil) {
+        self.paths = paths; self.isFile = isFile; self.detail = detail; self.date = date; self.text = text
     }
 
-    // 兼容旧记录：旧版用单 `path` 字段，迁移为 `paths = [path]`。
-    enum CodingKeys: String, CodingKey { case paths, path, isFile, detail, date }
+    // 兼容旧记录：旧版用单 `path` 字段，迁移为 `paths = [path]`；旧记录无 text 字段，解码缺省为 nil。
+    enum CodingKeys: String, CodingKey { case paths, path, isFile, detail, date, text }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if let arr = try? c.decode([String].self, forKey: .paths) {
             paths = arr
+        } else if let p = try? c.decode(String.self, forKey: .path) {
+            paths = [p]
         } else {
-            paths = [try c.decode(String.self, forKey: .path)]
+            paths = []
         }
         isFile = (try? c.decode(Bool.self, forKey: .isFile)) ?? false
         detail = (try? c.decode(String.self, forKey: .detail)) ?? ""
         date = (try? c.decode(Date.self, forKey: .date)) ?? Date(timeIntervalSince1970: 0)
+        text = try? c.decodeIfPresent(String.self, forKey: .text)
     }
     // 显式 encode（CodingKeys 含迁移用的 .path，会阻断合成）：只写 paths 等当前字段。
     func encode(to encoder: Encoder) throws {
@@ -520,6 +624,7 @@ struct RecentShare: Codable, Identifiable, Equatable {
         try c.encode(isFile, forKey: .isFile)
         try c.encode(detail, forKey: .detail)
         try c.encode(date, forKey: .date)
+        try c.encodeIfPresent(text, forKey: .text)
     }
 }
 
