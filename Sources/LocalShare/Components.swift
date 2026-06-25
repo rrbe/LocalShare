@@ -39,6 +39,7 @@ struct GhostButton: View {
     var title: String
     var systemImage: String? = nil
     var fullWidth = false
+    var height: CGFloat = 34   // 默认次级高度；与主按钮成对出现时传 44 对齐尺寸
     let action: () -> Void
     @State private var hover = false
     var body: some View {
@@ -49,7 +50,7 @@ struct GhostButton: View {
             }
             .foregroundStyle(t.ink)
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .frame(height: 34)
+            .frame(height: height)
             .padding(.horizontal, 13)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))

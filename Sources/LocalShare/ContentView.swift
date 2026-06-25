@@ -315,11 +315,12 @@ private struct EmptyScreen: View {
         } content: {
             VStack(spacing: 0) {
                 dropZone
-                // 文本入口：与文件并列的平级第二入口（设计语言上「或，分享一段文本」）。
-                GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft", fullWidth: true) {
+                // 文本入口：与文件按钮同尺寸（高 44 + 同样左右缩进 20 对齐边缘），主次只靠「实心 vs 描边」区分。
+                GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft",
+                            fullWidth: true, height: 44) {
                     showText = true
                 }
-                .padding(.top, 12)
+                .padding(.horizontal, 20).padding(.top, 12)
                 if state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
