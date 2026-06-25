@@ -81,7 +81,7 @@ enum PreviewPage {
           <h1 class="t">\(esc(fileName))</h1>
           <div class="subline">
             <nav class="crumbs">\(crumbs ?? "")</nav>
-            <a class="rawlink" href="?raw=1">\(rawLabel ?? L.webViewRaw(lang))</a>
+            <a class="rawlink" href="?raw=1">\(esc(rawLabel ?? L.webViewRaw(lang)))</a>
           </div>
           <section class="ledger">
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>

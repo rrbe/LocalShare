@@ -64,6 +64,17 @@ final class TextShareTests: XCTestCase {
         XCTAssertEqual(back.id, r.id)
     }
 
+    // 文件条目身份与选中顺序无关（同 isLive/isCurrentShare 的 Set(paths) 口径）：同一组文件
+    // 不同顺序 → 同一 id，避免历史里出现两条等价记录、且都被判为「正在直播」。
+    func testFileRecentIdOrderInsensitive() {
+        let a = RecentShare(paths: ["/x/a", "/x/b"], isFile: false, detail: "", date: Date())
+        let b = RecentShare(paths: ["/x/b", "/x/a"], isFile: false, detail: "", date: Date())
+        XCTAssertEqual(a.id, b.id)
+        // 与文本条目身份互不撞车
+        let txt = RecentShare(paths: [], isFile: false, detail: "", date: Date(), text: "/x/a\n/x/b")
+        XCTAssertNotEqual(a.id, txt.id)
+    }
+
     // 旧记录（无 text 字段）解码后 text 为 nil、仍是文件条目——迁移兼容。
     func testLegacyRecentDecodesWithoutText() throws {
         let json = #"{"paths":["/a/b.txt"],"isFile":true,"detail":"1 KB","date":0}"#

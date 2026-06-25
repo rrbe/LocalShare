@@ -209,7 +209,9 @@ final class AppState: ObservableObject {
         // 即「撤下即清」，杜绝用户明确撤下后磁盘仍残留旧口令、下次启动又被回填进编辑器。
         if persistText, let newText { UserDefaults.standard.set(newText, forKey: sharedTextKey) }
         else { UserDefaults.standard.removeObject(forKey: sharedTextKey) }
-        if newText != nil { recordRecent() }   // 记历史（文本条目仅在 persistText 开时真正落库，见 recordRecent）
+        // 仅纯文本分享记历史（文本条目，且仅 persistText 开时真正落库，见 recordRecent）；
+        // 文本+文件时不调——否则「只改了文本」会把已有的文件条目刷到历史顶部、刷新时间戳。
+        if isTextOnly { recordRecent() }
         screen = .share
         if isRunning {
             if isEmpty { stop() }   // 撤下文本且无文件 → 拆掉服务，回到初始
@@ -579,8 +581,9 @@ struct RecentShare: Codable, Identifiable, Equatable {
 
     var isText: Bool { text != nil }
     var isMultiple: Bool { paths.count > 1 }
-    // 文本条目以内容作身份（同一段文本去重、重分享移到顶部）；文件条目以路径集合作身份。
-    var id: String { text.map { "\u{1}text\u{1}\($0)" } ?? paths.joined(separator: "\n") }
+    // 文本条目以内容作身份（同一段文本去重、重分享移到顶部）；文件条目以路径**集合**作身份
+    //（排序后拼接，与 isLive / isCurrentShare 的 Set(paths) 口径一致——同一组文件不同选中顺序视作同一条，避免去重失效）。
+    var id: String { text.map { "\u{1}text\u{1}\($0)" } ?? Set(paths).sorted().joined(separator: "\n") }
     // 文本给首行预览（空白回退「文本」），多选给本地化计数名，单项给文件名。由持有 lang 的 View 传入。
     func displayName(_ lang: Lang) -> String {
         if let text { let p = FileServer.textPreview(text); return p.isEmpty ? L.webText(lang) : p }
