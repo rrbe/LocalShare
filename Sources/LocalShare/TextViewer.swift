@@ -23,7 +23,8 @@ enum TextViewer {
               <pre id="txtbody" class="txtbody"></pre>
             </article>
             """,
-            css: css, scripts: ["var LS_TEXT=\(jsStringLiteral(text));", boot])
+            css: css, scripts: ["var LS_TEXT=\(jsStringLiteral(text));", boot],
+            rawLabel: L.webViewRawText(lang))
     }
 
     // 与文件共存时的面包屑：根（分享内容）/ 文本。纯文本分享不显示面包屑（传 nil）。

@@ -8,8 +8,9 @@ enum PreviewPage {
     // body：内容区 HTML，自带卡片元素（用 .card 取得 surface 底 + 描边 + 圆角，如
     // `<article class="card md">…</article>`）。css：查看器专属样式。scripts：依序各成一个
     // <script>（vendored 库与启动脚本分开传，启动脚本约定从 location.pathname + '?raw=1' 取原文）。
+    // rawLabel：页角「查看原文」链接文案，默认「查看原文 / View source」；纯文本预览传「查看原始文本」。
     static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang,
-                     body: String, css: String, scripts: [String]) -> String {
+                     body: String, css: String, scripts: [String], rawLabel: String? = nil) -> String {
         let ps = permSummary(Permission(add: canUpload), lang)
         let scriptTags = scripts.map { "<script>\($0)</script>" }.joined(separator: "\n")
         return """
@@ -80,7 +81,7 @@ enum PreviewPage {
           <h1 class="t">\(esc(fileName))</h1>
           <div class="subline">
             <nav class="crumbs">\(crumbs ?? "")</nav>
-            <a class="rawlink" href="?raw=1">\(L.webViewRaw(lang))</a>
+            <a class="rawlink" href="?raw=1">\(rawLabel ?? L.webViewRaw(lang))</a>
           </div>
           <section class="ledger">
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>

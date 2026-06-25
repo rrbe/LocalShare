@@ -155,7 +155,7 @@ enum L: CaseIterable {
     case webSortTimeDesc, webSortTimeAsc
     case webFilterAll, webFilterDir, webProvidedBy
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
-    case webText, webTextHint, webCopy
+    case webText, webTextHint, webCopy, webViewRawText
 
     // —— 网页错误页 / 上传 JSON ——
     case webForbiddenTitle, webForbiddenBody, webFileNotFound, webReadFailed
@@ -351,6 +351,7 @@ enum L: CaseIterable {
         case .webText:         return ("文本", "Text")
         case .webTextHint:     return ("分享者发来的一段文本", "A snippet shared from the host")
         case .webCopy:         return ("复制", "Copy")
+        case .webViewRawText:  return ("查看原始文本", "View raw text")
 
         case .webForbiddenTitle: return ("无法访问", "No access")
         case .webForbiddenBody:  return ("请通过电脑上显示的二维码扫码进入。", "Scan the QR code shown on the computer to enter.")

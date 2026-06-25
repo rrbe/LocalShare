@@ -175,19 +175,14 @@ private struct TextEntrySheet: View {
                 Spacer()
                 IconButton(t: t, systemImage: "xmark", help: L.back(lang)) { dismiss() }
             }
-            ZStack(alignment: .topLeading) {
-                // placeholder 与编辑器文字起点都恰好落在 inset(8) 处：编辑器内部 lineFragmentPadding 归零、
-                // textContainerInset 设成 (8,8)，placeholder 也用同值内边距 + 同字号等宽字体 → 严丝合缝。
-                if text.isEmpty {
-                    Text(L.textEditorPlaceholder(lang)).font(.mono(13)).foregroundStyle(t.inkFaint)
-                        .padding(.horizontal, 8).padding(.vertical, 8).allowsHitTesting(false)
-                }
-                PlainTextEditor(text: $text, textColor: NSColor(t.ink), caret: NSColor(t.accent),
-                                inset: 8, autoFocus: true)
-                    .frame(minHeight: 210)
-            }
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+            // placeholder 由 NSTextView 自绘：能查 hasMarkedText() 在中文输入法拼音组合时即让位，
+            // 且画在文本容器内、与正文同一坐标系，对齐天然成立（不再用 SwiftUI 叠加层）。
+            PlainTextEditor(text: $text, placeholder: L.textEditorPlaceholder(lang),
+                            placeholderColor: NSColor(t.inkFaint), textColor: NSColor(t.ink),
+                            caret: NSColor(t.accent), inset: 8, autoFocus: true)
+                .frame(minHeight: 210)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
             PrimaryButton(t: t, title: isUpdate ? L.textUpdateAction(lang) : L.textShareAction(lang),
                           systemImage: "paperplane.fill") {
                 state.setSharedText(text)
@@ -202,32 +197,50 @@ private struct TextEntrySheet: View {
     }
 }
 
-// 自带 NSTextView 的纯文本编辑器。SwiftUI 的 TextEditor 底层 NSTextView 还有一层 .padding() 控不到的
-// 内部内边距（textContainerInset + textContainer.lineFragmentPadding 默认 5），叠 placeholder 时光标/
-// 占位/实际文字对不齐。这里把 lineFragmentPadding 归零、textContainerInset 显式设成 (inset,inset)，
-// 文字起点完全由 inset 决定——与同值 SwiftUI 内边距、同字号等宽字体的 placeholder 严丝合缝。
+// 自带 NSTextView 的纯文本编辑器。两个问题一并根治：
+//  ① 对齐：SwiftUI 的 TextEditor 底层 NSTextView 有一层 .padding() 控不到的内部内边距
+//    （textContainerInset + textContainer.lineFragmentPadding 默认 5）；这里把 lineFragmentPadding 归零、
+//     textContainerInset 显式设成 (inset,inset)，文字起点完全由 inset 决定。
+//  ② 中文输入法：placeholder 交给 NSTextView 自绘（PlaceholderTextView），它能查 hasMarkedText()——
+//     拼音组合上屏的瞬间就让位，不与未确认的拼音串重叠。
 private struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
+    var placeholder: String
+    var placeholderColor: NSColor
     var textColor: NSColor
     var caret: NSColor
     var inset: CGFloat
     var autoFocus: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        guard let tv = scroll.documentView as? NSTextView else { return scroll }
+        let tv = PlaceholderTextView()
         tv.delegate = context.coordinator
         tv.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         tv.textColor = textColor
         tv.insertionPointColor = caret
+        tv.placeholder = placeholder
+        tv.placeholderColor = placeholderColor
         tv.drawsBackground = false
         tv.isRichText = false
+        tv.isEditable = true
+        tv.isSelectable = true
         tv.allowsUndo = true
         tv.textContainerInset = NSSize(width: inset, height: inset)
         tv.textContainer?.lineFragmentPadding = 0
+        // 在 NSScrollView 里随宽变行、随内容长高（标准配方）。
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
         tv.string = text
+
+        let scroll = NSScrollView()
+        scroll.documentView = tv
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.autohidesScrollers = true
         if autoFocus {
             DispatchQueue.main.async { [weak tv] in tv?.window?.makeFirstResponder(tv) }
         }
@@ -236,10 +249,11 @@ private struct PlainTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self   // 让回调里的 binding 始终指向最新的
-        guard let tv = scroll.documentView as? NSTextView else { return }
+        guard let tv = scroll.documentView as? PlaceholderTextView else { return }
         if tv.string != text { tv.string = text }   // 仅在外部值变化时回写，避免打断输入光标
         tv.textColor = textColor
         tv.insertionPointColor = caret
+        tv.placeholderColor = placeholderColor
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -249,9 +263,34 @@ private struct PlainTextEditor: NSViewRepresentable {
         init(_ parent: PlainTextEditor) { self.parent = parent }
         func textDidChange(_ note: Notification) {
             guard let tv = note.object as? NSTextView else { return }
-            parent.text = tv.string
+            parent.text = tv.string   // 含组合中的 marked text；committed 后即为最终文本
         }
     }
+}
+
+// 自绘 placeholder 的 NSTextView：仅当无内容且不在输入法组合态时才画占位文字——
+// 中文输入法拼音上屏（hasMarkedText() 为真）即让位，不与拼音串重叠；画在文本容器内，与正文同坐标系。
+private final class PlaceholderTextView: NSTextView {
+    var placeholder = ""
+    var placeholderColor: NSColor = .placeholderTextColor
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !hasMarkedText() else { return }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: placeholderColor,
+            .font: font ?? .monospacedSystemFont(ofSize: 13, weight: .regular),
+        ]
+        // lineFragmentPadding 已归零，文字起点即 textContainerInset，占位文字画在同一处。
+        placeholder.draw(at: NSPoint(x: textContainerInset.width, y: textContainerInset.height), withAttributes: attrs)
+    }
+    // 文本变化（含 marked text 的增删）后重绘，让占位文字及时显隐。
+    override func didChangeText() { super.didChangeText(); needsDisplay = true }
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        needsDisplay = true
+    }
+    override func unmarkText() { super.unmarkText(); needsDisplay = true }
 }
 
 // MARK: - 空状态
