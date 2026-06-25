@@ -446,12 +446,17 @@ final class AppState: ObservableObject {
         }
     }
 
-    // 清空历史，但保留当前正在分享的那条。
+    // 清空历史，但保留当前选中的那条分享（文本/文件一视同仁）；无当前分享则全清。
     func clearRecents() {
-        let cur = currentSharePaths
-        if !cur.isEmpty { recents.removeAll { Set($0.paths) != cur } }
-        else { recents.removeAll() }
+        if isEmpty { recents.removeAll() }
+        else { recents.removeAll { !isCurrentShare($0) } }
         saveRecents()
+    }
+
+    // 是否为「当前选中的分享」那条：文本比内容、文件比路径集合（不要求正在运行）。
+    private func isCurrentShare(_ r: RecentShare) -> Bool {
+        if let text = r.text { return isTextOnly && sharedText == text }
+        return !r.paths.isEmpty && Set(r.paths) == currentSharePaths
     }
 
     // 删除单条历史（文本/文件一视同仁）。不影响当前正在直播的分享——历史与 live 是两回事。

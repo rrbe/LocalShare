@@ -322,7 +322,8 @@ private struct EmptyScreen: View {
                 .padding(.top, 12)
                 if state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
-                                     onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
+                                     onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
+                                     onDelete: { state.deleteRecent($0) })
                 }
             }
         }
@@ -382,7 +383,8 @@ private struct ShareScreen: View {
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists && Set($0.paths) != state.currentSharePaths },
-                                     onAll: { state.openHistory() }, onReshare: { state.reshare($0) })
+                                     onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
+                                     onDelete: { state.deleteRecent($0) })
                 }
             }
         }
@@ -1137,8 +1139,8 @@ private struct HistoryScreen: View {
             } else {
                 GhostButton(t: t, title: L.reshare(state.lang), systemImage: "arrow.left.arrow.right") { state.reshare(h) }
             }
-            // 逐条删除（文本/文件一视同仁）：只动历史，不影响正在直播的分享。
-            IconButton(t: t, systemImage: "trash", help: L.deleteEntry(state.lang)) { state.deleteRecent(h) }
+            // 逐条删除（文本/文件一视同仁）：同款 ✕，只动历史、不影响正在直播的分享。
+            ClearButton(t: t, lang: state.lang, help: L.deleteEntry(state.lang)) { state.deleteRecent(h) }
         }
         .padding(.vertical, 13)
         .overlay(alignment: .top) { if top { Rectangle().fill(t.line).frame(height: 1) } }
@@ -1153,6 +1155,7 @@ private struct RecentSharesView: View {
     var items: [RecentShare]
     var onAll: () -> Void
     var onReshare: (RecentShare) -> Void
+    var onDelete: (RecentShare) -> Void
     var body: some View {
         if items.isEmpty {
             EmptyView()
@@ -1175,6 +1178,7 @@ private struct RecentSharesView: View {
                         }
                         Spacer(minLength: 4)
                         GhostButton(t: t, title: L.reshare(lang), systemImage: "arrow.left.arrow.right") { onReshare(h) }
+                        ClearButton(t: t, lang: lang, help: L.deleteEntry(lang)) { onDelete(h) }
                     }
                     .padding(.vertical, 9)
                     .overlay(alignment: .top) { if i > 0 { Rectangle().fill(t.line).frame(height: 1) } }
