@@ -143,6 +143,11 @@ enum L: CaseIterable {
     // 单文件存根「其他」类回退名
     case fileKind
 
+    // 传递文本（v1）
+    case shareTextButton, textEditorPlaceholder, textShareTitle, textShareAction, textUpdateAction
+    case sharingTextKicker, scanCaptionText, editTextButton
+    case rememberTextTitle, rememberTextDesc, deleteEntry
+
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
     case webNoMatch, webNoMatchSub, webSearchFolder, webClear
@@ -150,6 +155,7 @@ enum L: CaseIterable {
     case webSortTimeDesc, webSortTimeAsc
     case webFilterAll, webFilterDir, webProvidedBy
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
+    case webText, webTextHint, webCopy
 
     // —— 网页错误页 / 上传 JSON ——
     case webForbiddenTitle, webForbiddenBody, webFileNotFound, webReadFailed
@@ -308,6 +314,19 @@ enum L: CaseIterable {
 
         case .fileKind:        return ("文件", "File")
 
+        case .shareTextButton:      return ("分享文本", "Share Text")
+        case .textEditorPlaceholder: return ("在此粘贴或输入要分享的文本", "Paste or type the text to share")
+        case .textShareTitle:       return ("分享文本", "Share Text")
+        case .textShareAction:      return ("分享", "Share")
+        case .textUpdateAction:     return ("更新", "Update")
+        case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
+        case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
+        case .editTextButton:       return ("编辑文本", "Edit Text")
+        case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
+        case .rememberTextDesc:     return ("重启后回填上次内容供再次分享；关闭则退出即忘",
+                                           "Refills the last text after restart for reuse; off forgets it on quit")
+        case .deleteEntry:          return ("删除", "Delete")
+
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")
         case .webBackToParent: return ("返回上一级", "Up one level")
@@ -329,6 +348,9 @@ enum L: CaseIterable {
         case .webLoading:      return ("正在加载…", "Loading…")
         case .webSearchJSON:   return ("搜索键或值…", "Search keys or values…")
         case .webFilterRows:   return ("筛选行…", "Filter rows…")
+        case .webText:         return ("文本", "Text")
+        case .webTextHint:     return ("分享者发来的一段文本", "A snippet shared from the host")
+        case .webCopy:         return ("复制", "Copy")
 
         case .webForbiddenTitle: return ("无法访问", "No access")
         case .webForbiddenBody:  return ("请通过电脑上显示的二维码扫码进入。", "Scan the QR code shown on the computer to enter.")
@@ -390,6 +412,11 @@ enum LStr {
     // 历史多选记录名："3 个项目" / "3 items"
     static func multiItemName(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 个项目" : "\(n) item\(n == 1 ? "" : "s")"
+    }
+
+    // 文本字数（文本历史条目的副标识）："128 字" / "128 chars"
+    static func charCount(_ n: Int, _ lang: Lang) -> String {
+        lang == .zh ? "\(n) 字" : "\(n) char\(n == 1 ? "" : "s")"
     }
 
     // 在线访客明细右栏的人数："3 人" / "3 people"
@@ -551,6 +578,9 @@ enum LStr {
             // 预览壳 / 各 viewer
             ("viewRaw",      "查看原文",                 "View source"),
             ("loadFailed",   "加载失败",                 "Load failed"),
+            // 文本页复制按钮
+            ("copy",         "复制",                     "Copy"),
+            ("copied",       "已复制",                   "Copied"),
             ("parseFailed",  "解析失败",                 "Parse failed"),
             ("parsing",      "正在解析…",                "Parsing…"),
             // JSON viewer

@@ -223,6 +223,18 @@ struct FolderGlyph: View {
     }
 }
 
+// 文本图标：圆角方块 + accentSoft 底 + accent 文本行形，表示「分享的一段文本」。
+struct TextGlyph: View {
+    let t: Theme
+    var size: CGFloat = 40
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(t.accentSoft)
+            .frame(width: size, height: size)
+            .overlay(Image(systemName: "text.alignleft").font(.system(size: size * 0.4)).foregroundStyle(t.accent))
+    }
+}
+
 // 多项图标：圆角方块 + accentSoft 底 + accent 叠放方块形，表示「多个文件/目录」。
 struct MultiGlyph: View {
     let t: Theme

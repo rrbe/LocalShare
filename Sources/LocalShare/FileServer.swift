@@ -94,6 +94,24 @@ final class FileServer {
     // 每存好一个文件回调一次（socket 线程）；GUI 用它提示「新收到」，设置方自行 hop 主线程。
     var onUpload: ((URL) -> Void)?
 
+    // MARK: - 分享文本（Mac→手机，v1）
+    // 与 share 正交的一段文本：非 nil 即在保留路径 /ls/text 提供（导航发预览壳页、?raw=1/curl 发原文）。
+    // 纯文本分享时 share=.multiple([])（虚拟根无文件项），二维码直指 /ls/text；与文件共存时挂进虚拟根
+    // 列表。内容随每次「分享/更新」动作由 AppState 轮换 token 后写入，同 share 加锁、socket 线程读。
+    private var _sharedText: String?
+    var sharedText: String? {
+        get { lock.lock(); defer { lock.unlock() }; return _sharedText }
+        set { lock.lock(); _sharedText = newValue; lock.unlock() }
+    }
+
+    // 文本在虚拟根列表里的条目显示名：取首个非空行截断（约 60 字），整段纯空白回退由列表页兜底。
+    // 用 .newlines 在 unicode 标量层切分——Swift 把 CRLF 视作单个 Character，按 Character 比较会漏掉 \r\n。
+    static func textPreview(_ text: String) -> String {
+        let firstNonBlank = text.components(separatedBy: .newlines)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+        return String(firstNonBlank.trimmingCharacters(in: .whitespaces).prefix(60))
+    }
+
     // Swifter 在进 middleware 前已把请求体整段读进内存（HttpParser.readBody），上限只能事后
     // 拒绝、省掉 multipart 的二次拷贝；前端先行拦截超限文件。流式/分片上传是 v1.5 的事。
     static let uploadLimit = 500 * 1024 * 1024
@@ -292,6 +310,24 @@ final class FileServer {
         let rawRequested = req.queryParams.contains { $0.0 == "raw" && $0.1 == "1" }
         let wantsViewer = !rawRequested && (req.headers["accept"] ?? "").contains("text/html")
 
+        // 分享文本端点（保留路径，先于分享内容路由；与 /ls/ping 同款）：导航发文本预览壳页，
+        // ?raw=1 / curl（Accept */*）发 text/plain 原文。无分享文本时 404。token 清洗的 302 已在上面处理，
+        // 故到这里要么带 cookie 要么是非导航请求，照常服务。
+        if req.method == "GET", req.path == "/ls/text" {
+            guard let text = sharedText, !text.isEmpty else {
+                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
+            }
+            if wantsViewer {
+                // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
+                var crumbs: String? = nil
+                if case .multiple(let items) = share, !items.isEmpty {
+                    crumbs = TextViewer.crumb(rootName: Self.multipleRootName(lang), lang: lang)
+                }
+                return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, lang: lang), extra: extra)
+            }
+            return plainTextResponse(text, extra: extra)
+        }
+
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
         // 否则单文件模式下 POST 会拿到文件本体）。
         if req.method == "POST" {
@@ -313,7 +349,9 @@ final class FileServer {
             let trimmed = decodedPath.drop { $0 == "/" }
             if trimmed.isEmpty {
                 let entries = items.map { (name: $0.key, url: $0.url, isDir: $0.isDir) }
-                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, lang: lang), extra: extra)
+                // 文本与文件共存（或纯文本分享 items 为空）时，虚拟根列表多挂一个指向 /ls/text 的文本行。
+                let textRow = sharedText.flatMap { $0.isEmpty ? nil : Self.textPreview($0) }
+                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, textPreview: textRow, lang: lang), extra: extra)
             }
             var segs = decodedPath.split(separator: "/").map(String.init)
             let key = segs.removeFirst()
@@ -563,6 +601,16 @@ final class FileServer {
                 try writer.write(chunk)
             }
         }
+    }
+
+    // 分享文本的原文响应（?raw=1 / curl）：text/plain；带 Content-Length 让客户端显示进度、知道何时收完。
+    private func plainTextResponse(_ text: String, extra: [String: String]) -> HttpResponse {
+        var headers = extra
+        headers["Content-Type"] = "text/plain; charset=utf-8"
+        headers["X-Content-Type-Options"] = "nosniff"
+        let body = Data(text.utf8)
+        headers["Content-Length"] = String(body.count)
+        return .raw(200, "OK", headers) { writer in try? writer.write(body) }
     }
 
     private func htmlResponse(_ code: Int, _ reason: String, _ html: String, extra: [String: String] = [:]) -> HttpResponse {
