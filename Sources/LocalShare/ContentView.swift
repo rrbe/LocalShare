@@ -171,7 +171,7 @@ private struct TextEntrySheet: View {
         let lang = state.lang
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(L.textShareTitle(lang)).font(.display(18, .semibold)).foregroundStyle(t.ink)
+                Text(L.shareTextButton(lang)).font(.display(18, .semibold)).foregroundStyle(t.ink)
                 Spacer()
                 IconButton(t: t, systemImage: "xmark", help: L.back(lang)) { dismiss() }
             }

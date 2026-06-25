@@ -1,8 +1,8 @@
 import Foundation
 
 // 文本预览页（Mac→手机发文本，PreviewPage 壳 + 客户端渲染）。与 md/json/csv 查看器同套路，
-// 但内容源不是磁盘文件而是内存里的一段字符串：服务端把文本以安全的 JS 字符串字面量内联进页面
-// （jsStringLiteral，转义 < 挡 </script>、转义换行/行分隔符破坏 JS 串），客户端只读地放进 <pre>。
+// 但内容源不是磁盘文件而是内存里的一段字符串：服务端把文本以安全的 JS 字符串内联进页面
+// （共用 LStr.jsEscape：转义 < 挡 </script>、转义换行/行分隔符破坏 JS 串），客户端只读地放进 <pre>。
 // 关键约束（见 PLAN.md「传递文本」与 CLAUDE.md）：
 //  · 纯文本展示——不当 Markdown 渲染（任意文本里的 * _ # 不该被吃掉），用 textContent 注入天然防 XSS；
 //  · 复制按钮必须走 execCommand 回退——纯 http 局域网是非安全上下文，navigator.clipboard 不可用；
@@ -23,13 +23,8 @@ enum TextViewer {
               <pre id="txtbody" class="txtbody"></pre>
             </article>
             """,
-            css: css, scripts: ["var LS_TEXT=\(jsStringLiteral(text));", boot],
+            css: css, scripts: ["var LS_TEXT=\"\(LStr.jsEscape(text))\";", boot],
             rawLabel: L.webViewRawText(lang))
-    }
-
-    // 与文件共存时的面包屑：根（分享内容）/ 文本。纯文本分享不显示面包屑（传 nil）。
-    static func crumb(rootName: String, lang: Lang) -> String {
-        "<a href=\"/\">\(PreviewPage.esc(rootName))</a><span class=\"sep\">/</span><span class=\"cur\">\(PreviewPage.esc(L.webText(lang)))</span>"
     }
 
     private static let css = """
@@ -69,9 +64,10 @@ enum TextViewer {
           if(last<t.length)pre.appendChild(document.createTextNode(t.slice(last)));
 
           var btn=document.getElementById('copybtn'),lbl=btn.querySelector('.lbl'),timer;
+          var orig=lbl.textContent;   // 「复制」初始文案由服务端 L.webCopy 渲染，捕获后复原——单一来源，不在 i18n 里重复
           function flash(){
             lbl.textContent=LS_I18N.copied;btn.classList.add('done');
-            clearTimeout(timer);timer=setTimeout(function(){lbl.textContent=LS_I18N.copy;btn.classList.remove('done');},1600);
+            clearTimeout(timer);timer=setTimeout(function(){lbl.textContent=orig;btn.classList.remove('done');},1600);
           }
           function legacy(){
             // 纯 http 局域网（非安全上下文）下 navigator.clipboard 不可用，回退选中 + execCommand。
@@ -88,26 +84,4 @@ enum TextViewer {
           });
         })();
         """
-
-    // 把任意字符串编成可安全内联进 <script> 的 JS 字符串字面量。
-    // 转义 \\ 与 "，换行/回车/行分隔符（破坏 JS 串），< （挡 </script> 提前收尾），其余控制符走 \\uXXXX。
-    private static func jsStringLiteral(_ s: String) -> String {
-        var out = "\""
-        for scalar in s.unicodeScalars {
-            switch scalar {
-            case "\\": out += "\\\\"
-            case "\"": out += "\\\""
-            case "\n": out += "\\n"
-            case "\r": out += "\\r"
-            case "\u{2028}": out += "\\u2028"
-            case "\u{2029}": out += "\\u2029"
-            case "<": out += "\\u003c"
-            default:
-                if scalar.value < 0x20 { out += String(format: "\\u%04x", scalar.value) }
-                else { out.unicodeScalars.append(scalar) }
-            }
-        }
-        out += "\""
-        return out
-    }
 }

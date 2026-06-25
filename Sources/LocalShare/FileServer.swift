@@ -319,9 +319,12 @@ final class FileServer {
             }
             if wantsViewer {
                 // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
+                // 复用 DirectoryListing.breadcrumb（同 md/json/csv 预览）：把「文本」当末段路径传入即得
+                // 「根(链) / 文本(当前)」，样式将来变动这里一并跟随。
                 var crumbs: String? = nil
                 if case .multiple(let items) = share, !items.isEmpty {
-                    crumbs = TextViewer.crumb(rootName: Self.multipleRootName(lang), lang: lang)
+                    crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
+                                                         rootName: Self.multipleRootName(lang))
                 }
                 return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, lang: lang), extra: extra)
             }

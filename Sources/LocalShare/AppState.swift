@@ -183,14 +183,16 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)   // 清理旧单值键
         recordRecent()
         screen = .share
-        if isRunning {
-            // 运行中不重启（端口不变），先换钥匙再换内容——杜绝旧 token 可读新分享的瞬间
-            server?.token = token
-            server?.sharedText = hasText ? sharedText : nil
-            server?.share = currentShare
-        } else {
-            start()
-        }
+        if isRunning { pushToServer() }   // 运行中不重启（端口不变）
+        else { start() }
+    }
+
+    // 运行中把当前分享态推给 server（不重启、端口不变）。顺序不变式：先换钥匙(token) 再推内容
+    // (sharedText / share)——杜绝旧 token 读到新分享的瞬间窗口（见 CLAUDE.md 线程模型）。setShared / setSharedText 共用。
+    private func pushToServer() {
+        server?.token = token
+        server?.sharedText = hasText ? sharedText : nil
+        server?.share = currentShare
     }
 
     // 分享 / 更新一段文本（Mac→手机）。离散提交快照：调用即把当前文本作为新分享广播，轮换 token
@@ -203,18 +205,15 @@ final class AppState: ObservableObject {
         sharedText = newText
         textDraft = newText ?? ""
         describeShared()
-        // 持久化：仅在「记住分享的文本」开启时写盘；关或撤下即清。
+        // 持久化：仅「记住分享的文本」开启且确有文本时写盘；撤下文本（newText==nil）或未开持久化一律抹掉——
+        // 即「撤下即清」，杜绝用户明确撤下后磁盘仍残留旧口令、下次启动又被回填进编辑器。
         if persistText, let newText { UserDefaults.standard.set(newText, forKey: sharedTextKey) }
-        else if !persistText { UserDefaults.standard.removeObject(forKey: sharedTextKey) }
+        else { UserDefaults.standard.removeObject(forKey: sharedTextKey) }
         if newText != nil { recordRecent() }   // 记历史（文本条目仅在 persistText 开时真正落库，见 recordRecent）
         screen = .share
         if isRunning {
             if isEmpty { stop() }   // 撤下文本且无文件 → 拆掉服务，回到初始
-            else {
-                server?.token = token
-                server?.sharedText = newText
-                server?.share = currentShare
-            }
+            else { pushToServer() }
         } else if !isEmpty {
             start()
         }
@@ -383,10 +382,12 @@ final class AppState: ObservableObject {
         sharedItems = []
         sharedIsFile = false
         sharedDetail = nil
-        sharedText = nil   // 撤下当前广播的文本（草稿 textDraft 保留，便于再次分享）
+        sharedText = nil   // 撤下当前广播的文本
+        textDraft = ""     // 「清除」是彻底复位：连草稿一起清，不在内存里留着上次文本
         resetUpload()
         UserDefaults.standard.removeObject(forKey: sharedPathsKey)
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 不在磁盘上残留文本（同「撤下即清」）
         screen = .share
     }
 
