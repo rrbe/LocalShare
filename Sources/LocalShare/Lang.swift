@@ -636,6 +636,7 @@ enum LStr {
             ("sendStale",    "链接已失效，请重新扫码",     "Link expired — rescan the QR code"),
             ("sendNetwork",  "网络错误，请重试",          "Network error — try again"),
             ("sentHistory",  "已发送",                   "Sent"),
+            ("clearHistory", "清空",                     "Clear"),
             ("parseFailed",  "解析失败",                 "Parse failed"),
             ("parsing",      "正在解析…",                "Parsing…"),
             // JSON viewer

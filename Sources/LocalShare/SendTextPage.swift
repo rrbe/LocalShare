@@ -53,7 +53,11 @@ enum SendText {
         /* 已发送历史：浏览器本地留存（localStorage），点一条回填到输入框便于改发/重发。右侧缀紧凑相对时间。 */
         .senthist:empty{display:none}
         .senthist{border-top:1px solid var(--line)}
-        .sh-title{padding:10px 16px 4px;font:600 11px var(--sans);letter-spacing:.04em;color:var(--inkMute)}
+        .sh-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+          padding:10px 16px 4px;font:600 11px var(--sans);letter-spacing:.04em;color:var(--inkMute)}
+        .sh-clear{flex:none;border:none;background:none;cursor:pointer;letter-spacing:0;
+          font:600 11px var(--sans);color:var(--inkFaint);padding:2px 2px;-webkit-tap-highlight-color:transparent}
+        .sh-clear:active{color:var(--danger)}
         .sh-item{display:flex;align-items:flex-start;gap:10px;padding:8px 16px;cursor:pointer;
           border-top:1px solid var(--line);font:12px/1.5 var(--mono);color:var(--ink)}
         .sh-item:first-of-type{border-top:none}
@@ -94,7 +98,13 @@ enum SendText {
           function render(){
             if(!hist)return; hist.innerHTML='';
             var a=load(); if(!a.length)return;
-            var h=document.createElement('div');h.className='sh-title';h.textContent=LS_I18N.sentHistory;hist.appendChild(h);
+            var h=document.createElement('div');h.className='sh-title';
+            var lbl=document.createElement('span');lbl.textContent=LS_I18N.sentHistory;
+            var clr=document.createElement('button');clr.className='sh-clear';clr.type='button';clr.textContent=LS_I18N.clearHistory;
+            // 清空本机这份「已发送」localStorage（手机自用记录，从不回传 Mac）——清完 render 即空、整段隐藏。
+            // 主要给「一台设备被多人先后扫码」时主动抹掉自己的发送痕迹。
+            clr.addEventListener('click',function(){try{localStorage.removeItem(KEY)}catch(e){}render();});
+            h.appendChild(lbl);h.appendChild(clr);hist.appendChild(h);
             a.slice(0,20).forEach(function(item){
               var it=norm(item);
               var row=document.createElement('div');row.className='sh-item';
