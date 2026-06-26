@@ -83,4 +83,35 @@ final class TextShareTests: XCTestCase {
         XCTAssertFalse(back.isText)
         XCTAssertEqual(back.paths, ["/a/b.txt"])
     }
+
+    // MARK: ReceivedText —— 收件箱条目（收文本 v2）
+
+    // 来源标签：反查到设备名显名，查不到回退完整 IP（同 ViewerInfo.fullLabel 口径）。
+    func testReceivedTextSourcePrefersName() {
+        let named = ReceivedText(text: "hi", ip: "192.168.1.9", name: "Shawn-iPhone", date: Date())
+        XCTAssertEqual(named.source, "Shawn-iPhone")
+        let anon = ReceivedText(text: "hi", ip: "192.168.1.9", name: "", date: Date())
+        XCTAssertEqual(anon.source, "192.168.1.9")
+    }
+
+    // 持久化「记住收到的文本」的 Codable 往返：正文/来源/时间/id 全保真（含 UTF-8 与 < 不被破坏）。
+    func testReceivedTextCodableRoundTrip() throws {
+        let rt = ReceivedText(text: "café 你好 <b>", ip: "10.0.0.2", name: "phone",
+                              date: Date(timeIntervalSince1970: 1700))
+        let data = try JSONEncoder().encode([rt])
+        let back = try JSONDecoder().decode([ReceivedText].self, from: data)
+        XCTAssertEqual(back.count, 1)
+        XCTAssertEqual(back[0].text, "café 你好 <b>")
+        XCTAssertEqual(back[0].ip, "10.0.0.2")
+        XCTAssertEqual(back[0].name, "phone")
+        XCTAssertEqual(back[0].id, rt.id)          // id 随条目稳定保存
+        XCTAssertEqual(back[0], rt)                // Equatable 整体一致
+    }
+
+    // 不同条目身份各异（id 唯一），删除按 id 移除不会误伤同文本的另一条。
+    func testReceivedTextDistinctIdentity() {
+        let a = ReceivedText(text: "same", ip: "1.1.1.1", name: "", date: Date())
+        let b = ReceivedText(text: "same", ip: "1.1.1.1", name: "", date: Date())
+        XCTAssertNotEqual(a.id, b.id)
+    }
 }
