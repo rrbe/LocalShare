@@ -256,8 +256,19 @@ open dist/LocalShare.app     # 本机自测
       接收则退化成纯发送页——**一页一码、两端双向**。二维码（`makeURL`）与 headless URL 一律指 `/ls/text`；
       旧 `/ls/send` 保留为 302 跳 `/ls/text` 兼容。「允许收文本」默认关，闸门仍是 `textInboxEnabled`（设置页与
       文本页同一开关）。**token 改回会话维度**：`setSharedText` 不再轮换 token（v1/v2 每次更新都换、会把正在看的
-      手机刷掉，还误伤共存的文件分享链接），只在 `setShared`/`stop`/`clearShare` 这些会话边界轮换。
+      对端刷掉，还误伤共存的文件分享链接），只在 `setShared`/`stop`/`clearShare`/`stopTextTransfer` 这些会话边界轮换。
       `smoke-text-receive.sh` 改测 `/ls/text` 退化页 + `/ls/send` 302。
+- [x] 传递文本 v2.1 打磨串（PR #26，承接上条）：
+      · **停止机制**：文本页加 `stopTextTransfer()`（撤文本+关接收+停服务+回选择页），对齐文件票据「停止」；
+        修掉「服务在后台续跑、主页却显待命」——`EmptyScreen` 表头在 `isRunning` 时改用 `StatusPill` 如实显
+        运行态，「传递文本」入口呼吸点亦由 `isRunning` 驱动（发或收都亮）。文本页 ← 仍为非破坏式返回（可续跑/恢复）。
+      · **未读口径**：`recordReceivedText` 仅在 `screen != .text` 时累加未读；未读只走数字角标，「接收开着」改
+        缓慢呼吸红点（`PulsingDot`，动效区分于静态未读），不再用常驻红点冒充未读。
+      · **输入法吞字**：`PlainTextEditor.updateNSView` 在 `hasMarkedText()` 时直接返回——服务运行时每 2s 在线人数
+        轮询触发的周期性重渲染会在拼音组合中回写 string 致吞字。
+      · **手机端**：发送页「已发送」历史每条缀紧凑相对时间（24h 内 HH:MM / 一年内 MM/DD / 更久 YYYY；存储升级为
+        `{t,d}` 带迁移）+ 加「清空」按钮（清本机 localStorage，给共用设备主动抹痕）。
+      · **文案去手机化**：对端不限手机（可能是平板/电脑），Mac 端文案「手机」→「对方/设备」，枚举 `sendTextKicker`。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
