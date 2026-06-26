@@ -894,7 +894,7 @@ private struct TextScreen: View {
         let unchanged = draft == (state.sharedText ?? "")
         return VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 6) {
-                Text(L.sendToPhoneKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Text(L.sendTextKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                 Spacer()
                 if state.hasText {
                     Button { state.setSharedText(nil); draft = "" } label: {

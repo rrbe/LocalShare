@@ -148,7 +148,7 @@ enum L: CaseIterable {
     case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
     case sharingTextKicker, scanCaptionText, editTextButton
     // 传递文本二级页（收/发合一）
-    case transferText, sendToPhoneKicker, scanCaptionTransfer, textIdleHint, retract
+    case transferText, sendTextKicker, scanCaptionTransfer, textIdleHint, retract
     case rememberTextTitle, rememberTextDesc, deleteEntry
 
     // 传递文本（v2·手机→Mac 收文本）
@@ -334,9 +334,9 @@ enum L: CaseIterable {
         case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
         case .editTextButton:       return ("编辑文本", "Edit Text")
         case .transferText:         return ("传递文本", "Transfer Text")
-        case .sendToPhoneKicker:    return ("发送给手机", "Send to phone")
+        case .sendTextKicker:       return ("发送文本", "Send text")
         case .scanCaptionTransfer:  return ("扫码读取或发送文本 · 同一 Wi-Fi", "Scan to read or send text · same Wi-Fi")
-        case .textIdleHint:         return ("发送一段文本，或开启接收，手机扫码即可",
+        case .textIdleHint:         return ("发送一段文本，或开启接收，扫码即可",
                                            "Send some text or turn on receiving, then scan")
         case .retract:              return ("撤回", "Retract")
         case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
@@ -345,12 +345,12 @@ enum L: CaseIterable {
         case .deleteEntry:          return ("删除", "Delete")
 
         case .recvInboxTitle:       return ("允许收文本", "Allow Receiving Text")
-        case .recvInboxDesc:        return ("手机扫码后可把一段文本发到这台 Mac", "Phones can send text to this Mac after scanning")
+        case .recvInboxDesc:        return ("对方扫码后可把一段文本发到这台 Mac", "After scanning, the other device can send text to this Mac")
         case .persistRecvTitle:     return ("记住收到的文本", "Remember Received Text")
         case .persistRecvDesc:      return ("重启后保留收件箱内容；关闭则退出即忘",
                                            "Keeps the inbox after restart; off forgets it on quit")
         case .receivedTextsTitle:   return ("收到的文本", "Received Text")
-        case .inboxWaiting:         return ("等待手机发来文本…", "Waiting for text from a phone…")
+        case .inboxWaiting:         return ("等待对方发来文本…", "Waiting for text from the other device…")
         case .scanCaptionSend:      return ("扫码把文本发到这台 Mac · 同一 Wi-Fi", "Scan to send text to this Mac · same Wi-Fi")
         case .clearReceivedConfirm: return ("清空收到的全部文本？", "Clear all received text?")
         case .copyTextAction:       return ("复制", "Copy")
@@ -407,8 +407,8 @@ enum L: CaseIterable {
         case .cliAppNotFound:       return ("未找到 LocalShare.app，请先把它放进「应用程序」文件夹。",
                                             "LocalShare.app not found. Put it in the Applications folder first.")
         case .hsEnvMissing:         return ("LS_FOLDER / LS_FOLDERS 未设置", "LS_FOLDER / LS_FOLDERS not set")
-        case .hsNoLan:              return ("未发现局域网地址，手机可能无法访问，请确认已连接 WiFi。",
-                                            "No LAN address found; phones may be unable to connect. Make sure WiFi is connected.")
+        case .hsNoLan:              return ("未发现局域网地址，其它设备可能无法访问，请确认已连接 WiFi。",
+                                            "No LAN address found; other devices may be unable to connect. Make sure WiFi is connected.")
         case .hsScanHint:           return ("同一 WiFi 下扫码访问 · 按 Ctrl-C 停止分享",
                                             "Scan to access on the same WiFi · press Ctrl-C to stop")
 
