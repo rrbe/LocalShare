@@ -28,6 +28,8 @@ final class AppState: ObservableObject {
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
     @Published var viewers: [ViewerInfo] = []   // 在线访客明细（设备名 / 完整 IP），最近活跃在前
     @Published var received: [URL] = []   // 本次分享期间访客上传的文件（新→旧，最多留 5 条）
+    @Published var receivedTexts: [ReceivedText] = []   // 手机投递来的文本（收件箱，新→旧，最多 100 条挤旧）
+    @Published var unreadReceived = 0     // 收件箱未读条数（角标）；用户查看/复制即清零
 
     @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
@@ -38,6 +40,8 @@ final class AppState: ObservableObject {
     @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
     @Published var persistText = false              // 「记住分享的文本」开关（默认关，持久化）
+    @Published var textInboxEnabled = false         // 「允许收文本」闸门（默认关，持久化；不限分享形态）
+    @Published var persistReceivedText = false      // 「记住收到的文本」（默认关，持久化）
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
@@ -59,6 +63,9 @@ final class AppState: ObservableObject {
     private let showRecentsKey = "showRecentShares"
     private let persistTextKey = "persistSharedText"   // 是否记住分享的文本（默认关）
     private let sharedTextKey = "lastSharedText"        // 上次分享的文本（仅 persistText 开时写入）
+    private let textInboxKey = "textInboxEnabled"       // 收件箱闸门（默认关）
+    private let persistReceivedKey = "persistReceivedText"  // 是否记住收到的文本（默认关）
+    private let receivedTextsKey = "receivedTexts"      // 收件箱内容（仅 persistReceivedText 开时写入）
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
@@ -79,9 +86,13 @@ final class AppState: ObservableObject {
         if persistText, let t = UserDefaults.standard.string(forKey: sharedTextKey), !t.isEmpty {
             textDraft = t
         }
+        // 收件箱闸门与（可选）持久化的收件箱内容。收件箱开着即便没分享任何内容也要自动起服务（见下）。
+        textInboxEnabled = UserDefaults.standard.bool(forKey: textInboxKey)   // 未写入默认 false
+        persistReceivedText = UserDefaults.standard.bool(forKey: persistReceivedKey)
+        if persistReceivedText { loadReceivedTexts() }
         loadRecents()
         refreshNetwork()
-        // 恢复上次分享对象并自动启动，让同事开 app 就能看到二维码。
+        // 恢复上次分享对象，让同事开 app 就能看到二维码。
         // 多选存为路径数组（新键）；读不到再回退旧单值键（迁移）。缺失的项自动剔除，剩 ≥1 即恢复。
         var restorePaths = UserDefaults.standard.stringArray(forKey: sharedPathsKey)
             ?? UserDefaults.standard.string(forKey: sharedDefaultsKey).map { [$0] }
@@ -91,8 +102,9 @@ final class AppState: ObservableObject {
             sharedItems = restorePaths.map { URL(fileURLWithPath: $0) }
             updateSharedIsFile()
             describeShared()
-            start()
         }
+        // 有任何理由起服务（分享内容或收件箱开着）即自动启动。
+        if isServing { start() }
         AppState.shared = self
         // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达），覆盖上面恢复的旧分享。
         if !AppDelegate.pendingOpenURLs.isEmpty {
@@ -109,6 +121,10 @@ final class AppState: ObservableObject {
     var isMultiple: Bool { sharedItems.count > 1 }
     var hasText: Bool { !(sharedText?.isEmpty ?? true) }
     var isTextOnly: Bool { sharedItems.isEmpty && hasText }   // 只分享文本、无文件
+    // 有任何理由起服务：有分享内容（文件/文本），或收件箱开着（即便什么都没分享也要服务 /ls/send）。
+    var isServing: Bool { !isEmpty || textInboxEnabled }
+    // 只收文本、没分享任何内容：二维码直指发送页 /ls/send，主界面出收件模式票据。
+    var isReceiveOnly: Bool { isEmpty && textInboxEnabled }
     var sharedURL: URL? { sharedItems.first }   // 单项便利访问；UI 仅在单项时使用
     var currentSharePaths: Set<String> { Set(sharedItems.map(\.path)) }
 
@@ -119,6 +135,8 @@ final class AppState: ObservableObject {
         let q = "?t=\(token)"
         // 纯文本分享：二维码直指 /ls/text（扫码即落文本页，等同单文件直链）。
         if isTextOnly { return "http://\(host):\(port)/ls/text\(q)" }
+        // 只收文本：二维码直指发送页 /ls/send（扫码即落「发文本给电脑」表单）。
+        if isReceiveOnly { return "http://\(host):\(port)/ls/send\(q)" }
         // 单文件直链该文件（文本与文件共存时走虚拟根，不直链，故附带 !hasText）。
         if sharedIsFile, !hasText, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
@@ -192,6 +210,7 @@ final class AppState: ObservableObject {
     private func pushToServer() {
         server?.token = token
         server?.sharedText = hasText ? sharedText : nil
+        server?.textInboxEnabled = textInboxEnabled
         server?.share = currentShare
     }
 
@@ -249,7 +268,7 @@ final class AppState: ObservableObject {
     private var currentShare: FileServer.Share {
         if hasText { return .multiple(FileServer.Share.makeItems(sharedItems)) }
         switch sharedItems.count {
-        case 0:  return .directory(URL(fileURLWithPath: NSTemporaryDirectory()))
+        case 0:  return .multiple([])   // 只收文本（无任何分享内容）：空虚拟根，服务靠 /ls/send + /ls/text
         case 1:  return sharedIsFile ? .file(sharedItems[0]) : .directory(sharedItems[0])
         default: return .multiple(FileServer.Share.makeItems(sharedItems))
         }
@@ -288,16 +307,85 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    // MARK: - 收件箱（收文本 v2）
+
+    // 「允许收文本」闸门。开：不限分享形态都能开，开了就把服务拉起（无分享时即「只收模式」），不轮换 token、
+    // 不重启（运行中只切 server 标志，发送表单随之显隐、已发链接继续有效）。关：若再无其它分享则停服务。
+    func setTextInboxEnabled(_ on: Bool) {
+        guard on != textInboxEnabled else { return }
+        textInboxEnabled = on
+        UserDefaults.standard.set(on, forKey: textInboxKey)
+        if isRunning {
+            if isServing { server?.textInboxEnabled = on }   // 仍有理由服务：原地切标志
+            else { stop() }                                  // 关掉且无其它分享 → 拆服务，回到空状态
+        } else if isServing {
+            start()                                          // 从空状态开启 → 起服务（只收模式）
+        }
+    }
+
+    // 「记住收到的文本」开关。开：立即把当前收件箱落盘；关：抹掉磁盘留存（内存当次仍在，退出即忘）。
+    func setPersistReceivedText(_ on: Bool) {
+        guard on != persistReceivedText else { return }
+        persistReceivedText = on
+        UserDefaults.standard.set(on, forKey: persistReceivedKey)
+        if on { saveReceivedTexts() }
+        else { UserDefaults.standard.removeObject(forKey: receivedTextsKey) }
+    }
+
+    // 收到手机投递的文本（FileServer 回调已 hop 回主线程）。新→旧插入，满 100 条挤掉最旧；未读 +1。
+    private func recordReceivedText(_ rt: ReceivedText) {
+        receivedTexts.insert(rt, at: 0)
+        if receivedTexts.count > 100 { receivedTexts = Array(receivedTexts.prefix(100)) }
+        unreadReceived += 1
+        saveReceivedTextsIfNeeded()
+    }
+
+    // 复制一条收到的文本到剪贴板，并清未读（视作已读）。
+    func copyReceivedText(_ rt: ReceivedText) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(rt.text, forType: .string)
+        markReceivedRead()
+    }
+
+    func deleteReceivedText(_ rt: ReceivedText) {
+        receivedTexts.removeAll { $0.id == rt.id }
+        saveReceivedTextsIfNeeded()
+    }
+
+    func clearReceivedTexts() {
+        receivedTexts.removeAll()
+        unreadReceived = 0
+        saveReceivedTextsIfNeeded()
+    }
+
+    func markReceivedRead() { unreadReceived = 0 }
+
+    private func saveReceivedTextsIfNeeded() { if persistReceivedText { saveReceivedTexts() } }
+    private func saveReceivedTexts() {
+        if let data = try? JSONEncoder().encode(receivedTexts) {
+            UserDefaults.standard.set(data, forKey: receivedTextsKey)
+        }
+    }
+    private func loadReceivedTexts() {
+        guard let data = UserDefaults.standard.data(forKey: receivedTextsKey),
+              let list = try? JSONDecoder().decode([ReceivedText].self, from: data) else { return }
+        receivedTexts = list
+    }
+
     // MARK: - 启停 / 端口
 
     func start() {
-        guard !isEmpty else { return }
+        guard isServing else { return }
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
         fs.sharedText = hasText ? sharedText : nil
         fs.uploadEnabled = permission.add && canToggleUpload
+        fs.textInboxEnabled = textInboxEnabled
         fs.onUpload = { url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
+        }
+        fs.onReceiveText = { rt in   // socket 线程 → 主线程
+            Task { @MainActor [weak self] in self?.recordReceivedText(rt) }
         }
         let prefer = [configuredPort] + fallbackPorts.filter { $0 != configuredPort }
         // 「仅当前网络可见」开 → 只绑选中网卡；无选中网卡（无网）时退回全接口，避免直接挂掉。
@@ -378,9 +466,9 @@ final class AppState: ObservableObject {
 
     func toggle() { isRunning ? stop() : start() }
 
-    // 清除当前分享：停服务 + 清空选择，回到空状态（初始拖拽屏）。历史里仍保留该条，可一键重新分享。
+    // 清除当前分享：清空选择。收件箱关 → 停服务回到空状态（初始拖拽屏）；收件箱开 → 不停服务、转入
+    // 「只收文本」模式（换钥匙作废旧分享链接、QR 改指 /ls/send）。历史里仍保留该条，可一键重新分享。
     func clearShare() {
-        stop()
         sharedItems = []
         sharedIsFile = false
         sharedDetail = nil
@@ -391,6 +479,12 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
         UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 不在磁盘上残留文本（同「撤下即清」）
         screen = .share
+        if isServing {
+            token = Token.generate()   // 旧分享链接/cookie/二维码作废
+            if isRunning { pushToServer() } else { start() }
+        } else {
+            stop()
+        }
     }
 
     // 应用新监听端口：持久化配置；运行中则重启服务（已分发链接需更新）。

@@ -51,7 +51,7 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            if state.isEmpty {
+            if !state.isServing {
                 EmptyScreen(t: t, dragging: isDropTargeted)
             } else if !state.hasNetwork {
                 NoNetworkScreen(t: t)
@@ -320,6 +320,10 @@ private struct EmptyScreen: View {
                     showText = true
                 }
                 .padding(.top, 12)
+                // 收件箱关时仍可能有上次留存的收到文本（记住收到的文本开过）：在空态也露出，免得「消失」。
+                if !state.receivedTexts.isEmpty {
+                    ReceivedTextsCard(t: t).padding(.top, 12)
+                }
                 if state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
@@ -379,6 +383,8 @@ private struct ShareScreen: View {
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
                 if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
+                // 收件箱：收到任何文本即展示；只收模式下即便为空也展示（等待提示）。
+                if !state.receivedTexts.isEmpty || state.isReceiveOnly { ReceivedTextsCard(t: t) }
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
@@ -393,13 +399,33 @@ private struct ShareScreen: View {
 
     private func ticket(_ ps: PermSummary) -> some View {
         TicketCard(t: t) {
-            if state.isTextOnly { AnyView(textStub(ps)) }
+            if state.isReceiveOnly { AnyView(inboxStub()) }
+            else if state.isTextOnly { AnyView(textStub(ps)) }
             else if state.isMultiple { AnyView(multipleStub(ps)) }
             else if state.sharedIsFile { AnyView(fileStub(ps)) }
             else { AnyView(folderStub(ps)) }
         } pass: {
             qrPass
         }
+    }
+
+    // 只收文本（无任何分享内容）的存根：收件箱图标 + 「正在接收文本」+ 已收条数 / 等待提示。
+    private func inboxStub() -> some View {
+        let lang = state.lang
+        let n = state.receivedTexts.count
+        return HStack(alignment: .top, spacing: 12) {
+            InboxGlyph(t: t, size: 42)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L.receivingTextKicker(lang)).font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Text(L.inboxName(lang)).font(.sans(16, .bold)).foregroundStyle(t.ink)
+                Text(n == 0 ? L.inboxWaiting(lang) : LStr.receivedCount(n, lang))
+                    .font(.mono(11.5)).foregroundStyle(t.inkMute)
+            }
+            Spacer(minLength: 8)
+            // 与其它票据一致的 ✕：只收模式没有可「清除」的分享，这里用作退出接收（关收件箱 → 回初始）。
+            ClearButton(t: t, lang: lang, help: L.stopReceivingHelp(lang)) { state.setTextInboxEnabled(false) }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 16)
     }
 
     // 纯文本分享的存根：文本图标 + 「正在分享文本」+ 字数 + 前几行预览。
@@ -548,9 +574,10 @@ private struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.isTextOnly ? L.scanCaptionText(state.lang)
+        let caption = state.isReceiveOnly ? L.scanCaptionSend(state.lang)
+            : (state.isTextOnly ? L.scanCaptionText(state.lang)
             : (state.isMultiple ? L.scanCaptionMultiple(state.lang)
-            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang)))
+            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang))))
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
             Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
@@ -595,8 +622,11 @@ private struct ShareScreen: View {
     @ViewBuilder private var actions: some View {
         if state.isRunning {
             HStack(spacing: 10) {
-                // 纯文本分享：主操作是「编辑文本」而非更换文件。
-                if state.isTextOnly {
+                // 纯文本分享：主操作是「编辑文本」而非更换文件。只收模式：可顺手挑些文件/文件夹来分享。
+                if state.isReceiveOnly {
+                    GhostButton(t: t, title: L.pickAnyButton(state.lang),
+                                systemImage: "doc.badge.plus", fullWidth: true) { state.pickAny() }
+                } else if state.isTextOnly {
                     GhostButton(t: t, title: L.editTextButton(state.lang),
                                 systemImage: "pencil", fullWidth: true) { editText() }
                 } else {
@@ -608,7 +638,10 @@ private struct ShareScreen: View {
         } else {
             HStack(spacing: 10) {
                 PrimaryButton(t: t, title: L.rebroadcast(state.lang), systemImage: "play.fill", fullWidth: true) { state.start() }
-                GhostButton(t: t, title: L.clear(state.lang)) { state.clearShare() }
+                // 只收模式没有可「清除」的分享内容（关收件箱去设置页），故不出清除钮。
+                if !state.isReceiveOnly {
+                    GhostButton(t: t, title: L.clear(state.lang)) { state.clearShare() }
+                }
             }
         }
     }
@@ -700,6 +733,109 @@ private struct ReceivedRow: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(L.revealInFinder(lang))
+    }
+}
+
+// 收件箱卡片（收文本 v2）：手机投递来的文本，新→旧。每条带来源（设备名 / IP）+ 收到时长 + 正文预览，
+// 单条复制 / 删除，整卡清空（二次确认）。复用「新收到」卡片视觉语言。未读角标随到达累加，进入本卡即清。
+private struct ReceivedTextsCard: View {
+    let t: Theme
+    @EnvironmentObject var state: AppState
+    @State private var confirmClear = false
+    var body: some View {
+        let lang = state.lang
+        let items = state.receivedTexts
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(t.accent).frame(width: 6, height: 6)
+                Text(L.receivedTextsTitle(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                if state.unreadReceived > 0 {
+                    Text(LStr.unreadCount(state.unreadReceived, lang)).font(.sans(10, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(t.accent))
+                }
+                Spacer()
+                if !items.isEmpty {
+                    Button { confirmClear = true } label: {
+                        Text(L.clearAll(lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+                    }
+                    .buttonStyle(.plain)
+                    .confirmationDialog(L.clearReceivedConfirm(lang), isPresented: $confirmClear, titleVisibility: .visible) {
+                        Button(L.clearAll(lang), role: .destructive) { state.clearReceivedTexts() }
+                        Button(L.cancel(lang), role: .cancel) {}
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 5)
+
+            if items.isEmpty {
+                // 只收模式空收件箱：一句等待提示，避免空卡突兀。
+                Text(L.inboxWaiting(lang)).font(.sans(12)).foregroundStyle(t.inkFaint)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+            } else {
+                ForEach(Array(items.prefix(12))) { rt in
+                    ReceivedTextRow(t: t, lang: lang, item: rt,
+                                    onCopy: { state.copyReceivedText(rt) },
+                                    onDelete: { state.deleteReceivedText(rt) })
+                }
+                if items.count > 12 {
+                    Text(LStr.receivedCount(items.count, lang)).font(.mono(11)).foregroundStyle(t.inkFaint)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 16).padding(.top, 4)
+                }
+            }
+        }
+        .padding(.bottom, 8)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+        .onAppear { state.markReceivedRead() }   // 看到收件箱即视作已读
+    }
+}
+
+// 收件箱单行：左小图标 + 来源/时长 + 正文预览（最多 3 行，可选中），右侧复制（成功闪 ✓）+ 删除。
+private struct ReceivedTextRow: View {
+    let t: Theme
+    let lang: Lang
+    let item: ReceivedText
+    let onCopy: () -> Void
+    let onDelete: () -> Void
+    @State private var hover = false
+    @State private var copied = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            TextGlyph(t: t, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(item.source).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text("·").font(.sans(10)).foregroundStyle(t.inkFaint)
+                    Text(LStr.elapsed(item.date, lang)).font(.mono(10.5)).foregroundStyle(t.inkFaint).fixedSize()
+                    Spacer(minLength: 0)
+                }
+                Text(item.text).font(.mono(11.5)).foregroundStyle(t.ink)
+                    .lineLimit(3).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            VStack(spacing: 2) {
+                Button {
+                    onCopy()
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(copied ? t.ok : (hover ? t.ink : t.inkFaint))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(hover && !copied ? t.surfaceAlt : .clear))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain).help(L.copyTextAction(lang))
+                ClearButton(t: t, lang: lang, help: L.deleteEntry(lang)) { onDelete() }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 7)
+        .onHover { hover = $0 }
     }
 }
 
@@ -894,6 +1030,11 @@ private struct SettingsScreen: View {
                         on: state.permission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
+                // 收文本：独立闸门，不限分享形态（甚至什么都没分享也能开），故不随 share 置灰。
+                permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
+                        locked: false, on: state.textInboxEnabled, top: true) {
+                    state.setTextInboxEnabled(!state.textInboxEnabled)
+                }
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
@@ -937,6 +1078,9 @@ private struct SettingsScreen: View {
                 }
                 settingRow(top: true, title: L.rememberTextTitle(lang), desc: L.rememberTextDesc(lang)) {
                     ToggleSwitch(t: t, isOn: state.persistText) { state.setPersistText(!state.persistText) }
+                }
+                settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
+                    ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
                 }
                 settingRow(top: true, title: L.resetWindowTitle(lang)) {
                     GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
