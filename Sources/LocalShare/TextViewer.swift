@@ -9,27 +9,27 @@ import Foundation
 //  · 自动链接只认 http(s)，由正则保证 scheme，不会引入 javascript: 之类。
 enum TextViewer {
     // text：要展示/复制的原文；crumbs：与文件共存于虚拟根时显示「分享内容 / 文本」，纯文本分享传 nil。
-    static func html(text: String, crumbs: String?, canUpload: Bool, lang: Lang) -> String {
+    static func html(text: String, crumbs: String?, canUpload: Bool, canReceiveText: Bool = false, lang: Lang) -> String {
         PreviewPage.html(
             fileName: L.webText(lang), crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
             <article class="card txt">
+              <pre id="txtbody" class="txtbody"></pre>
               <div class="txtbar">
                 <span class="hint">\(PreviewPage.esc(L.webTextHint(lang)))</span>
                 <button class="copybtn" id="copybtn">\
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1V2.5h8v1"/></svg>\
             <span class="lbl">\(PreviewPage.esc(L.webCopy(lang)))</span></button>
               </div>
-              <pre id="txtbody" class="txtbody"></pre>
             </article>
             """,
             css: css, scripts: ["var LS_TEXT=\"\(LStr.jsEscape(text))\";", boot],
-            rawLabel: L.webViewRawText(lang))
+            rawLabel: L.webViewRawText(lang), canReceiveText: canReceiveText)
     }
 
     private static let css = """
         .txt{padding:0;overflow:hidden}
-        .txtbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
+        .txtbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--line);
           background:var(--surfaceAlt)}
         .txtbar .hint{flex:1;min-width:0;font:12px var(--mono);color:var(--inkMute);
           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -71,9 +71,11 @@ enum TextViewer {
           }
           function legacy(){
             // 纯 http 局域网（非安全上下文）下 navigator.clipboard 不可用，回退选中 + execCommand。
-            var ta=document.createElement('textarea');ta.value=LS_TEXT;
-            ta.style.position='fixed';ta.style.top='0';ta.style.left='0';ta.style.opacity='0';
-            document.body.appendChild(ta);ta.focus();ta.select();
+            // readonly + 移到屏外：iOS 不弹软键盘、不缩放、不顶起视口（修复点复制时页面跳动）。
+            var ta=document.createElement('textarea');ta.value=LS_TEXT;ta.readOnly=true;
+            ta.style.cssText='position:fixed;top:0;left:-9999px;font-size:16px';
+            document.body.appendChild(ta);
+            ta.focus();ta.setSelectionRange(0,ta.value.length);
             try{document.execCommand('copy');flash();}catch(e){}
             document.body.removeChild(ta);
           }

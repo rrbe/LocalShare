@@ -10,9 +10,13 @@ enum PreviewPage {
     // <script>（vendored 库与启动脚本分开传，启动脚本约定从 location.pathname + '?raw=1' 取原文）。
     // rawLabel：页角「查看原文」链接文案，默认「查看原文 / View source」；纯文本预览传「查看原始文本」。
     static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang,
-                     body: String, css: String, scripts: [String], rawLabel: String? = nil) -> String {
-        let ps = permSummary(Permission(add: canUpload), lang)
-        let scriptTags = scripts.map { "<script>\($0)</script>" }.joined(separator: "\n")
+                     body: String, css: String, scripts: [String], rawLabel: String? = nil,
+                     canReceiveText: Bool = false) -> String {
+        let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
+        // 收件箱开启时，预览/文本壳页底部嵌同一份「发文本给电脑」表单（与列表页一致）——让纯文本分享、
+        // 单文件预览等没有列表页的形态也能就地回填文本给 Mac。
+        let allScripts = canReceiveText ? scripts + [SendText.boot] : scripts
+        let scriptTags = allScripts.map { "<script>\($0)</script>" }.joined(separator: "\n")
         return """
         <!doctype html><html lang="\(lang.htmlLang)"><head>
         <meta charset="utf-8">
@@ -41,7 +45,7 @@ enum PreviewPage {
         html,body{margin:0}
         body{font:15px/1.5 var(--sans);color:var(--ink);background:var(--bg);min-height:100vh;
           padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-          -webkit-text-size-adjust:100%}
+          -webkit-text-size-adjust:100%;touch-action:manipulation}
         main{max-width:740px;margin:0 auto;padding:36px 40px 40px}
         .kicker{display:inline-flex;align-items:center;gap:7px;margin-bottom:12px}
         .kicker .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
@@ -75,6 +79,7 @@ enum PreviewPage {
           h1.t{font-size:25px}
         }
         \(css)
+        \(canReceiveText ? SendText.css : "")
         </style></head><body>
         <main>
           <div class="kicker"><span class="dot"></span><span>\(esc(ps.eyebrow))</span></div>
@@ -87,6 +92,7 @@ enum PreviewPage {
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>
             \(body)
           </section>
+          \(canReceiveText ? SendText.card(lang: lang) : "")
           <div class="colophon">\(L.webProvidedBy(lang)) · \(esc(ps.tag))</div>
         </main>
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
