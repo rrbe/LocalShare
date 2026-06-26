@@ -486,7 +486,7 @@ final class AppState: ObservableObject {
     func toggle() { isRunning ? stop() : start() }
 
     // 清除当前分享：清空选择。收件箱关 → 停服务回到空状态（初始拖拽屏）；收件箱开 → 不停服务、转入
-    // 「只收文本」模式（换钥匙作废旧分享链接、QR 改指 /ls/send）。历史里仍保留该条，可一键重新分享。
+    // 「只收文本」模式（换钥匙作废旧分享链接、QR 改指 /ls/text）。历史里仍保留该条，可一键重新分享。
     func clearShare() {
         sharedItems = []
         sharedIsFile = false
