@@ -50,15 +50,17 @@ enum SendText {
           background:var(--accent);color:#fff;transition:filter .15s}
         .sendbtn:hover{filter:brightness(1.07)}
         .sendbtn:disabled{opacity:.5;cursor:default}
-        /* 已发送历史：浏览器本地留存（localStorage），点一条回填到输入框便于改发/重发。 */
+        /* 已发送历史：浏览器本地留存（localStorage），点一条回填到输入框便于改发/重发。右侧缀紧凑相对时间。 */
         .senthist:empty{display:none}
         .senthist{border-top:1px solid var(--line)}
         .sh-title{padding:10px 16px 4px;font:600 11px var(--sans);letter-spacing:.04em;color:var(--inkMute)}
-        .sh-item{padding:8px 16px;font:12px/1.5 var(--mono);color:var(--ink);cursor:pointer;
-          border-top:1px solid var(--line);white-space:pre-wrap;word-break:break-word;
-          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .sh-item{display:flex;align-items:flex-start;gap:10px;padding:8px 16px;cursor:pointer;
+          border-top:1px solid var(--line);font:12px/1.5 var(--mono);color:var(--ink)}
         .sh-item:first-of-type{border-top:none}
         .sh-item:active{background:var(--surfaceAlt)}
+        .sh-text{flex:1;min-width:0;white-space:pre-wrap;word-break:break-word;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .sh-time{flex:none;color:var(--inkFaint);font-size:11px;white-space:nowrap;padding-top:1px}
         /* 手机上输入框字号 <16px 时 iOS 聚焦会自动放大页面，置 16px 杜绝。 */
         @media(max-width:560px){.sendta{font-size:16px}}
         """
@@ -78,17 +80,32 @@ enum SendText {
           }
           function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}
           function save(a){try{localStorage.setItem(KEY,JSON.stringify(a))}catch(e){}}
+          // 历史项新版存 {t:文本, d:发送时刻ms}；旧版只存字符串，读取时归一（无时间戳 d=0、时间留空）。
+          function norm(it){return (typeof it==='string')?{t:it,d:0}:it;}
+          function pad(n){return (n<10?'0':'')+n;}
+          // 紧凑相对时间（右侧角标，控长度）：24h 内 HH:MM；一年内 MM/DD；更久 YYYY；无时间戳留空。
+          function fmtTime(d){
+            if(!d)return '';
+            var then=new Date(d),diff=Date.now()-d;
+            if(diff<864e5)return pad(then.getHours())+':'+pad(then.getMinutes());
+            if(diff<31536e6)return pad(then.getMonth()+1)+'/'+pad(then.getDate());
+            return ''+then.getFullYear();
+          }
           function render(){
             if(!hist)return; hist.innerHTML='';
             var a=load(); if(!a.length)return;
             var h=document.createElement('div');h.className='sh-title';h.textContent=LS_I18N.sentHistory;hist.appendChild(h);
             a.slice(0,20).forEach(function(item){
-              var d=document.createElement('div');d.className='sh-item';d.textContent=item;   // textContent 注入，安全
-              d.addEventListener('click',function(){ta.value=item;ta.focus();});
-              hist.appendChild(d);
+              var it=norm(item);
+              var row=document.createElement('div');row.className='sh-item';
+              var tx=document.createElement('span');tx.className='sh-text';tx.textContent=it.t;   // textContent 注入，安全
+              var tm=document.createElement('span');tm.className='sh-time';tm.textContent=fmtTime(it.d);
+              row.appendChild(tx);row.appendChild(tm);
+              row.addEventListener('click',function(){ta.value=it.t;ta.focus();});
+              hist.appendChild(row);
             });
           }
-          function remember(v){var a=load();a.unshift(v);if(a.length>20)a=a.slice(0,20);save(a);render();}
+          function remember(v){var a=load();a.unshift({t:v,d:Date.now()});if(a.length>20)a=a.slice(0,20);save(a);render();}
           function fail(r){
             btn.disabled=false;
             r.text().then(function(b){
