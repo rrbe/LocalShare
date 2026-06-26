@@ -812,8 +812,21 @@ private struct ReceivedTextRow: View {
     }
 }
 
-// 主页「传递文本」入口：平级第二功能，点进 .text 二级页（收/发合一）。收件箱有未读时角标提示、
-// 接收开着时缀一个绿点——让「正在传递」与「有新文本」在选择页一眼可见，无须把内容堆到主页。
+// 缓慢呼吸（淡入淡出）的小圆点：表「实时进行中」的状态，用动效与静态未读角标区分，避免红点冒充未读。
+private struct PulsingDot: View {
+    let color: Color
+    var size: CGFloat = 6
+    @State private var lit = false
+    var body: some View {
+        Circle().fill(color).frame(width: size, height: size)
+            .opacity(lit ? 1 : 0.25)
+            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: lit)
+            .onAppear { lit = true }
+    }
+}
+
+// 主页「传递文本」入口：平级第二功能，点进 .text 二级页（收/发合一）。收件箱有未读时数字角标提示、
+// 接收开着时缀一个缓慢呼吸的红点——让「正在接收」与「有新文本」在选择页一眼可见，无须把内容堆到主页。
 private struct TransferTextButton: View {
     let t: Theme
     let lang: Lang
@@ -826,12 +839,14 @@ private struct TransferTextButton: View {
             HStack(spacing: 8) {
                 Image(systemName: "text.bubble").font(.system(size: 14, weight: .medium))
                 Text(L.transferText(lang)).font(.sans(13.5, .semibold))
+                // 未读 → 静态红色数字角标（看一眼收件箱即清）；接收开着但无未读 → 缓慢呼吸的红点，
+                // 用淡入淡出表明是"实时接收中"而非静态未读警报，与数字角标天然区分。
                 if unread > 0 {
                     Text(LStr.unreadCount(unread, lang)).font(.sans(10, .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Capsule().fill(t.accent))
                 } else if active {
-                    Circle().fill(t.accent).frame(width: 6, height: 6)
+                    PulsingDot(color: t.accent)
                 }
             }
             .foregroundStyle(t.ink)

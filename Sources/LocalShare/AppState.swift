@@ -336,11 +336,12 @@ final class AppState: ObservableObject {
         else { UserDefaults.standard.removeObject(forKey: receivedTextsKey) }
     }
 
-    // 收到手机投递的文本（FileServer 回调已 hop 回主线程）。新→旧插入，满 100 条挤掉最旧；未读 +1。
+    // 收到手机投递的文本（FileServer 回调已 hop 回主线程）。新→旧插入，满 100 条挤掉最旧。
+    // 未读口径：人已在传递文本页（收件箱就在眼前）收到的直接算已读、不堆红点；在别处收到才计未读。
     private func recordReceivedText(_ rt: ReceivedText) {
         receivedTexts.insert(rt, at: 0)
         if receivedTexts.count > 100 { receivedTexts = Array(receivedTexts.prefix(100)) }
-        unreadReceived += 1
+        if screen != .text { unreadReceived += 1 }
         saveReceivedTextsIfNeeded()
     }
 
