@@ -6,7 +6,7 @@ import SwiftUI
 // 负责：选目录/选文件、启停服务、端口配置 + 应用（重启服务）、记住上次分享并自动启动。
 @MainActor
 final class AppState: ObservableObject {
-    enum Screen { case share, settings, history }
+    enum Screen { case share, text, settings, history }
     enum AppearancePref: String { case system, light, dark }
 
     // 设计默认窗口尺寸（票据风竖窗，设计稿 400×720）。供 App 的 .defaultSize 与
@@ -105,6 +105,8 @@ final class AppState: ObservableObject {
         }
         // 有任何理由起服务（分享内容或收件箱开着）即自动启动。
         if isServing { start() }
+        // 启动落地屏：有文件→分享页（默认）；无文件但收件箱开着→传递文本页（接收已就绪一眼可见）。
+        if sharedItems.isEmpty && textInboxEnabled { screen = .text }
         AppState.shared = self
         // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达），覆盖上面恢复的旧分享。
         if !AppDelegate.pendingOpenURLs.isEmpty {
@@ -133,10 +135,9 @@ final class AppState: ObservableObject {
     // 文件夹/多选模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
     private func makeURL(host: String) -> String {
         let q = "?t=\(token)"
-        // 纯文本分享：二维码直指 /ls/text（扫码即落文本页，等同单文件直链）。
-        if isTextOnly { return "http://\(host):\(port)/ls/text\(q)" }
-        // 只收文本：二维码直指发送页 /ls/send（扫码即落「发文本给电脑」表单）。
-        if isReceiveOnly { return "http://\(host):\(port)/ls/send\(q)" }
+        // 传递文本（收/发合一）：二维码恒指 /ls/text——这一页既显示电脑共享的文本（可读可复制），
+        // 又在「允许手机发回来」开着时挂出发送框；只收文本时它退化成纯发送页。扫一次，双向都在这。
+        if isTextOnly || isReceiveOnly { return "http://\(host):\(port)/ls/text\(q)" }
         // 单文件直链该文件（文本与文件共存时走虚拟根，不直链，故附带 !hasText）。
         if sharedIsFile, !hasText, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
@@ -231,11 +232,12 @@ final class AppState: ObservableObject {
         // 仅纯文本分享记历史（文本条目，且仅 persistText 开时真正落库，见 recordRecent）；
         // 文本+文件时不调——否则「只改了文本」会把已有的文件条目刷到历史顶部、刷新时间戳。
         if isTextOnly { recordRecent() }
-        screen = .share
+        // 纯文本场景（无文件）的文本动作进/留传递文本页；与文件共存时不抢走文件票据（仍在分享页就地编辑）。
+        if sharedItems.isEmpty && (hasText || textInboxEnabled) { screen = .text }
         if isRunning {
-            if isEmpty { stop() }   // 撤下文本且无文件 → 拆掉服务，回到初始
+            if isEmpty && !textInboxEnabled { stop() }   // 撤下文本、无文件、也没开接收 → 拆服务回初始
             else { pushToServer() }
-        } else if !isEmpty {
+        } else if isServing {
             start()
         }
     }
@@ -584,6 +586,7 @@ final class AppState: ObservableObject {
     func openSettings() { screen = .settings }
     func openHistory()  { screen = .history }
     func goShare()      { screen = .share }
+    func openText()     { screen = .text }   // 进传递文本二级页（收/发合一）
 
     func setAppearance(_ a: AppearancePref) {
         appearance = a

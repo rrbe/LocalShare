@@ -343,32 +343,39 @@ final class FileServer {
         // 分享文本端点（保留路径，先于分享内容路由；与 /ls/ping 同款）：导航发文本预览壳页，
         // ?raw=1 / curl（Accept */*）发 text/plain 原文。无分享文本时 404。token 清洗的 302 已在上面处理，
         // 故到这里要么带 cookie 要么是非导航请求，照常服务。
+        // 传递文本（收/发合一，保留路径，先于分享内容路由）：二维码恒指此页。
+        //  · 有共享文本：导航发文本预览壳页（开着接收时壳页自带发送框，见 PreviewPage canReceiveText），
+        //    ?raw=1/curl（Accept */*）发 text/plain 原文；
+        //  · 无共享文本但开着接收：退化成纯「发文本给电脑」页（手机→Mac）；
+        //  · 两者皆无：没东西可展示，404。token 清洗的 302 已在上面处理。
         if req.method == "GET", req.path == "/ls/text" {
-            guard let text = sharedText, !text.isEmpty else {
-                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
-            }
-            if wantsViewer {
-                // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
-                // 复用 DirectoryListing.breadcrumb（同 md/json/csv 预览）：把「文本」当末段路径传入即得
-                // 「根(链) / 文本(当前)」，样式将来变动这里一并跟随。
-                var crumbs: String? = nil
-                if case .multiple(let items) = share, !items.isEmpty {
-                    crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
-                                                         rootName: Self.multipleRootName(lang))
+            let text = sharedText ?? ""
+            if !text.isEmpty {
+                if wantsViewer {
+                    // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
+                    // 复用 DirectoryListing.breadcrumb（同 md/json/csv 预览）：把「文本」当末段路径传入即得
+                    // 「根(链) / 文本(当前)」，样式将来变动这里一并跟随。
+                    var crumbs: String? = nil
+                    if case .multiple(let items) = share, !items.isEmpty {
+                        crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
+                                                             rootName: Self.multipleRootName(lang))
+                    }
+                    return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang), extra: extra)
                 }
-                return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang), extra: extra)
+                return plainTextResponse(text, extra: extra)
             }
-            return plainTextResponse(text, extra: extra)
+            if recvOn {
+                return htmlResponse(200, "OK", SendText.html(lang: lang), extra: extra)
+            }
+            return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
         }
 
-        // 独立发送页（收文本 v2 保留路径，先于分享内容路由）：收件箱开启时出「发文本给电脑」页面，
-        // 供「只收文本、没分享任何内容」时二维码直指（GUI 的 AppState.makeURL）。关闭时 404。
-        // token 清洗的 302 已在上面处理。
+        // 旧版「只收文本」二维码曾直指 /ls/send；现已并入 /ls/text（收发合一）。保留此路径做 302 兼容，
+        // 让老二维码/书签仍能落地（cookie 已在 token 清洗步种好，跟随重定向即可鉴权）。
         if req.method == "GET", req.path == "/ls/send" {
-            guard textInboxEnabled else {
-                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
-            }
-            return htmlResponse(200, "OK", SendText.html(lang: lang), extra: extra)
+            var h = extra
+            h["Location"] = "/ls/text"
+            return .raw(302, "Found", h, nil)
         }
 
         // 收文本（保留路径，先于上传拦截）：POST /ls/text 投递一段文本到收件箱。开关关 → 403；

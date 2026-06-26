@@ -147,12 +147,14 @@ enum L: CaseIterable {
     // 传递文本（v1）
     case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
     case sharingTextKicker, scanCaptionText, editTextButton
+    // 传递文本二级页（收/发合一）
+    case transferText, sendToPhoneKicker, scanCaptionTransfer, textIdleHint, retract
     case rememberTextTitle, rememberTextDesc, deleteEntry
 
     // 传递文本（v2·手机→Mac 收文本）
     case recvInboxTitle, recvInboxDesc, persistRecvTitle, persistRecvDesc
-    case receivedTextsTitle, receivingTextKicker, inboxWaiting
-    case scanCaptionSend, clearReceivedConfirm, copyTextAction, stopReceivingHelp, receiveTextButton
+    case receivedTextsTitle, inboxWaiting
+    case scanCaptionSend, clearReceivedConfirm, copyTextAction
 
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
@@ -331,6 +333,12 @@ enum L: CaseIterable {
         case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
         case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
         case .editTextButton:       return ("编辑文本", "Edit Text")
+        case .transferText:         return ("传递文本", "Transfer Text")
+        case .sendToPhoneKicker:    return ("发送给手机", "Send to phone")
+        case .scanCaptionTransfer:  return ("扫码读取或发送文本 · 同一 Wi-Fi", "Scan to read or send text · same Wi-Fi")
+        case .textIdleHint:         return ("发送一段文本，或开启接收，手机扫码即可",
+                                           "Send some text or turn on receiving, then scan")
+        case .retract:              return ("撤回", "Retract")
         case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
         case .rememberTextDesc:     return ("重启后回填上次内容供再次分享；关闭则退出即忘",
                                            "Refills the last text after restart for reuse; off forgets it on quit")
@@ -342,13 +350,10 @@ enum L: CaseIterable {
         case .persistRecvDesc:      return ("重启后保留收件箱内容；关闭则退出即忘",
                                            "Keeps the inbox after restart; off forgets it on quit")
         case .receivedTextsTitle:   return ("收到的文本", "Received Text")
-        case .receivingTextKicker:  return ("正在接收文本", "Receiving text")
         case .inboxWaiting:         return ("等待手机发来文本…", "Waiting for text from a phone…")
         case .scanCaptionSend:      return ("扫码把文本发到这台 Mac · 同一 Wi-Fi", "Scan to send text to this Mac · same Wi-Fi")
         case .clearReceivedConfirm: return ("清空收到的全部文本？", "Clear all received text?")
         case .copyTextAction:       return ("复制", "Copy")
-        case .stopReceivingHelp:    return ("停止接收文本", "Stop receiving text")
-        case .receiveTextButton:    return ("接收文本", "Receive Text")
 
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")

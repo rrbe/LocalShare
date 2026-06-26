@@ -244,12 +244,18 @@ open dist/LocalShare.app     # 本机自测
       headless 钩子；`tools/smoke-text.sh`（15 项）+ `TextShareTests` 入 CI。设计见 §7「传递文本」。
 - [x] 传递文本 v2 — 手机→Mac 收文本（PR #26）：独立收件箱通道，与 share 正交、不落盘、不依赖文件夹分享。
       闸门 `textInboxEnabled`（设置「允许收文本」，opt-in 默认关，不限分享形态、开了就把服务拉起）；保留路径
-      `POST /ls/text` 收一段纯文本（请求体即原文）、`GET /ls/send` 出「发文本给电脑」独立页；列表页（同上传
-      表单条件）内嵌同一份发送表单（`SendText` 片段）。**双上限**挡内存：单条 64KB（`textInboxLimit`，事后
-      413）+ 收件箱 100 条挤旧（`AppState.receivedTexts`）。`onReceiveText` socket 线程 hop 回 MainActor 入
-      收件箱卡片（复用「新收到」样式：来源设备名/IP + 时长 + 单条复制/删/清空 + 未读角标）；只收模式下二维码
-      直指 `/ls/send`、主界面出收件票据。仅应用内提醒、不发系统通知。设置「记住收到的文本」默认关（对称 v1）。
-      `LS_RECV`/`LS_RECV_LOG` headless 钩子；`tools/smoke-text-receive.sh`（16 项）+ `ReceivedText` 单测入 CI。
+      `POST /ls/text` 收一段纯文本（请求体即原文）；列表页（同上传表单条件）内嵌发送表单（`SendText` 片段）。
+      **双上限**挡内存：单条 64KB（`textInboxLimit`，事后 413）+ 收件箱 100 条挤旧（`AppState.receivedTexts`）。
+      `onReceiveText` socket 线程 hop 回 MainActor 入收件箱卡片（复用「新收到」样式：来源设备名/IP + 时长 +
+      单条复制/删/清空 + 未读角标）。仅应用内提醒、不发系统通知。设置「记住收到的文本」默认关（对称 v1）。
+      `LS_RECV`/`LS_RECV_LOG` headless 钩子；`tools/smoke-text-receive.sh` + `ReceivedText` 单测入 CI。
+- [x] 传递文本 v2.1 — 收发合一、主页回归选择页（PR #26）：把「分享文本 / 接收文本」并进**一个二级页**
+      `TextScreen`（`Screen.text`），上半编辑器发文本、中间一个二维码、下半「允许收文本」开关 + 收件箱；
+      主页 `EmptyScreen` 收敛回纯功能选择（拖拽分享 / 传递文本），不再就地长接收卡。网页侧 `GET /ls/text`
+      **恒可渲染**：有共享文本发预览壳页（开着接收即自带发送框，`PreviewPage.canReceiveText`），无文本但开着
+      接收则退化成纯发送页——**一页一码、两端双向**。二维码（`makeURL`）与 headless URL 一律指 `/ls/text`；
+      旧 `/ls/send` 保留为 302 跳 `/ls/text` 兼容。「允许收文本」默认关，闸门仍是 `textInboxEnabled`（设置页与
+      文本页同一开关）。`smoke-text-receive.sh` 改测 `/ls/text` 退化页 + `/ls/send` 302。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -309,10 +315,10 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 | 本质 | **独立收件箱通道**，不落盘、不依赖文件夹分享，与 v1 对称（都在 app 里以文本形态存在） |
 | 收件箱 | 列表，每条带时间 + 来源（复用现成 `nameCache`/`getnameinfo` 反查设备名，查不到显 IP），单条复制/删除/清空 |
 | 持久化 | 设置项「持久化收到的文本」**默认关**（对称 v1；收到的常更敏感/更像垃圾，默认易逝更稳） |
-| 闸门 | opt-in 默认关（参照 `uploadEnabled`），但**不限分享形态**——收文本不依赖落点，任意模式甚至「什么都没分享」都能开，开了就把服务拉起并出一张指向发送页的 QR |
+| 闸门 | opt-in 默认关（参照 `uploadEnabled`），但**不限分享形态**——收文本不依赖落点，任意模式甚至「什么都没分享」都能开，开了就把服务拉起并出一张指向发送页的 QR（v2.1 起这张 QR 与发文本合并为一页一码、统一指 `/ls/text`，见 §5） |
 | 提醒 | **仅应用内**：复用 `onUpload` 的「新收到」卡片机制（socket 线程 hop 回 MainActor）+ 收件箱未读角标。不发系统通知（macOS 通知要授权，且未公证 ad-hoc 签名下可靠性存疑，往后放） |
 | 防滥用 | **双上限**：单条文本 ~64KB（远小于上传 500MB）+ 收件箱 ~100 条满了挤掉最旧。不做速率限制（Swifter 不便做、opt-in+LAN 信任足够）。**必须双限**：Swifter 进 middleware 前已把整段 body 读进内存，光限单条挡不住「刷一堆刚好不超限的消息撑爆内存」 |
-| 手机端 | 「发文本给电脑」textarea + 发送，放在 listing 页（及独立收文本页）**与现有上传表单同处、同样的出现条件**（收件箱关时不出现） |
+| 手机端 | 「发文本给电脑」textarea + 发送，放在 listing 页（及 `/ls/text` 无共享文本时退化出的发送页）**与现有上传表单同处、同样的出现条件**（收件箱关时不出现） |
 
 #### 贯穿约束（实现时必须守）
 

@@ -9,7 +9,7 @@ import Foundation
 //   LS_UPLOAD   置 1 开启访客上传（仅单文件夹分享生效）
 //   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）——对应 GUI「仅当前网络可见」，供冒烟验证
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
-//   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/send
+//   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
 enum HeadlessServer {
     static func run() {
@@ -49,10 +49,9 @@ enum HeadlessServer {
         }
         do {
             let bound = try server.start(preferredPorts: [port])
-            // 纯文本分享直指 /ls/text、只收文本直指 /ls/send（口径同 GUI 的 AppState.makeURL）。
+            // 传递文本（发文本 / 只收文本）一律直指 /ls/text（收发合一，口径同 GUI 的 AppState.makeURL）。
             let path: String
-            if text != nil, urls.isEmpty { path = "/ls/text" }
-            else if recvOn, urls.isEmpty, text == nil { path = "/ls/send" }
+            if urls.isEmpty, text != nil || recvOn { path = "/ls/text" }
             else { path = "/" }
             print("LS_URL http://127.0.0.1:\(bound)\(path)?t=\(token)")
             fflush(stdout)

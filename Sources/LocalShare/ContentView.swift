@@ -51,16 +51,17 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            // 路由按「是否有分享内容」而非「是否在服务」：收件箱开着但没分享任何东西时仍是空态——
-            // 留在功能选择页（拖拽分享 / 分享文本 / 接收文本 三选一），收件 QR 与收件箱就地长在页内
-            //（EmptyScreen 内联），既能随时关掉接收回到初始，也不会被推去 ShareScreen。
-            if state.isEmpty {
+            // 分享屏只管文件：没有文件时即功能选择页（拖拽分享 / 传递文本），有文件才出票据。
+            // 文本收发是独立的二级页（.text），不再挤进这里。
+            if state.sharedItems.isEmpty {
                 EmptyScreen(t: t, dragging: isDropTargeted)
             } else if !state.hasNetwork {
                 NoNetworkScreen(t: t)
             } else {
                 ShareScreen(t: t)
             }
+        case .text:
+            TextScreen(t: t)
         }
     }
 
@@ -302,7 +303,6 @@ private struct EmptyScreen: View {
     let t: Theme
     var dragging: Bool
     @EnvironmentObject var state: AppState
-    @State private var showText = false
     var body: some View {
         let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
@@ -318,25 +318,11 @@ private struct EmptyScreen: View {
         } content: {
             VStack(spacing: 0) {
                 dropZone
-                // 两个并列的文本动作：分享文本（发给手机）/ 接收文本（手机发来）。后者是随时可切的开关，
-                // 开了就地长出接收卡，不跳独立页（见下）。
-                HStack(spacing: 10) {
-                    GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft", fullWidth: true) {
-                        showText = true
-                    }
-                    ReceiveToggleButton(t: t, lang: state.lang, on: state.textInboxEnabled) {
-                        state.setTextInboxEnabled(!state.textInboxEnabled)
-                    }
-                }
-                .padding(.top, 12)
-                // 接收开着：就地显示二维码（指向发送页）+ 收件箱，不跳独立页。
-                // 关着但有上次留存的收到文本也露出，免得「消失」。
-                if state.textInboxEnabled {
-                    ReceiveHomeCard(t: t).padding(.top, 12)
-                    ReceivedTextsCard(t: t).padding(.top, 12)
-                } else if !state.receivedTexts.isEmpty {
-                    ReceivedTextsCard(t: t).padding(.top, 12)
-                }
+                // 平级第二入口：传递文本（收/发合一）。点进独立二级页，主页只负责选功能、不就地干活。
+                // 收件箱里有未读时角标提示，免得收到的文本在主页「消失」。
+                TransferTextButton(t: t, lang: state.lang, active: state.textInboxEnabled,
+                                   unread: state.unreadReceived) { state.openText() }
+                    .padding(.top, 12)
                 if state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
@@ -344,7 +330,6 @@ private struct EmptyScreen: View {
                 }
             }
         }
-        .sheet(isPresented: $showText) { TextEntrySheet(t: t, initial: state.textDraft, isUpdate: false) }
     }
 
     private var dropZone: some View {
@@ -396,8 +381,6 @@ private struct ShareScreen: View {
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
                 if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
-                // 收件箱：开着收文本即展示（空时给等待提示），或留有收到的文本时展示。
-                if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
@@ -825,67 +808,157 @@ private struct ReceivedTextRow: View {
     }
 }
 
-// 「接收文本」开关按钮（空态与文本入口并列）：随时可切。开=accent 实底，关=ghost 描边，
-// 与并排的「分享文本」幽灵钮等高同语言。点击即 setTextInboxEnabled，不跳页（接收卡就地出现）。
-private struct ReceiveToggleButton: View {
+// 主页「传递文本」入口：平级第二功能，点进 .text 二级页（收/发合一）。收件箱有未读时角标提示、
+// 接收开着时缀一个绿点——让「正在传递」与「有新文本」在选择页一眼可见，无须把内容堆到主页。
+private struct TransferTextButton: View {
     let t: Theme
     let lang: Lang
-    let on: Bool
+    let active: Bool   // 接收正开着
+    let unread: Int
     let action: () -> Void
     @State private var hover = false
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: on ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
-                    .font(.system(size: 14, weight: .medium))
-                Text(L.receiveTextButton(lang)).font(.sans(13, .semibold))
+            HStack(spacing: 8) {
+                Image(systemName: "text.bubble").font(.system(size: 14, weight: .medium))
+                Text(L.transferText(lang)).font(.sans(13.5, .semibold))
+                if unread > 0 {
+                    Text(LStr.unreadCount(unread, lang)).font(.sans(10, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(t.accent))
+                } else if active {
+                    Circle().fill(t.accent).frame(width: 6, height: 6)
+                }
             }
-            .foregroundStyle(on ? .white : t.ink)
-            .frame(maxWidth: .infinity).frame(height: 34).padding(.horizontal, 13)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(on ? t.accent : (hover ? t.surfaceAlt : t.surface)))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(on ? .clear : (hover ? t.lineStrong : t.line), lineWidth: 1))
+            .foregroundStyle(t.ink)
+            .frame(maxWidth: .infinity).frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))
         }
         .buttonStyle(.plain).onHover { hover = $0 }
-        .help(on ? L.stopReceivingHelp(lang) : L.recvInboxDesc(lang))
     }
 }
 
-// 空态的就地接收卡：开了「接收文本」、又没分享别的内容时显示——指向发送页 /ls/send 的二维码 + 地址，
-// 让手机扫码就能发文本过来（收件箱另由 ReceivedTextsCard 紧随其下）。无网络时给提示而非空白。
-private struct ReceiveHomeCard: View {
+// MARK: - 传递文本二级页（收/发合一）
+
+// 一页一码：上半发文本（编辑器 + 发送/更新/撤回），中间一个二维码恒指 /ls/text，下半是「允许收文本」
+// 开关 + 收件箱。手机扫这一个码即可读取电脑文本并（开关开着时）发回文本——双向都在这页。
+private struct TextScreen: View {
     let t: Theme
     @EnvironmentObject var state: AppState
+    @State private var draft = ""
     var body: some View {
         let lang = state.lang
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Circle().fill(t.accent).frame(width: 6, height: 6)
-                Text(L.receivingTextKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+        ScreenFrame(t: t) {
+            HStack(spacing: 10) {
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
+                Text(L.transferText(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                IconButton(t: t, systemImage: "gearshape", help: L.settings(lang)) { state.openSettings() }
             }
-            .padding(.horizontal, 16).padding(.top, 13)
-            if state.isRunning, let qr = state.qrImage {
-                QRCard(image: qr, size: 150).padding(.top, 14)
-                Text(L.scanCaptionSend(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.ink).padding(.top, 12)
-                if let url = state.primaryURL {
-                    CopyPill(t: t, lang: lang, value: url, compact: true, onOpen: {
-                        if let u = URL(string: url) { NSWorkspace.shared.open(u) }
-                    })
-                    .padding(.top, 10).padding(.horizontal, 16)
-                }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "wifi.slash").font(.system(size: 26)).foregroundStyle(t.inkFaint)
-                    Text(L.noNetwork(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.inkMute)
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 26)
+        } content: {
+            VStack(spacing: 16) {
+                composeCard
+                if state.isRunning, state.qrImage != nil { qrCard } else { idleHint }
+                receiveRow
+                if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
             }
         }
-        .padding(.bottom, 16)
+        .onAppear { draft = state.sharedText ?? state.textDraft }
+    }
+
+    // 发文本：编辑器 + 发送/更新（与当前广播一致时置灰）；已在广播则可「撤回」（撤下文本，文件不受影响）。
+    private var composeCard: some View {
+        let lang = state.lang
+        let blank = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let unchanged = draft == (state.sharedText ?? "")
+        return VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 6) {
+                Text(L.sendToPhoneKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Spacer()
+                if state.hasText {
+                    Button { state.setSharedText(nil); draft = "" } label: {
+                        Text(L.retract(lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+                    }.buttonStyle(.plain)
+                }
+            }
+            PlainTextEditor(text: $draft, placeholder: L.textEditorPlaceholder(lang),
+                            placeholderColor: NSColor(t.inkFaint), textColor: NSColor(t.ink),
+                            caret: NSColor(t.accent), inset: 10, autoFocus: false)
+                .frame(minHeight: 118)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+            PrimaryButton(t: t, title: state.hasText ? L.textUpdateAction(lang) : L.textShareAction(lang),
+                          systemImage: "paperplane.fill", fullWidth: true) {
+                state.setSharedText(draft)
+            }
+            .disabled(blank || unchanged)
+            .opacity(blank || unchanged ? 0.5 : 1)
+        }
+        .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 二维码：恒指 /ls/text。说明文案随状态切换——发+收为「读取或发送」、仅发为「查看」、仅收为「发到本机」。
+    private var qrCard: some View {
+        let lang = state.lang
+        let caption = state.hasText
+            ? (state.textInboxEnabled ? L.scanCaptionTransfer(lang) : L.scanCaptionText(lang))
+            : L.scanCaptionSend(lang)
+        return VStack(spacing: 0) {
+            QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
+            Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
+            CopyPill(t: t, lang: lang, value: state.primaryURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
+            if let local = state.localURL {
+                BackupAddressRow(t: t, lang: lang, full: local) {
+                    if let u = URL(string: local) { NSWorkspace.shared.open(u) }
+                }
+                .padding(.top, 7).padding(.leading, 12)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18).padding(.vertical, 18)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 还没东西可服务（没发文本、也没开接收）：给一句提示而非空白二维码；无网络时换网提示。
+    private var idleHint: some View {
+        let lang = state.lang
+        let net = state.hasNetwork
+        return VStack(spacing: 10) {
+            Image(systemName: net ? "qrcode" : "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
+            Text(net ? L.textIdleHint(lang) : L.noNetwork(lang))
+                .font(.sans(12.5)).foregroundStyle(t.inkMute)
+                .multilineTextAlignment(.center).lineSpacing(2)
+        }
+        .frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.vertical, 34)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 允许收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
+    private var receiveRow: some View {
+        let lang = state.lang
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
+                Text(L.recvInboxDesc(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            ToggleSwitch(t: t, isOn: state.textInboxEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private func openInBrowser() {
+        guard let s = state.primaryURL, let url = URL(string: s) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

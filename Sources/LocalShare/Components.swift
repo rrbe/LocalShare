@@ -248,18 +248,6 @@ struct MultiGlyph: View {
     }
 }
 
-// 收件箱图标：圆角方块 + accentSoft 底 + accent 收件托盘形，表示「正在接收手机发来的文本」。
-struct InboxGlyph: View {
-    let t: Theme
-    var size: CGFloat = 40
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(t.accentSoft)
-            .frame(width: size, height: size)
-            .overlay(Image(systemName: "tray.and.arrow.down.fill").font(.system(size: size * 0.4)).foregroundStyle(t.accent))
-    }
-}
-
 // 文件类型图标：圆角方块 + 类型底色 + 类型 SF Symbol + 小写扩展名(mono)。
 struct TypeGlyph: View {
     let t: Theme
