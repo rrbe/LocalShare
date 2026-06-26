@@ -206,8 +206,9 @@ final class AppState: ObservableObject {
         else { start() }
     }
 
-    // 运行中把当前分享态推给 server（不重启、端口不变）。顺序不变式：先换钥匙(token) 再推内容
-    // (sharedText / share)——杜绝旧 token 读到新分享的瞬间窗口（见 CLAUDE.md 线程模型）。setShared / setSharedText 共用。
+    // 运行中把当前分享态推给 server（不重启、端口不变）。顺序不变式：先写 token 再推内容(sharedText / share)
+    // ——换分享(setShared)时新钥匙必须先于新内容落地，杜绝旧 token 读到新分享的瞬间窗口（见 CLAUDE.md 线程模型）。
+    // setShared（换钥匙）与 setSharedText（不换钥匙，仅会话内更新文本）共用此推送，故恒按此序写。
     private func pushToServer() {
         server?.token = token
         server?.sharedText = hasText ? sharedText : nil
@@ -215,13 +216,14 @@ final class AppState: ObservableObject {
         server?.share = currentShare
     }
 
-    // 分享 / 更新一段文本（Mac→手机）。离散提交快照：调用即把当前文本作为新分享广播，轮换 token
-    // （旧链接/cookie/二维码作废）。传 nil/空白即撤下文本——若同时也无文件则停服务、回到空状态。
+    // 分享 / 更新一段文本（Mac→手机）。token 的「会话」维度与分享文件一致：只在会话边界轮换
+    //（setShared 换分享、stop/clearShare 结束），**编辑/更新文本本身不换 token**——正在看的手机刷新仍是
+    // 同一把钥匙、无须重扫（会话内内容可随手迭代）；与文件共存时改文本更不会误伤文件分享的链接。
+    // 传 nil/空白即撤下文本；若同时无文件、也没开接收则停服务（由 stop 轮换 token、那才真正作废链接）。
     // 文本与已分享的文件正交：设了文本不动文件、撤了文本也不动文件。
     func setSharedText(_ raw: String?) {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         let newText: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
-        token = Token.generate()   // 内容变更=新分享：换钥匙
         sharedText = newText
         textDraft = newText ?? ""
         describeShared()

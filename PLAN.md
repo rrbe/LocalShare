@@ -236,7 +236,7 @@ open dist/LocalShare.app     # 本机自测
       release 编译通过。
 - [x] 传递文本 v1 — Mac→手机发文本（PR #25）：`AppState.sharedText` 与 share 正交，保留路径 `/ls/text`
       提供（导航发 `TextViewer` 壳页、`?raw=1`/curl 发 `text/plain` 原文），可独立分享或挂进多选虚拟根的
-      文本行；离散提交快照、点「分享/更新」即轮换 token；空态加「分享文本」入口（自带 `NSTextView`、
+      文本行；离散提交快照、点「分享/更新」提交文本（v2.1 起更新文本不再轮换 token，见下）；空态加「分享文本」入口（自带 `NSTextView`、
       placeholder 由其自绘以兼容中文输入法组合态）；手机页纯文本 + 大「复制」按钮（`execCommand` 回退——
       纯 http LAN 是非安全上下文、`navigator.clipboard` 不可用）+ http(s) 安全自动链接；设置「记住分享的
       文本」默认关（开则重启回填草稿、**不自动广播**）；历史复用 `RecentShare`（扩 `text:`）+ 逐条 ✕ 删除 +
@@ -255,7 +255,9 @@ open dist/LocalShare.app     # 本机自测
       **恒可渲染**：有共享文本发预览壳页（开着接收即自带发送框，`PreviewPage.canReceiveText`），无文本但开着
       接收则退化成纯发送页——**一页一码、两端双向**。二维码（`makeURL`）与 headless URL 一律指 `/ls/text`；
       旧 `/ls/send` 保留为 302 跳 `/ls/text` 兼容。「允许收文本」默认关，闸门仍是 `textInboxEnabled`（设置页与
-      文本页同一开关）。`smoke-text-receive.sh` 改测 `/ls/text` 退化页 + `/ls/send` 302。
+      文本页同一开关）。**token 改回会话维度**：`setSharedText` 不再轮换 token（v1/v2 每次更新都换、会把正在看的
+      手机刷掉，还误伤共存的文件分享链接），只在 `setShared`/`stop`/`clearShare` 这些会话边界轮换。
+      `smoke-text-receive.sh` 改测 `/ls/text` 退化页 + `/ls/send` 302。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。
@@ -299,7 +301,7 @@ curl -s "http://127.0.0.1:8099/?t=testtoken"   # 应返回目录列表
 | 数据模型 | `AppState` 加 `sharedText: String?`（全局单一文本，一次只一段） |
 | 与文件关系 | 混进多选**虚拟根**当一个条目；**也能独立分享**（一个文件都不选——这才是「传文本」的主力场景） |
 | 「空」判定 | 从 `sharedItems.isEmpty` 改为 `sharedItems.isEmpty && sharedText == nil`，牵动 `start/stop/恢复/QR` 全链 |
-| 交互模型 | **离散提交快照**：输入框打字不广播，点「分享」才把当前文本快照发出去 = 一次 `setShared` → **轮换 token**；要改就改完再点「更新分享」（再轮换）。与「一次分享=一次 setShared=换钥匙」完全一致，不存在边打字边失效 |
+| 交互模型 | **离散提交快照**：输入框打字不广播，点「分享/更新」才把当前文本快照发出去。token 按**会话**维度（同分享文件）——`setSharedText` **不换 token**，只有换分享(`setShared`)/停止/清除这些会话边界才轮换作废旧链接；故**编辑/更新文本时正在看的手机刷新仍有效、无须重扫**（v2.1 修正；v1 曾每次更新都轮换，会把看的人刷掉，也会误伤共存的文件分享链接） |
 | 路由 | 仅文本无文件 → 扫码直达文本页（同「单文件直接发那一个」）；文本+任意文件 → 落虚拟根列表，文本是其中一条。文本服务在保留命名空间 `/ls/text`（像 `/ls/ping` 一样**先于**虚拟根 key 匹配），躲开「有文件正好叫 text」的 key 撞车 |
 | 持久化 | 设置项「持久化分享文本」**默认关**。关 → 文本压根不写进 recents/UserDefaults；开 → 记一条可恢复（但**不自动 start**）的 history。理由：文本常是密码/验证码/一次性口令，自动恢复+自动起服务会在 LAN 上悄悄重新暴露上次那段 |
 | 历史 | 复用现成 `.history` 屏 + `RecentShare`（扩 `text: String?`，无 path 的文本条目）。顺手把**「逐条删除」做成 history 通用能力**（文件条目也能删——路径同样泄信息）。删 history ≠ 停掉当前直播的 live 分享 |
