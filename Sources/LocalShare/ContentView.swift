@@ -316,15 +316,21 @@ private struct EmptyScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
+                // 选择页通常是「待命」；但传递文本可在后台续跑（从文本页 ← 退回来时），此刻如实显运行态
+                // （亮点 + 实际 IP:端口），不再骗「待命」。要彻底停在文本页点「停止」。
+                if state.isRunning {
+                    StatusPill(t: t, running: true, host: state.selectedInterface?.ip, port: state.port)
+                } else {
+                    IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
+                }
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
             VStack(spacing: 0) {
                 dropZone
                 // 平级第二入口：传递文本（收/发合一）。点进独立二级页，主页只负责选功能、不就地干活。
-                // 收件箱里有未读时角标提示，免得收到的文本在主页「消失」。
-                TransferTextButton(t: t, lang: state.lang, active: state.textInboxEnabled,
+                // 收件箱有未读时角标提示；传递在后台续跑时缀呼吸点（active=isRunning，此屏必无文件分享）。
+                TransferTextButton(t: t, lang: state.lang, active: state.isRunning,
                                    unread: state.unreadReceived) { state.openText() }
                     .padding(.top, 12)
                 if state.showRecents {
@@ -882,6 +888,16 @@ private struct TextScreen: View {
                 composeCard
                 receiveRow
                 if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
+                // 正在传递（发文本或收文本）才出「停止」：一步撤文本+关接收+停服务+回选择页，
+                // 对齐文件票据的「停止」。只是编辑没发、也没开接收时无可停，靠 ← 返回即可。
+                if state.isRunning && (state.hasText || state.textInboxEnabled) {
+                    HStack {
+                        Spacer()
+                        DangerButton(t: t, title: L.stop(state.lang)) { state.stopTextTransfer() }
+                        Spacer()
+                    }
+                    .padding(.top, 2)
+                }
             }
         }
         .onAppear { draft = state.sharedText ?? state.textDraft }

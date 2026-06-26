@@ -327,6 +327,20 @@ final class AppState: ObservableObject {
         }
     }
 
+    // 停止传递文本：一步彻底结束——撤下文本、关收件箱、停服务、回功能选择页。
+    // 区别于编辑器里的「撤回」（只撤文本、保留接收）；这是文本场景对齐文件票据「停止」的总开关。
+    func stopTextTransfer() {
+        sharedText = nil
+        textDraft = ""
+        if textInboxEnabled {
+            textInboxEnabled = false
+            UserDefaults.standard.set(false, forKey: textInboxKey)
+        }
+        UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 撤下即清，不在磁盘残留口令
+        stop()            // 停服务：端口归零、token 轮换作废所有旧链接/cookie/二维码
+        screen = .share   // 回功能选择页（此时无任何分享 → EmptyScreen）
+    }
+
     // 「记住收到的文本」开关。开：立即把当前收件箱落盘；关：抹掉磁盘留存（内存当次仍在，退出即忘）。
     func setPersistReceivedText(_ on: Bool) {
         guard on != persistReceivedText else { return }
