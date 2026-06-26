@@ -25,6 +25,7 @@ enum SendText {
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5l11.5-5-4 11-2.5-4.5z"/></svg>\
         <span>\(esc(L.webSendButton(lang)))</span></button>
           </div>
+          <div class="senthist" id="senthist"></div>
         </section>
         """
     }
@@ -49,20 +50,52 @@ enum SendText {
           background:var(--accent);color:#fff;transition:filter .15s}
         .sendbtn:hover{filter:brightness(1.07)}
         .sendbtn:disabled{opacity:.5;cursor:default}
+        /* 已发送历史：浏览器本地留存（localStorage），点一条回填到输入框便于改发/重发。 */
+        .senthist:empty{display:none}
+        .senthist{border-top:1px solid var(--line)}
+        .sh-title{padding:10px 16px 4px;font:600 11px var(--sans);letter-spacing:.04em;color:var(--inkMute)}
+        .sh-item{padding:8px 16px;font:12px/1.5 var(--mono);color:var(--ink);cursor:pointer;
+          border-top:1px solid var(--line);white-space:pre-wrap;word-break:break-word;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .sh-item:first-of-type{border-top:none}
+        .sh-item:active{background:var(--surfaceAlt)}
         /* 手机上输入框字号 <16px 时 iOS 聚焦会自动放大页面，置 16px 杜绝。 */
         @media(max-width:560px){.sendta{font-size:16px}}
         """
 
     // 启动脚本：发送 textarea 内容到 POST /ls/text。鉴权走已种下的 cookie（同源）。超 64KB 前端先拦。
-    // 成功清空输入并闪「已发送」；413/失败给对应提示。Cmd/Ctrl+Enter 快捷发送。依赖页面已注入的 LS_I18N。
+    // 成功清空输入并闪「已发送」+ 记进本地「已发送」历史（localStorage，点一条回填）。失败按服务端 JSON
+    // {"error":…} 或状态码给出具体原因（403=链接已失效需重扫、413=超限、网络错误）。Cmd/Ctrl+Enter 快捷发送。
     static let boot = """
         (function(){
-          var ta=document.getElementById('sendta'),btn=document.getElementById('sendbtn'),st=document.getElementById('sendstatus');
+          var ta=document.getElementById('sendta'),btn=document.getElementById('sendbtn'),
+              st=document.getElementById('sendstatus'),hist=document.getElementById('senthist');
           if(!btn)return;
-          var MAX=65536,timer;
+          var MAX=65536,timer,KEY='ls_sent';
           function flash(msg,ok){
             st.textContent=msg;st.className='sendstatus '+(ok?'ok':'err');
-            clearTimeout(timer);timer=setTimeout(function(){st.textContent='';st.className='sendstatus';},2400);
+            clearTimeout(timer);timer=setTimeout(function(){st.textContent='';st.className='sendstatus';},3000);
+          }
+          function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}
+          function save(a){try{localStorage.setItem(KEY,JSON.stringify(a))}catch(e){}}
+          function render(){
+            if(!hist)return; hist.innerHTML='';
+            var a=load(); if(!a.length)return;
+            var h=document.createElement('div');h.className='sh-title';h.textContent=LS_I18N.sentHistory;hist.appendChild(h);
+            a.slice(0,20).forEach(function(item){
+              var d=document.createElement('div');d.className='sh-item';d.textContent=item;   // textContent 注入，安全
+              d.addEventListener('click',function(){ta.value=item;ta.focus();});
+              hist.appendChild(d);
+            });
+          }
+          function remember(v){var a=load();a.unshift(v);if(a.length>20)a=a.slice(0,20);save(a);render();}
+          function fail(r){
+            btn.disabled=false;
+            r.text().then(function(b){
+              var msg=''; try{msg=(JSON.parse(b)||{}).error||''}catch(e){}
+              if(!msg)msg=(r.status===403?LS_I18N.sendStale:(r.status===413?LS_I18N.sendOverLimit:LS_I18N.sendFailed));
+              flash(msg,false);
+            },function(){flash(r.status===403?LS_I18N.sendStale:LS_I18N.sendFailed,false);});
           }
           function send(){
             var v=ta.value;
@@ -71,14 +104,13 @@ enum SendText {
             btn.disabled=true;
             fetch('/ls/text',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:v})
               .then(function(r){
-                btn.disabled=false;
-                if(r.ok){ta.value='';flash(LS_I18N.sent,true);ta.focus();}
-                else if(r.status===413){flash(LS_I18N.sendOverLimit,false);}
-                else{flash(LS_I18N.sendFailed,false);}
-              }).catch(function(){btn.disabled=false;flash(LS_I18N.sendFailed,false);});
+                if(r.ok){btn.disabled=false;ta.value='';remember(v);flash(LS_I18N.sent,true);ta.focus();}
+                else fail(r);
+              },function(){btn.disabled=false;flash(LS_I18N.sendNetwork,false);});
           }
           btn.addEventListener('click',send);
           ta.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();send();}});
+          render();
         })();
         """
 

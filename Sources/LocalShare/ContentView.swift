@@ -51,7 +51,10 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            if !state.isServing {
+            // 路由按「是否有分享内容」而非「是否在服务」：收件箱开着但没分享任何东西时仍是空态——
+            // 留在功能选择页（拖拽分享 / 分享文本 / 接收文本 三选一），收件 QR 与收件箱就地长在页内
+            //（EmptyScreen 内联），既能随时关掉接收回到初始，也不会被推去 ShareScreen。
+            if state.isEmpty {
                 EmptyScreen(t: t, dragging: isDropTargeted)
             } else if !state.hasNetwork {
                 NoNetworkScreen(t: t)
@@ -315,13 +318,23 @@ private struct EmptyScreen: View {
         } content: {
             VStack(spacing: 0) {
                 dropZone
-                // 文本入口：与文件并列的平级第二入口（设计语言上「或，分享一段文本」）。
-                GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft", fullWidth: true) {
-                    showText = true
+                // 两个并列的文本动作：分享文本（发给手机）/ 接收文本（手机发来）。后者是随时可切的开关，
+                // 开了就地长出接收卡，不跳独立页（见下）。
+                HStack(spacing: 10) {
+                    GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft", fullWidth: true) {
+                        showText = true
+                    }
+                    ReceiveToggleButton(t: t, lang: state.lang, on: state.textInboxEnabled) {
+                        state.setTextInboxEnabled(!state.textInboxEnabled)
+                    }
                 }
                 .padding(.top, 12)
-                // 收件箱关时仍可能有上次留存的收到文本（记住收到的文本开过）：在空态也露出，免得「消失」。
-                if !state.receivedTexts.isEmpty {
+                // 接收开着：就地显示二维码（指向发送页）+ 收件箱，不跳独立页。
+                // 关着但有上次留存的收到文本也露出，免得「消失」。
+                if state.textInboxEnabled {
+                    ReceiveHomeCard(t: t).padding(.top, 12)
+                    ReceivedTextsCard(t: t).padding(.top, 12)
+                } else if !state.receivedTexts.isEmpty {
                     ReceivedTextsCard(t: t).padding(.top, 12)
                 }
                 if state.showRecents {
@@ -383,8 +396,8 @@ private struct ShareScreen: View {
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
                 if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
-                // 收件箱：收到任何文本即展示；只收模式下即便为空也展示（等待提示）。
-                if !state.receivedTexts.isEmpty || state.isReceiveOnly { ReceivedTextsCard(t: t) }
+                // 收件箱：开着收文本即展示（空时给等待提示），或留有收到的文本时展示。
+                if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
                 if state.sharedIsFile && state.showRecents {
@@ -399,33 +412,13 @@ private struct ShareScreen: View {
 
     private func ticket(_ ps: PermSummary) -> some View {
         TicketCard(t: t) {
-            if state.isReceiveOnly { AnyView(inboxStub()) }
-            else if state.isTextOnly { AnyView(textStub(ps)) }
+            if state.isTextOnly { AnyView(textStub(ps)) }
             else if state.isMultiple { AnyView(multipleStub(ps)) }
             else if state.sharedIsFile { AnyView(fileStub(ps)) }
             else { AnyView(folderStub(ps)) }
         } pass: {
             qrPass
         }
-    }
-
-    // 只收文本（无任何分享内容）的存根：收件箱图标 + 「正在接收文本」+ 已收条数 / 等待提示。
-    private func inboxStub() -> some View {
-        let lang = state.lang
-        let n = state.receivedTexts.count
-        return HStack(alignment: .top, spacing: 12) {
-            InboxGlyph(t: t, size: 42)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.receivingTextKicker(lang)).font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
-                Text(L.inboxName(lang)).font(.sans(16, .bold)).foregroundStyle(t.ink)
-                Text(n == 0 ? L.inboxWaiting(lang) : LStr.receivedCount(n, lang))
-                    .font(.mono(11.5)).foregroundStyle(t.inkMute)
-            }
-            Spacer(minLength: 8)
-            // 与其它票据一致的 ✕：只收模式没有可「清除」的分享，这里用作退出接收（关收件箱 → 回初始）。
-            ClearButton(t: t, lang: lang, help: L.stopReceivingHelp(lang)) { state.setTextInboxEnabled(false) }
-        }
-        .padding(.horizontal, 18).padding(.vertical, 16)
     }
 
     // 纯文本分享的存根：文本图标 + 「正在分享文本」+ 字数 + 前几行预览。
@@ -574,10 +567,9 @@ private struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.isReceiveOnly ? L.scanCaptionSend(state.lang)
-            : (state.isTextOnly ? L.scanCaptionText(state.lang)
+        let caption = state.isTextOnly ? L.scanCaptionText(state.lang)
             : (state.isMultiple ? L.scanCaptionMultiple(state.lang)
-            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang))))
+            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang)))
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
             Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
@@ -622,11 +614,8 @@ private struct ShareScreen: View {
     @ViewBuilder private var actions: some View {
         if state.isRunning {
             HStack(spacing: 10) {
-                // 纯文本分享：主操作是「编辑文本」而非更换文件。只收模式：可顺手挑些文件/文件夹来分享。
-                if state.isReceiveOnly {
-                    GhostButton(t: t, title: L.pickAnyButton(state.lang),
-                                systemImage: "doc.badge.plus", fullWidth: true) { state.pickAny() }
-                } else if state.isTextOnly {
+                // 纯文本分享：主操作是「编辑文本」而非更换文件。
+                if state.isTextOnly {
                     GhostButton(t: t, title: L.editTextButton(state.lang),
                                 systemImage: "pencil", fullWidth: true) { editText() }
                 } else {
@@ -638,10 +627,7 @@ private struct ShareScreen: View {
         } else {
             HStack(spacing: 10) {
                 PrimaryButton(t: t, title: L.rebroadcast(state.lang), systemImage: "play.fill", fullWidth: true) { state.start() }
-                // 只收模式没有可「清除」的分享内容（关收件箱去设置页），故不出清除钮。
-                if !state.isReceiveOnly {
-                    GhostButton(t: t, title: L.clear(state.lang)) { state.clearShare() }
-                }
+                GhostButton(t: t, title: L.clear(state.lang)) { state.clearShare() }
             }
         }
     }
@@ -836,6 +822,70 @@ private struct ReceivedTextRow: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 7)
         .onHover { hover = $0 }
+    }
+}
+
+// 「接收文本」开关按钮（空态与文本入口并列）：随时可切。开=accent 实底，关=ghost 描边，
+// 与并排的「分享文本」幽灵钮等高同语言。点击即 setTextInboxEnabled，不跳页（接收卡就地出现）。
+private struct ReceiveToggleButton: View {
+    let t: Theme
+    let lang: Lang
+    let on: Bool
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
+                    .font(.system(size: 14, weight: .medium))
+                Text(L.receiveTextButton(lang)).font(.sans(13, .semibold))
+            }
+            .foregroundStyle(on ? .white : t.ink)
+            .frame(maxWidth: .infinity).frame(height: 34).padding(.horizontal, 13)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(on ? t.accent : (hover ? t.surfaceAlt : t.surface)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(on ? .clear : (hover ? t.lineStrong : t.line), lineWidth: 1))
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+        .help(on ? L.stopReceivingHelp(lang) : L.recvInboxDesc(lang))
+    }
+}
+
+// 空态的就地接收卡：开了「接收文本」、又没分享别的内容时显示——指向发送页 /ls/send 的二维码 + 地址，
+// 让手机扫码就能发文本过来（收件箱另由 ReceivedTextsCard 紧随其下）。无网络时给提示而非空白。
+private struct ReceiveHomeCard: View {
+    let t: Theme
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        let lang = state.lang
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(t.accent).frame(width: 6, height: 6)
+                Text(L.receivingTextKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.top, 13)
+            if state.isRunning, let qr = state.qrImage {
+                QRCard(image: qr, size: 150).padding(.top, 14)
+                Text(L.scanCaptionSend(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.ink).padding(.top, 12)
+                if let url = state.primaryURL {
+                    CopyPill(t: t, lang: lang, value: url, compact: true, onOpen: {
+                        if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                    })
+                    .padding(.top, 10).padding(.horizontal, 16)
+                }
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "wifi.slash").font(.system(size: 26)).foregroundStyle(t.inkFaint)
+                    Text(L.noNetwork(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.inkMute)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 26)
+            }
+        }
+        .padding(.bottom, 16)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 }
 

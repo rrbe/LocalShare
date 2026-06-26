@@ -151,8 +151,8 @@ enum L: CaseIterable {
 
     // 传递文本（v2·手机→Mac 收文本）
     case recvInboxTitle, recvInboxDesc, persistRecvTitle, persistRecvDesc
-    case receivedTextsTitle, receivingTextKicker, inboxName, inboxWaiting
-    case scanCaptionSend, clearReceivedConfirm, copyTextAction, stopReceivingHelp
+    case receivedTextsTitle, receivingTextKicker, inboxWaiting
+    case scanCaptionSend, clearReceivedConfirm, copyTextAction, stopReceivingHelp, receiveTextButton
 
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
@@ -343,12 +343,12 @@ enum L: CaseIterable {
                                            "Keeps the inbox after restart; off forgets it on quit")
         case .receivedTextsTitle:   return ("收到的文本", "Received Text")
         case .receivingTextKicker:  return ("正在接收文本", "Receiving text")
-        case .inboxName:            return ("收件箱", "Inbox")
         case .inboxWaiting:         return ("等待手机发来文本…", "Waiting for text from a phone…")
         case .scanCaptionSend:      return ("扫码把文本发到这台 Mac · 同一 Wi-Fi", "Scan to send text to this Mac · same Wi-Fi")
         case .clearReceivedConfirm: return ("清空收到的全部文本？", "Clear all received text?")
         case .copyTextAction:       return ("复制", "Copy")
         case .stopReceivingHelp:    return ("停止接收文本", "Stop receiving text")
+        case .receiveTextButton:    return ("接收文本", "Receive Text")
 
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")
@@ -628,6 +628,9 @@ enum LStr {
             ("sent",         "已发送",                   "Sent"),
             ("sendFailed",   "发送失败",                 "Send failed"),
             ("sendOverLimit","超过 64KB 上限",            "over 64 KB limit"),
+            ("sendStale",    "链接已失效，请重新扫码",     "Link expired — rescan the QR code"),
+            ("sendNetwork",  "网络错误，请重试",          "Network error — try again"),
+            ("sentHistory",  "已发送",                   "Sent"),
             ("parseFailed",  "解析失败",                 "Parse failed"),
             ("parsing",      "正在解析…",                "Parsing…"),
             // JSON viewer
