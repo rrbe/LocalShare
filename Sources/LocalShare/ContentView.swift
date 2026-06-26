@@ -863,8 +863,8 @@ private struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                composeCard
                 if state.isRunning, state.qrImage != nil { qrCard } else { idleHint }
+                composeCard
                 receiveRow
                 if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
             }
