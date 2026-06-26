@@ -254,6 +254,10 @@ private struct PlainTextEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self   // 让回调里的 binding 始终指向最新的
         guard let tv = scroll.documentView as? PlaceholderTextView else { return }
+        // 输入法组合态（中文拼音未上屏）期间一律不碰文本视图直接返回——SwiftUI 因别处 @Published 变更
+        // （如服务运行时每 2s 的在线人数轮询）触发的周期性 updateNSView，若在此刻回写 string 或重设 typing
+        // 属性，会打断 marked text 造成吞字。组合结束（unmarkText）后的下一拍再补同步颜色等即可。
+        if tv.hasMarkedText() { return }
         if tv.string != text { tv.string = text }   // 仅在外部值变化时回写，避免打断输入光标
         tv.textColor = textColor
         tv.insertionPointColor = caret
