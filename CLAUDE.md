@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目本质
 
-macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口出现二维码 → 同 WiFi 下的手机扫码即可在浏览器里只读浏览该文件夹（可按需开启访客上传，默认只读）。核心约束是**不依赖任何包外动态库**——dufs 当年死于运行时缺失的 Homebrew dylib（`/opt/homebrew/...liblzma.5.dylib`，换台机器就没）。因此戒律的**精神**是「换任何机器都不会缺库」：系统框架照常链接；纯 Swift 第三方库（Swifter）以 SPM 源码静态编进二进制；**二进制 framework（Sparkle）以 `@rpath` 内置进 `.app/Contents/Frameworks/`、随包走、永不缺失**——这是 0.3 起放宽后的边界。绝对路径包外 dylib（`/opt/homebrew`、`/usr/local`）一律禁止。
+macOS 原生单窗口 app（Swift / SwiftUI）：选一个文件夹 → 窗口出现二维码 → 同 WiFi 下的手机扫码即可在浏览器里只读浏览该文件夹（可按需开启访客上传，默认只读）。核心约束是**不依赖任何包外动态库**——只要可执行文件运行时还得去包外路径（`/opt/homebrew`、`/usr/local`）找 `.dylib`，换台没装那个库的机器就缺库崩溃。因此戒律的**精神**是「换任何机器都不会缺库」：系统框架照常链接；纯 Swift 第三方库（Swifter）以 SPM 源码静态编进二进制；**二进制 framework（Sparkle）以 `@rpath` 内置进 `.app/Contents/Frameworks/`、随包走、永不缺失**——这是 0.3 起放宽后的边界。绝对路径包外 dylib（`/opt/homebrew`、`/usr/local`）一律禁止。
 
 > 配套文档：架构全貌、设计决策与实现要点见 `docs/ARCHITECTURE.md`；视觉设计规范（颜色/字体/组件，源码多处按 §x 引用）见根目录 `DESIGN.md`。
 
@@ -56,7 +56,7 @@ otool -L "dist/LocalShare.app/Contents/MacOS/LocalShare" | grep -v "/usr/lib/\|/
 
 ## 跨文件的关键约束（改动前必读）
 
-- **不依赖包外 dylib（戒律的精神，不可破）**：判据是「换任何机器都不会缺库」。纯 Swift 依赖优先以 SPM 源码静态编进二进制；确需二进制 framework（如 Sparkle）时，必须 `@rpath` 引用并由 `build.sh` 内置进 `Contents/Frameworks/`、深度签名、且通过依赖校验（见 build.sh 末尾与 CI）。**绝对路径包外 dylib（`/opt/homebrew`、`/usr/local` 等）一律禁止**——这正是 dufs 当年崩在运行时缺 `liblzma.5.dylib` 的坑。新增/改依赖后务必跑上面的 `otool` 复核 + 确认 framework 已随包。
+- **不依赖包外 dylib（戒律的精神，不可破）**：判据是「换任何机器都不会缺库」。纯 Swift 依赖优先以 SPM 源码静态编进二进制；确需二进制 framework（如 Sparkle）时，必须 `@rpath` 引用并由 `build.sh` 内置进 `Contents/Frameworks/`、深度签名、且通过依赖校验（见 build.sh 末尾与 CI）。**绝对路径包外 dylib（`/opt/homebrew`、`/usr/local` 等）一律禁止**——这类运行时缺库正是「换台机器就崩」的根源。新增/改依赖后务必跑上面的 `otool` 复核 + 确认 framework 已随包。
 - **Swifter 1.5.0 的 path 二次编码 bug**：`req.path` 落地文件系统前**仍残留一层百分号编码**，必须 `removingPercentEncoding` 解码（见 `FileServer.handle`）。纯 ASCII 路径无 `%` 故 `a.html` 正常，但 `b%20c.txt`、中文名不解码会 404。防穿越用的也是解码后的路径，所以 `%2e%2e` 同样被挡。
 - **防穿越逻辑**（`FileServer.handle` 第 2 步）：拼接后 `standardizedFileURL.resolvingSymlinksInPath`，结果必须 `== rootPath` 或 `hasPrefix(rootPath + "/")`。动这段务必重跑穿越用例（`../`、`%2e%2e`、`..%2f`）。
 - **线程模型**：Swifter 请求回调跑在后台 socket 线程，`AppState` 在 `@MainActor`。两者共享的可变状态是 `FileServer` 的 `share` / `token` / `uploadEnabled` / `lastSeen` / `nameCache` / `nameLookupInFlight`（运行中「更换分享」会改前两者；设备名反查的缓存与在查 IP 集同锁保护），同一把 `NSLock` 保护——换分享时**不重启 server**（端口不变），但 **token 即刻轮换**：先换钥匙再换内容（杜绝旧 token 瞬间可读新分享），旧链接/cookie 作废、访客需重扫新码。Package 用 Swift 5 语言模式正是为放宽这里的并发检查。

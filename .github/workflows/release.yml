@@ -30,7 +30,7 @@ jobs:
 
       - name: 校验依赖（仅允许内置 @rpath framework，禁止包外 dylib）
         run: |
-          # 放宽后的核心戒律：dufs 死于运行时缺失的包外 dylib（/opt/homebrew）。这里逐条核对——
+          # 放宽后的核心戒律：不依赖任何包外 dylib——运行时去包外路径（/opt/homebrew 等）找库会缺库。这里逐条核对——
           # 系统库放行；@rpath 引用必须对应包内 Contents/Frameworks 里存在的 framework；
           # 其余绝对路径包外 dylib 一律失败。build.sh 已做同样检查，这里在 CI 再设一道可见闸门。
           BIN=dist/LocalShare.app/Contents/MacOS/LocalShare

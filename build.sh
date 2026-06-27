@@ -43,7 +43,7 @@ codesign --force --deep --sign - "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --sign - "$APP"
 
 echo "==> 校验依赖：禁止包外 dylib，仅允许已内置的 @rpath framework（放宽后的核心戒律）"
-# dufs 的崩溃根因是运行时缺失的包外 dylib（指向 /opt/homebrew）。这里逐条检查主二进制依赖：
+# 核心戒律：不依赖任何包外 dylib——运行时若去包外路径（/opt/homebrew 等）找库，换台没装的机器就缺库崩溃。这里逐条检查主二进制依赖：
 # 系统库放行；@rpath 引用必须对应 Contents/Frameworks 里确实存在的 framework；其余（绝对路径
 # 包外 dylib）一律判失败。
 FAIL=0
