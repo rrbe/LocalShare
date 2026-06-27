@@ -1,73 +1,73 @@
-# LocalShare（局域网文件分享）
+# LocalShare (LAN file sharing)
 
-简体中文 | [English](README.en.md)
+[简体中文](README_CN.md) | English
 
-一个 macOS 小工具，启动一个静态文件托管服务，分享你电脑上的特定文件/文件夹，在同一个局域网下的其他设备中访问。
+A small macOS tool that spins up a static file server so you can share specific files/folders from your Mac with other devices on the same local network.
 
 <table>
   <tr>
-    <td align="center"><img src="screenshot-main-page.png" alt="主界面" width="240"><br>主界面</td>
-    <td align="center"><img src="screenshot-share-file.png" alt="分享文件" width="240"><br>分享文件</td>
-    <td align="center"><img src="screenshot-share-text.png" alt="传递文本" width="240"><br>传递文本</td>
+    <td align="center"><img src="screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
+    <td align="center"><img src="screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
+    <td align="center"><img src="screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
   </tr>
 </table>
 
-## 功能
+## Features
 
-- 二维码分享，相机 app 扫一下浏览器中打开
-- 一次分享多个文件 / 文件夹
-- 支持 HTML / PDF / 视频 / 图片，Markdown / JSON / CSV 在浏览器里直接预览
-- 可选开启访客上传（默认只读），手机里的照片、文档能传回电脑
-- 显示当前在线访客（能反查到就显示设备名，否则显示 IP 尾号）
-- 可选「仅当前网络可见」：只在当前 WiFi 开放，电脑连着的其它网络访问不到
-- 自动更新（发现新版会提示，确认后再装）
-- 命令行 localshare：唤起窗口分享，或 --headless 在终端显示链接和二维码
+- Share via QR code — scan with the Camera app to open in a browser
+- Share multiple files / folders at once
+- Serves HTML / PDF / video / images; previews Markdown / JSON / CSV right in the browser
+- Optional guest upload (read-only by default) — send photos and documents from your phone back to the Mac
+- Shows who's currently viewing (device name when it can be resolved, otherwise the IP)
+- Optional "visible on current network only" — open on the current Wi-Fi only, unreachable from other networks the Mac is connected to
+- Automatic updates (prompts when a new version is found; installs only after you confirm)
+- `localshare` command line: bring up the window to share, or `--headless` to print the link and QR code in the terminal
 
-## 为什么有这个 app
+## Why this app exists
 
-- iPhone 不支持 html 文件直接在手机 Safari 中打开，需要托管到静态文件服务器才能预览
-- 如果你并不想把文件通过 AirDrop/LocalSend 传到手机，只是想在手机预览
-- 想同时浏览多个文件
-- 分享文件给局域网内的其他人使用
+- iPhone Safari can't open local HTML files directly — they need to be served from a static file server to preview
+- When you don't want to actually move files to your phone via AirDrop/LocalSend, you just want to preview them there
+- When you want to browse several files at once
+- To share files with other people on the same LAN
 
-## 使用
+## Usage
 
-1. 打开 app，拖拽文件到 app 窗口，或手动点「选择文件夹/单个文件」。
-2. 手机连上**与电脑相同的 WiFi**，用相机扫描窗口里的二维码。
-3. 首次启动若系统弹出防火墙提示，点「允许」。
+1. Open the app and drag files onto the window, or click "Choose Files or Folders".
+2. Connect your phone to **the same Wi-Fi as the Mac**, then scan the QR code in the window with the Camera app.
+3. If macOS shows a firewall prompt on first launch, click "Allow".
 
-二维码地址形如 `http://192.168.x.x:8080/?t=随机令牌`：链接里带一次性令牌，扫码者无感进入，单纯知道 IP:端口 的人无法访问。
+The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`: the link carries a one-time token, so whoever scans it gets in seamlessly, while anyone who only knows the IP:port cannot access it.
 
-> ⚠️ 传输是明文 HTTP（没有加密）。在家里 / 公司这种可信网络下没问题；但在咖啡馆、机场等公共 WiFi 下，同一网络的人有可能看到传输内容——别在这种网络分享敏感文件。需要时可在窗口里开「仅当前网络可见」收窄暴露面。
+> ⚠️ Traffic is plain HTTP (unencrypted). That's fine on trusted networks like home or office; but on public Wi-Fi such as cafés or airports, others on the same network may be able to see what's transferred — don't share sensitive files there. When needed, turn on "visible on current network only" in the window to narrow the exposure.
 
-## 终端用法
+## Terminal usage
 
-在「设置 → 命令行工具」里点「安装」，之后可以在终端一键分享：
+In Settings → Command-Line Tool, click "Install". After that you can share from the terminal in one command:
 
 ```bash
-localshare a.html b.pdf        # 唤起 LocalShare 窗口分享这些文件
-localshare ~/Documents/报告    # 文件夹同理，可混合多选
-localshare --headless ./dist   # 不开窗口，直接在终端打印链接和二维码（Ctrl-C 停止）
+localshare a.html b.pdf        # bring up the LocalShare window to share these files
+localshare ~/Documents/report  # folders work the same; mix and match multiple items
+localshare --headless ./dist   # no window — print the link and QR code in the terminal (Ctrl-C to stop)
 ```
 
-## 下载
+## Download
 
 https://github.com/rrbe/LocalShare/releases
 
-## 注意事项
+## Notes
 
-ad-hoc 签名，**打开**可能被 Gatekeeper 拦截（提示「已损坏」或「无法打开」）
+The app is ad-hoc signed, so **opening** it may be blocked by Gatekeeper (warning that it's "damaged" or "can't be opened").
 
-- 可以在「系统设置 → 隐私与安全性 → 安全性」中找到拦截提示，点「仍要打开」；
-- 或在终端执行下面这条去掉隔离属性，之后正常打开 app 即可
+- In System Settings → Privacy & Security → Security, find the prompt and click "Open Anyway"; or
+- run the command below in the terminal to strip the quarantine attribute, then open the app normally:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LocalShare.app
 ```
 
-## 参考项目
+## Credits
 
-本项目受到如下项目的启发
+This project was inspired by:
 
 - [localsend](https://github.com/localsend/localsend)
 - [dufs](https://github.com/sigoden/dufs)
