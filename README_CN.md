@@ -65,29 +65,6 @@ ad-hoc 签名，**打开**可能被 Gatekeeper 拦截（提示「已损坏」或
 xattr -dr com.apple.quarantine /Applications/LocalShare.app
 ```
 
-## 常见问题
-
-**怎么在 iPhone 上打开本地 HTML 文件？**
-iPhone Safari 不能直接打开 `file://` 的 HTML。用 LocalShare 分享这个文件（或它所在的文件夹），扫码即可——Safari 从本地服务打开它，链接、CSS、图片都能正常解析。
-
-**对方设备需要装什么吗？**
-不用。有相机和浏览器就行——iPhone、iPad、安卓、另一台 Mac 都可以。只有分享方的 Mac 跑 LocalShare。
-
-**需要联网吗？**
-不需要。一切都在本地网络里（Mac 和手机连同一个 WiFi 即可），不经过云端。
-
-**安全吗？**
-链接带一次性令牌，光知道 IP:端口 进不来。传输是明文 HTTP，在家里 / 公司网络下没问题——别在公共 WiFi 分享敏感文件，需要时开「仅当前网络可见」收窄暴露面。
-
-**手机能把文件传回 Mac 吗？**
-可以。开启访客上传后（默认关闭），手机就能把照片、文档传进被分享的文件夹。
-
-**能把链接或一段文字发到手机上吗？**
-可以。在 Mac 上粘好文字，照样分享出去——手机在浏览器里打开，带一个「复制」按钮。也可以开启文本收件箱（默认关闭），让手机把文本发回 Mac。
-
-**Windows 或 Linux 能用吗？**
-LocalShare 只支持 macOS。其它平台上 dufs 或 LocalSend 能覆盖类似需求。
-
 ## 协议
 
 MIT —— 见 [LICENSE](LICENSE)。
