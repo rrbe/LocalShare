@@ -30,8 +30,8 @@
 | 协议 | 明文 http。威胁模型：防「猜地址的路人」（52 bit token），不防同网嗅探与持链者转发——后者的风险窗口随 token 轮换收敛到单次分享内。自签证书会把扫码进门变成手机上的证书警告页，伤害核心体验，不做（0.6 加入上传后内容不再纯静态，重新评估过，结论不变） |
 | 二维码地址 | 裸 LAN IP（智能选接口、多候选给下拉）；窗口另显 `.local` 备选链接 + 可复制 URL |
 | 二维码生成 | CoreImage `CIQRCodeGenerator`，无第三方库 |
-| GUI | 单窗口：大二维码居中 + 可点/复制 URL + 当前文件夹/更换 + 启停状态 + 接口下拉 + “打不开?”排错行 |
-| 生命周期 | 记住上次文件夹 · 开 app 自动起服务 · 端口自动选（占用则换）· 退出停服务 |
+| GUI | 单窗口：**功能主页**（拖拽/选择分享文件 + 传递文本入口 + 最近分享）→ 文件票据 / 传递文本 / 设置 / 历史**均为带返回的二级页**；票据含大二维码 + 可点/复制 URL + 在线人数 + 启停 + 接口下拉 + “打不开?”排错行 |
+| 生命周期 | 上次分享记入「最近分享」（冷启动**不**自动重播、开 app 落主页，安全对齐文本「重启不自动重播」）· 关窗不退出（进程/服务续活、菜单栏唤回即回原状）· 端口自动选（占用则换）· 退出才停服务 |
 | 容错 | 检测无 WiFi/无 IP 并提示 · 首启引导点防火墙“允许” · 常驻排错提示 · 空文件夹友好态 |
 | 分发 | Xcode ad-hoc 签名 · 你首次帮同事过一次 Gatekeeper（放行被持久记住） |
 | 自动更新 | Sparkle（二进制 framework，`@rpath` 内置进 `Contents/Frameworks/`）· 自动后台检查、发现新版弹提示由用户确认 · 信任链走 **EdDSA 签名**（与 ad-hoc 代码签名无关，故未公证也安全）· appcast 作为 GitHub Release 资产上传，feed 走 `releases/latest/download/appcast.xml` 固定地址，**发布对仓库零写入**（仓库根 `appcast.xml` 已于 0.7.0 冻结，仅供老客户端迁移） |
@@ -118,12 +118,17 @@ lan-file-share/
 - `CIFilter.qrCodeGenerator()`，`message = url.data(.utf8)`，`correctionLevel = "M"`；`CGAffineTransform` 放大（避免糊）；`CIContext` → `CGImage` → `NSImage`。
 
 ### AppState / 生命周期
-- `folderURL` 持久化到 `UserDefaults`（非沙盒，存路径字符串即可，无需 security-scoped bookmark）。
-- 启动时若有记住的文件夹 → 自动 start。
+- 最近分享持久化到 `UserDefaults`（`recentShares`，非沙盒存路径字符串即可，无需 security-scoped bookmark）。
+- **冷启动不恢复分享**：init 不再把上次分享读回 `sharedItems`（删了 `lastSharedPaths` / 旧 `lastFolderPath` 两个仅供恢复的键），落主页、不自动起文件服务——开 app 把某文件夹悄悄端上 LAN 是隐患，与文本「重启不自动重播」同姿态；上次分享留在「最近分享」一键重发。收件箱是显式开关，仍自动起服务（并落地传递文本页）。只**关窗不退出**时进程与服务都续活、`@StateObject` 整进程只建一次，唤回窗口即回离开时那一屏——那条路径不过 init，故 init 只管「真退出后重开」这一冷启动（界面如实反映「服务是否还活着」）。
 - 端口选择：偏好列表 `[8080, 8000, 8888, 9000]` 逐个 try start，全失败再随机 49152–65535。
-- 选目录用 `NSOpenPanel`（`canChooseDirectories = true`）。
+- 选目录/文件用 `NSOpenPanel`（`allowsMultipleSelection = true`）。
 - 分享变更：不重启 server（端口不变），加锁更新 FileServer 的 share 与 token——先换钥匙再换内容，杜绝旧 token 瞬间可读新分享。
 - token 每次「分享」动作生成（QR 与校验共用）：`setShared` 与 `stop` 均轮换，旧链接/cookie/二维码即刻作废；在线感知记录随轮换清零。窗口里的地址条显示与复制同一字符串（完整 URL 含 `?t=`，超长仅 UI 中段省略），无「隐 token 的展示地址」。
+
+### 屏幕路由 / 二级页统一（v0.7+）
+- `Screen` 枚举：`.share`（功能主页）/ `.file`（文件二维码票据）/ `.text`（传递文本）/ `.settings` / `.history`。**文件票据与传递文本同为带返回的二级页**——头部统一 `← + 标题 + ⚙`（`ShareScreen` / `TextScreen` / `NoNetworkScreen` 同款），品牌名「LocalShare」只留主页（`HomeScreen`）。
+- 进出口：`setShared`（选/拖/`reshare` 文件、CLI open 事件）→ `enterFile()`（`.file`）；二级页 `←` 一律 `goShare()` 回主页；`clearShare` 清空回主页，`stop` 留在票据显「重新广播」。`.file` 恒有非空 `sharedItems`（clearShare 即回主页），故无空票据。
+- 主页「正在分享」横幅（`ActiveShareBanner`）：文件在后台续跑、用户退回主页时，顶部出紧凑可点行（qrcode 图标 + `正在分享 / 文件名` + 在线人数 + chevron），点按 `enterFile()` 回票据；运行缀 `PulsingDot`、停止未清除显静默态。与文件并存的文本仍由「传递文本」入口的呼吸点表示（判据收紧为 `isRunning && (hasText || textInboxEnabled)`，免得跑文件时误亮）。
 
 ### App.swift / 入口
 - `@main enum EntryPoint` 三层分流：`LS_HEADLESS=1` 走 `HeadlessServer.run()`（无界面，测试/自动化）→ `CLI.parse(CommandLine.arguments)` 命中则走 `CLI.run`（命令行调用，见下「命令行启动」）→ 否则 `LocalShareApp.main()` 跑 SwiftUI。
@@ -269,6 +274,13 @@ open dist/LocalShare.app     # 本机自测
       · **手机端**：发送页「已发送」历史每条缀紧凑相对时间（24h 内 HH:MM / 一年内 MM/DD / 更久 YYYY；存储升级为
         `{t,d}` 带迁移）+ 加「清空」按钮（清本机 localStorage，给共用设备主动抹痕）。
       · **文案去手机化**：对端不限手机（可能是平板/电脑），Mac 端文案「手机」→「对方/设备」，枚举 `sendTextKicker`。
+- [x] 二级页导航统一（承接 #25/#26 的主页 + 二级页模型）：最早的「分享文件」补齐二级页设计——文件票据 `ShareScreen`
+      降为 `Screen.file`，头部换成 `← + 「分享文件」+ ⚙`，与 `TextScreen` 同款；品牌名只留主页。`setShared` 落 `.file`、
+      `goShare()` 回主页、新增 `enterFile()` 进票据；`NoNetworkScreen` 也补 ←。主页 `EmptyScreen`→`HomeScreen` 顶部新增
+      `ActiveShareBanner`（文件后台续跑时一键回二维码，运行缀呼吸点 / 停止显静默）。**冷启动改不自动重播**：init 删除
+      上次分享恢复块（退役 `lastSharedPaths` / `lastFolderPath`），开 app 落主页、上次分享留「最近分享」重发——对齐
+      文本「重启不自动重播」的安全姿态；只关窗不退出仍服务续播、唤回即回原状（界面如实反映「服务是否还活着」）。
+      已验证：`swift build` / `swift test`（45）通过；冷启动截图确认落主页 + 待命 + 最近分享留存。
 
 > 已知坑（已规避并注释）：Swifter 1.5.0 的 `HttpParser` 会对请求 path 二次编码，导致 `request.path`
 > 仍残留一层百分号编码 —— FileServer 落地文件系统前已用 `removingPercentEncoding` 解码，且不影响防穿越。

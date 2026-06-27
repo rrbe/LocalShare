@@ -3,10 +3,12 @@ import SwiftUI
 
 // 全局状态：当前分享对象（文件夹或单个文件）、服务运行态、网络接口候选、二维码 URL、
 // 监听端口配置、最近分享历史、屏幕路由、权限（读取常开，上传可切换）。
-// 负责：选目录/选文件、启停服务、端口配置 + 应用（重启服务）、记住上次分享并自动启动。
+// 负责：选目录/选文件、启停服务、端口配置 + 应用（重启服务）、把分享记入最近分享（冷启动不自动重播）。
 @MainActor
 final class AppState: ObservableObject {
-    enum Screen { case share, text, settings, history }
+    // 屏幕路由。.share = 功能主页（launchpad：拖拽分享入口 + 传递文本入口 + 最近分享）；
+    // .file = 文件二维码票据（二级页，带返回）。文本/设置/历史各为带返回的二级页。
+    enum Screen { case share, file, text, settings, history }
     enum AppearancePref: String { case system, light, dark }
 
     // 设计默认窗口尺寸（票据风竖窗，设计稿 400×720）。供 App 的 .defaultSize 与
@@ -35,7 +37,7 @@ final class AppState: ObservableObject {
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
     @Published var bindSelectedOnly = false         // 仅绑选中网卡（默认关=绑全部接口，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
-    @Published var screen: Screen = .share          // 屏幕路由（分享 / 设置 / 历史）
+    @Published var screen: Screen = .share          // 屏幕路由（默认落功能主页）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
     @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
@@ -53,8 +55,6 @@ final class AppState: ObservableObject {
     private var server: FileServer?
     private var viewerTimer: Timer?
 
-    private let sharedDefaultsKey = "lastFolderPath"   // 旧版单值键（迁移回退用，新写入走 sharedPathsKey）
-    private let sharedPathsKey = "lastSharedPaths"      // 当前分享的项路径数组（支持多选）
     private let portKey = "configuredPort"
     private let bindSelectedOnlyKey = "bindSelectedOnly"
     private let recentsKey = "recentShares"
@@ -92,23 +92,16 @@ final class AppState: ObservableObject {
         if persistReceivedText { loadReceivedTexts() }
         loadRecents()
         refreshNetwork()
-        // 恢复上次分享对象，让同事开 app 就能看到二维码。
-        // 多选存为路径数组（新键）；读不到再回退旧单值键（迁移）。缺失的项自动剔除，剩 ≥1 即恢复。
-        var restorePaths = UserDefaults.standard.stringArray(forKey: sharedPathsKey)
-            ?? UserDefaults.standard.string(forKey: sharedDefaultsKey).map { [$0] }
-            ?? []
-        restorePaths = restorePaths.filter { FileManager.default.fileExists(atPath: $0) }
-        if !restorePaths.isEmpty {
-            sharedItems = restorePaths.map { URL(fileURLWithPath: $0) }
-            updateSharedIsFile()
-            describeShared()
-        }
-        // 有任何理由起服务（分享内容或收件箱开着）即自动启动。
+        // 冷启动**不**自动重播上次文件分享：开 app 就把某文件夹悄悄端上 LAN 是隐患（同文本「重启不自动
+        // 重播」的安全姿态，见上）。上次分享留在「最近分享」一键重发。只关窗口不退出时进程与服务都续活，
+        // 唤回窗口即回到原状——那条路径不经过本 init，故此处只管「真退出后重开」这一冷启动。
+        // 收件箱是用户显式开的闸门，仍自动起服务。
         if isServing { start() }
-        // 启动落地屏：有文件→分享页（默认）；无文件但收件箱开着→传递文本页（接收已就绪一眼可见）。
-        if sharedItems.isEmpty && textInboxEnabled { screen = .text }
+        // 启动落地屏：默认功能主页；收件箱开着则落传递文本页（接收已就绪一眼可见）。
+        // 冷启动不恢复分享，故此处 sharedItems 必空、无须再判（CLI open 的 setShared 在其后才跑、会改落 .file）。
+        if textInboxEnabled { screen = .text }
         AppState.shared = self
-        // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达），覆盖上面恢复的旧分享。
+        // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达）：有则据此分享、落文件票据。
         if !AppDelegate.pendingOpenURLs.isEmpty {
             let urls = AppDelegate.pendingOpenURLs
             AppDelegate.pendingOpenURLs = []
@@ -198,10 +191,8 @@ final class AppState: ObservableObject {
         updateSharedIsFile()
         describeShared()
         resetUpload()   // 换分享内容即回到只读（安全默认），收件提示一并清空
-        UserDefaults.standard.set(urls.map(\.path), forKey: sharedPathsKey)
-        UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)   // 清理旧单值键
         recordRecent()
-        screen = .share
+        screen = .file   // 进文件票据二级页（带返回）；冷启动不恢复，故只需记入最近分享
         if isRunning { pushToServer() }   // 运行中不重启（端口不变）
         else { start() }
     }
@@ -338,7 +329,7 @@ final class AppState: ObservableObject {
         }
         UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 撤下即清，不在磁盘残留口令
         stop()            // 停服务：端口归零、token 轮换作废所有旧链接/cookie/二维码
-        screen = .share   // 回功能选择页（此时无任何分享 → EmptyScreen）
+        screen = .share   // 回功能主页（此时无任何分享 → HomeScreen）
     }
 
     // 「记住收到的文本」开关。开：立即把当前收件箱落盘；关：抹掉磁盘留存（内存当次仍在，退出即忘）。
@@ -494,8 +485,6 @@ final class AppState: ObservableObject {
         sharedText = nil   // 撤下当前广播的文本
         textDraft = ""     // 「清除」是彻底复位：连草稿一起清，不在内存里留着上次文本
         resetUpload()
-        UserDefaults.standard.removeObject(forKey: sharedPathsKey)
-        UserDefaults.standard.removeObject(forKey: sharedDefaultsKey)
         UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 不在磁盘上残留文本（同「撤下即清」）
         screen = .share
         if isServing {
@@ -602,7 +591,8 @@ final class AppState: ObservableObject {
 
     func openSettings() { screen = .settings }
     func openHistory()  { screen = .history }
-    func goShare()      { screen = .share }
+    func goShare()      { screen = .share }   // 回功能主页（launchpad）
+    func enterFile()    { screen = .file }    // 进文件票据二级页（二维码 + 操作）
     func openText()     { screen = .text }   // 进传递文本二级页（收/发合一）
 
     func setAppearance(_ a: AppearancePref) {
