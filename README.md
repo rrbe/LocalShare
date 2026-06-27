@@ -6,9 +6,9 @@ A small macOS tool that spins up a static file server so you can share specific 
 
 <table>
   <tr>
-    <td align="center"><img src="screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
-    <td align="center"><img src="screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
-    <td align="center"><img src="screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
+    <td align="center"><img src="docs/images/screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
+    <td align="center"><img src="docs/images/screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
+    <td align="center"><img src="docs/images/screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
   </tr>
 </table>
 

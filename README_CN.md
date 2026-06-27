@@ -6,9 +6,9 @@
 
 <table>
   <tr>
-    <td align="center"><img src="screenshot-main-page.png" alt="主界面" width="260"><br>主界面</td>
-    <td align="center"><img src="screenshot-share-file.png" alt="分享文件" width="260"><br>分享文件</td>
-    <td align="center"><img src="screenshot-share-text.png" alt="传递文本" width="260"><br>传递文本</td>
+    <td align="center"><img src="docs/images/screenshot-main-page.png" alt="主界面" width="260"><br>主界面</td>
+    <td align="center"><img src="docs/images/screenshot-share-file.png" alt="分享文件" width="260"><br>分享文件</td>
+    <td align="center"><img src="docs/images/screenshot-share-text.png" alt="传递文本" width="260"><br>传递文本</td>
   </tr>
 </table>
 

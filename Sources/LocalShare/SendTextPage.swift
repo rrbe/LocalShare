@@ -3,7 +3,7 @@ import Foundation
 // 手机→Mac「发文本给电脑」表单（传递文本 v2 的手机端）。两处复用同一份片段：
 //  · 列表页（DirectoryListing）：收件箱开启时挂在文件列表之下，与访客上传表单同条件出现；
 //  · 独立发送页（/ls/send）：「只收文本、没分享任何内容」时二维码直指此页（FileServer 在 textInboxEnabled 时服务）。
-// 关键约束（见 PLAN.md「传递文本 · v2」与 CLAUDE.md）：
+// 关键约束（见 docs/ARCHITECTURE.md「传递文本」与 CLAUDE.md）：
 //  · 纯 http 局域网是非安全上下文——这里走 fetch POST 原文，无须 clipboard，不受该限制影响；
 //  · 单条上限与服务端 textInboxLimit（64KB）对齐，前端按 UTF-8 字节数先行拦截（Blob().size）；
 //  · 投递的文本只在 Mac 端 SwiftUI Text 里显示（天然不执行），故无回显 XSS 之虞。

@@ -82,7 +82,7 @@ final class AppState: ObservableObject {
         }
         persistText = UserDefaults.standard.bool(forKey: persistTextKey)   // 未写入默认 false
         // 记住分享文本时回填草稿（编辑器预填上次内容），但**不**放进 sharedText、不自动广播——
-        // 文本常是密码/口令，自动重新广播会在 LAN 上悄悄重现，故重启需用户手动「分享」（见 PLAN.md）。
+        // 文本常是密码/口令，自动重新广播会在 LAN 上悄悄重现，故重启需用户手动「分享」(见 docs/ARCHITECTURE.md)。
         if persistText, let t = UserDefaults.standard.string(forKey: sharedTextKey), !t.isEmpty {
             textDraft = t
         }

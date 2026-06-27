@@ -11,7 +11,7 @@ import SwiftUI
 //   SUScheduledCheckInterval 自动后台检查；发现新版会弹原生提示让用户确认安装
 //   （SUAutomaticallyUpdate=false，不静默安装）。
 // - 信任链走 EdDSA：更新包由私钥签名、app 内嵌 SUPublicEDKey 校验，与 ad-hoc 代码签名无关，
-//   因此未公证也能安全自更新（见 PLAN.md「自动更新」一节）。
+//   因此未公证也能安全自更新（见 docs/ARCHITECTURE.md「自动更新」一节）。
 //
 // 配置（含 SUFeedURL / SUPublicEDKey）全部放在 bundle/Info.plist，这里不硬编码。
 @MainActor

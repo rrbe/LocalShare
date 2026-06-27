@@ -1,7 +1,7 @@
 import Foundation
 
 // i18n 核心：把所有用户可见文案做成「编进二进制的 Swift 字符串表」，不依赖任何资源 bundle
-// （戒律的精神见 CLAUDE.md / PLAN.md §0）——与 MarkedJS.source、permSummary 同一思路，三条启动
+// （戒律的精神见 CLAUDE.md / docs/ARCHITECTURE.md §0）——与 MarkedJS.source、permSummary 同一思路，三条启动
 // 路径（headless / CLI / GUI）都无须定位文件。当前支持 简体中文(zh) + English(en)。
 //
 // 两个解析域彼此独立：

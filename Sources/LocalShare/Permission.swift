@@ -1,7 +1,7 @@
 import Foundation
 
 // 权限模型（DESIGN.md §6.2）。read 锁定常开；add（访客上传）0.6 起接上真后端，仅单文件夹分享可开、
-// 换分享自动回只读；edit/del 后端未实现、暂恒为 false（规划见 PLAN.md §7）。措辞框架统一：所有展示
+// 换分享自动回只读；edit/del 后端未实现且已决定不做、恒为 false（见 docs/ARCHITECTURE.md §5）。措辞框架统一：所有展示
 // 分享态的界面（含网页 listing 页）都经 PermSummary 派生「只读 / 可读写」文案，绝不各自硬编码。
 struct Permission: Equatable {
     var read = true   // 锁定常开

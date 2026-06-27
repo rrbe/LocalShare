@@ -64,7 +64,7 @@ while IFS= read -r dep; do
 # otool -L 对 universal 二进制会按架构各打一行头（顶格），依赖行则以制表符缩进——
 # 只取缩进行即可跳过所有头行，sort -u 合并 arm64/x86_64 的重复项。
 done < <(otool -L "$APP/Contents/MacOS/$BINARY" | grep '^[[:space:]]' | awk '{print $1}' | sort -u)
-[ "$FAIL" -eq 0 ] || { echo "依赖校验失败：检测到包外 dylib，违反核心戒律（见 PLAN.md §0）"; exit 1; }
+[ "$FAIL" -eq 0 ] || { echo "依赖校验失败：检测到包外 dylib，违反核心戒律（见 docs/ARCHITECTURE.md §0）"; exit 1; }
 
 echo "==> 验证签名有效性"
 codesign --verify --deep --strict "$APP"
