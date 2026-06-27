@@ -97,10 +97,11 @@ final class AppState: ObservableObject {
         // 唤回窗口即回到原状——那条路径不经过本 init，故此处只管「真退出后重开」这一冷启动。
         // 收件箱是用户显式开的闸门，仍自动起服务。
         if isServing { start() }
-        // 启动落地屏：默认功能主页；无文件但收件箱开着→传递文本页（接收已就绪一眼可见）。
-        if sharedItems.isEmpty && textInboxEnabled { screen = .text }
+        // 启动落地屏：默认功能主页；收件箱开着则落传递文本页（接收已就绪一眼可见）。
+        // 冷启动不恢复分享，故此处 sharedItems 必空、无须再判（CLI open 的 setShared 在其后才跑、会改落 .file）。
+        if textInboxEnabled { screen = .text }
         AppState.shared = self
-        // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达），覆盖上面恢复的旧分享。
+        // 消费早到的 open 事件（CLI 冷启动时可能先于本 init 到达）：有则据此分享、落文件票据。
         if !AppDelegate.pendingOpenURLs.isEmpty {
             let urls = AppDelegate.pendingOpenURLs
             AppDelegate.pendingOpenURLs = []
