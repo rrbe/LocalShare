@@ -5,7 +5,7 @@ import Foundation
 // 首行恒作表头。点击表头排序（采样判定数值列走数值比较）、输入框按任意单元格筛选行；
 // 排序/筛选作用于全量数据，DOM 按 1000 行一档「再显示」渐进渲染——几十 MB 不卡死页面。
 enum CsvViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang) -> String {
+    static func html(fileName: String, crumbs: String?, canUpload: Bool, canReceiveText: Bool = false, lang: Lang) -> String {
         PreviewPage.html(
             fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
@@ -18,7 +18,7 @@ enum CsvViewer {
               <div class="vbody" id="view"><p class="ld">\(L.webLoading(lang))</p></div>
             </div>
             """,
-            css: css, scripts: [boot])
+            css: css, scripts: [boot], canReceiveText: canReceiveText)
     }
 
     private static let css = """

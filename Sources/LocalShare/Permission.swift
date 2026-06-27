@@ -8,6 +8,7 @@ struct Permission: Equatable {
     var add = false   // 访客上传（0.6 起可用，FileServer.uploadEnabled 联动）
     var edit = false  // 访客在线编辑（未开放）
     var del = false   // 访客删除（未开放）
+    var recvText = false  // 访客可发文本给电脑（收文本 v2）。独立于「内容是否可写」，只追加一枚说明，不改 只读/可读写 判定
 }
 
 // 由单个 perm 对象派生每屏的只读/可读写文案，统一真相源。
@@ -25,12 +26,20 @@ func permSummary(_ p: Permission, _ lang: Lang) -> PermSummary {
     if p.add { writes.append(L.permWriteUpload(lang)); writeChips.append(L.chipCanUpload(lang)) }
     if p.edit { writes.append(L.permWriteEdit(lang)); writeChips.append(L.chipCanEdit(lang)) }
     if p.del { writes.append(L.permWriteDelete(lang)); writeChips.append(L.chipCanDelete(lang)) }
+    // 收文本不计入 writable（它不让访客改动分享内容，故「只读/可读写」仍指内容本身、上传提示语也不被带偏），
+    // 只在眉头与权限标签后追加一枚「可收文本」说明——和「可上传」chip 同一视觉语言，轻量。
     let writable = !writes.isEmpty
+    var eyebrow = writable ? L.eyebrowWritable(lang) : L.eyebrowReadonly(lang)
+    var chips = writable ? [L.chipDownloadable(lang)] + writeChips : [L.chipReadonly(lang), L.chipDownloadable(lang)]
+    if p.recvText {
+        eyebrow += " · " + L.chipCanReceiveText(lang)
+        chips.append(L.chipCanReceiveText(lang))
+    }
     return PermSummary(
         writable: writable,
         writes: writes,
         tag: writable ? L.permWritable(lang) : L.permReadonly(lang),
-        eyebrow: writable ? L.eyebrowWritable(lang) : L.eyebrowReadonly(lang),
-        chips: writable ? [L.chipDownloadable(lang)] + writeChips : [L.chipReadonly(lang), L.chipDownloadable(lang)]
+        eyebrow: eyebrow,
+        chips: chips
     )
 }

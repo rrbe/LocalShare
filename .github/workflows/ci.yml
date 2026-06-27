@@ -53,3 +53,6 @@ jobs:
 
       - name: 传递文本（/ls/text + 转义 + 虚拟根文本行）
         run: ./tools/smoke-text.sh
+
+      - name: 收文本（/ls/send + POST /ls/text 双限 + 闸门 + 列表内嵌表单）
+        run: ./tools/smoke-text-receive.sh

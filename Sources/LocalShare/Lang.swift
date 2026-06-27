@@ -147,7 +147,14 @@ enum L: CaseIterable {
     // 传递文本（v1）
     case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
     case sharingTextKicker, scanCaptionText, editTextButton
+    // 传递文本二级页（收/发合一）
+    case transferText, sendTextKicker, scanCaptionTransfer, textIdleHint, retract
     case rememberTextTitle, rememberTextDesc, deleteEntry
+
+    // 传递文本（v2·手机→Mac 收文本）
+    case recvInboxTitle, recvInboxDesc, persistRecvTitle, persistRecvDesc
+    case receivedTextsTitle, inboxWaiting
+    case scanCaptionSend, clearReceivedConfirm, copyTextAction
 
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
@@ -157,10 +164,12 @@ enum L: CaseIterable {
     case webFilterAll, webFilterDir, webProvidedBy
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
     case webText, webTextHint, webCopy, webViewRawText
+    case webSendTitle, webSendEyebrow, webSendSub, webSendHead, webSendPlaceholder, webSendButton
 
     // —— 网页错误页 / 上传 JSON ——
     case webForbiddenTitle, webForbiddenBody, webFileNotFound, webReadFailed
     case upDisabled, upOverLimit, upPathDenied, upDirMissing, upWriteFailed, upNoFiles
+    case recvDisabled, recvOverLimit, recvEmpty
 
     // —— CLI / headless 终端诊断（按系统语言，见 Lang.systemDefault）——
     case cliPortRange, cliHeadlessNeedsPath, cliPortHeadlessOnly, cliAppNotFound
@@ -169,7 +178,7 @@ enum L: CaseIterable {
     // —— 权限派生（permSummary，原生 + 网页共用）——
     case permWritable, permReadonly
     case eyebrowWritable, eyebrowReadonly
-    case chipDownloadable, chipReadonly, chipCanUpload, chipCanEdit, chipCanDelete
+    case chipDownloadable, chipReadonly, chipCanUpload, chipCanEdit, chipCanDelete, chipCanReceiveText
     case permWriteUpload, permWriteEdit, permWriteDelete
 
     func callAsFunction(_ lang: Lang) -> String {
@@ -324,10 +333,27 @@ enum L: CaseIterable {
         case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
         case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
         case .editTextButton:       return ("编辑文本", "Edit Text")
+        case .transferText:         return ("传递文本", "Transfer Text")
+        case .sendTextKicker:       return ("发送文本", "Send text")
+        case .scanCaptionTransfer:  return ("扫码读取或发送文本 · 同一 Wi-Fi", "Scan to read or send text · same Wi-Fi")
+        case .textIdleHint:         return ("发送一段文本，或开启接收，扫码即可",
+                                           "Send some text or turn on receiving, then scan")
+        case .retract:              return ("撤回", "Retract")
         case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
         case .rememberTextDesc:     return ("重启后回填上次内容供再次分享；关闭则退出即忘",
                                            "Refills the last text after restart for reuse; off forgets it on quit")
         case .deleteEntry:          return ("删除", "Delete")
+
+        case .recvInboxTitle:       return ("允许收文本", "Allow Receiving Text")
+        case .recvInboxDesc:        return ("对方扫码后可把一段文本发到这台 Mac", "After scanning, the other device can send text to this Mac")
+        case .persistRecvTitle:     return ("记住收到的文本", "Remember Received Text")
+        case .persistRecvDesc:      return ("重启后保留收件箱内容；关闭则退出即忘",
+                                           "Keeps the inbox after restart; off forgets it on quit")
+        case .receivedTextsTitle:   return ("收到的文本", "Received Text")
+        case .inboxWaiting:         return ("等待对方发来文本…", "Waiting for text from the other device…")
+        case .scanCaptionSend:      return ("扫码把文本发到这台 Mac · 同一 Wi-Fi", "Scan to send text to this Mac · same Wi-Fi")
+        case .clearReceivedConfirm: return ("清空收到的全部文本？", "Clear all received text?")
+        case .copyTextAction:       return ("复制", "Copy")
 
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")
@@ -354,6 +380,12 @@ enum L: CaseIterable {
         case .webTextHint:     return ("分享者发来的一段文本", "A snippet shared from the host")
         case .webCopy:         return ("复制", "Copy")
         case .webViewRawText:  return ("查看原始文本", "View raw text")
+        case .webSendTitle:    return ("发送文本到电脑", "Send Text to Computer")
+        case .webSendEyebrow:  return ("局域网 · 发送到电脑", "LAN · send to computer")
+        case .webSendSub:      return ("输入文本，点发送即可投递到这台 Mac。", "Type some text and send it to this Mac.")
+        case .webSendHead:     return ("发文本给电脑", "Send text to the computer")
+        case .webSendPlaceholder: return ("在此输入要发送到电脑的文本…", "Type text to send to the computer…")
+        case .webSendButton:   return ("发送", "Send")
 
         case .webForbiddenTitle: return ("无法访问", "No access")
         case .webForbiddenBody:  return ("请通过电脑上显示的二维码扫码进入。", "Scan the QR code shown on the computer to enter.")
@@ -365,6 +397,9 @@ enum L: CaseIterable {
         case .upDirMissing:      return ("目录不存在", "Directory not found")
         case .upWriteFailed:     return ("写入失败", "Write failed")
         case .upNoFiles:         return ("没有可保存的文件", "No files to save")
+        case .recvDisabled:      return ("收文本未开启", "Receiving text not enabled")
+        case .recvOverLimit:     return ("超过 64KB 上限", "Exceeds 64 KB limit")
+        case .recvEmpty:         return ("文本为空", "Text is empty")
 
         case .cliPortRange:         return ("--port 需要 1–65535 的端口号", "--port requires a port number 1–65535")
         case .cliHeadlessNeedsPath: return ("--headless 需要至少一个文件或文件夹路径", "--headless requires at least one file or folder path")
@@ -372,8 +407,8 @@ enum L: CaseIterable {
         case .cliAppNotFound:       return ("未找到 LocalShare.app，请先把它放进「应用程序」文件夹。",
                                             "LocalShare.app not found. Put it in the Applications folder first.")
         case .hsEnvMissing:         return ("LS_FOLDER / LS_FOLDERS 未设置", "LS_FOLDER / LS_FOLDERS not set")
-        case .hsNoLan:              return ("未发现局域网地址，手机可能无法访问，请确认已连接 WiFi。",
-                                            "No LAN address found; phones may be unable to connect. Make sure WiFi is connected.")
+        case .hsNoLan:              return ("未发现局域网地址，其它设备可能无法访问，请确认已连接 WiFi。",
+                                            "No LAN address found; other devices may be unable to connect. Make sure WiFi is connected.")
         case .hsScanHint:           return ("同一 WiFi 下扫码访问 · 按 Ctrl-C 停止分享",
                                             "Scan to access on the same WiFi · press Ctrl-C to stop")
 
@@ -386,6 +421,7 @@ enum L: CaseIterable {
         case .chipCanUpload:     return ("可上传", "Can upload")
         case .chipCanEdit:       return ("可编辑", "Can edit")
         case .chipCanDelete:     return ("可删除", "Can delete")
+        case .chipCanReceiveText: return ("可收文本", "Can receive text")
         case .permWriteUpload:   return ("上传", "Upload")
         case .permWriteEdit:     return ("编辑", "Edit")
         case .permWriteDelete:   return ("删除", "Delete")
@@ -420,6 +456,16 @@ enum LStr {
     // 文本字数（文本历史条目的副标识）："128 字" / "128 chars"
     static func charCount(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 字" : "\(n) char\(n == 1 ? "" : "s")"
+    }
+
+    // 收件箱已收条数（收文本 ticket 副标识 / 卡片计数）："已收到 3 条" / "3 received"
+    static func receivedCount(_ n: Int, _ lang: Lang) -> String {
+        lang == .zh ? "已收到 \(n) 条" : "\(n) received"
+    }
+
+    // 收件箱未读角标："2 条新" / "2 new"
+    static func unreadCount(_ n: Int, _ lang: Lang) -> String {
+        lang == .zh ? "\(n) 条新" : "\(n) new"
     }
 
     // 在线访客明细右栏的人数："3 人" / "3 people"
@@ -583,6 +629,14 @@ enum LStr {
             ("loadFailed",   "加载失败",                 "Load failed"),
             // 文本页复制按钮（按钮「复制」初始文案由服务端 L.webCopy 渲染、JS 捕获后复原，故此处只需「已复制」）
             ("copied",       "已复制",                   "Copied"),
+            // 发文本给电脑（v2 手机端表单）
+            ("sent",         "已发送",                   "Sent"),
+            ("sendFailed",   "发送失败",                 "Send failed"),
+            ("sendOverLimit","超过 64KB 上限",            "over 64 KB limit"),
+            ("sendStale",    "链接已失效，请重新扫码",     "Link expired — rescan the QR code"),
+            ("sendNetwork",  "网络错误，请重试",          "Network error — try again"),
+            ("sentHistory",  "已发送",                   "Sent"),
+            ("clearHistory", "清空",                     "Clear"),
             ("parseFailed",  "解析失败",                 "Parse failed"),
             ("parsing",      "正在解析…",                "Parsing…"),
             // JSON viewer

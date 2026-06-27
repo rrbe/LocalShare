@@ -9,20 +9,23 @@ import Foundation
 //   LS_UPLOAD   置 1 开启访客上传（仅单文件夹分享生效）
 //   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）——对应 GUI「仅当前网络可见」，供冒烟验证
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
+//   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
+//   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
 enum HeadlessServer {
     static func run() {
         let env = ProcessInfo.processInfo.environment
         let token = env["LS_TOKEN"] ?? "testtoken"
         let port = in_port_t(env["LS_PORT"].flatMap { Int($0) } ?? 8080)
         let text = env["LS_TEXT"].flatMap { $0.isEmpty ? nil : $0 }
+        let recvOn = env["LS_RECV"] == "1"
 
         let paths: [String]
         if let multi = env["LS_FOLDERS"] {
             paths = multi.split(whereSeparator: { $0 == ":" || $0 == "\n" }).map(String.init)
         } else if let single = env["LS_FOLDER"] {
             paths = [single]
-        } else if text != nil {
-            paths = []   // 纯文本分享：无文件项
+        } else if text != nil || recvOn {
+            paths = []   // 纯文本分享 / 只收文本：无文件项
         } else {
             FileHandle.standardError.write(Data((L.hsEnvMissing(Lang.systemDefault) + "\n").utf8))
             exit(2)
@@ -33,10 +36,23 @@ enum HeadlessServer {
         server.uploadEnabled = env["LS_UPLOAD"] == "1"
         server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         server.sharedText = text
+        server.textInboxEnabled = recvOn
+        if let logPath = env["LS_RECV_LOG"] {
+            server.onReceiveText = { rt in   // socket 线程：把原文追加进日志文件，供冒烟测回读
+                let chunk = Data((rt.text + "\u{1}").utf8)
+                if let h = FileHandle(forWritingAtPath: logPath) {
+                    h.seekToEndOfFile(); h.write(chunk); try? h.close()
+                } else {
+                    try? chunk.write(to: URL(fileURLWithPath: logPath))
+                }
+            }
+        }
         do {
             let bound = try server.start(preferredPorts: [port])
-            // 纯文本分享直指 /ls/text（口径同 GUI 的 AppState.makeURL）。
-            let path = (text != nil && urls.isEmpty) ? "/ls/text" : "/"
+            // 传递文本（发文本 / 只收文本）一律直指 /ls/text（收发合一，口径同 GUI 的 AppState.makeURL）。
+            let path: String
+            if urls.isEmpty, text != nil || recvOn { path = "/ls/text" }
+            else { path = "/" }
             print("LS_URL http://127.0.0.1:\(bound)\(path)?t=\(token)")
             fflush(stdout)
         } catch {
@@ -90,6 +106,7 @@ enum HeadlessServer {
     // 有文本时一律走虚拟根（口径同 GUI 的 AppState.currentShare）：纯文本 → 空虚拟根 .multiple([])；
     // 文本+文件 → 文件项的虚拟根（文本经 server.sharedText 单独挂上，不进 items）。
     private static func makeShare(_ urls: [URL], hasText: Bool) -> FileServer.Share {
+        if urls.isEmpty { return .multiple([]) }   // 纯文本 / 只收文本：空虚拟根
         if hasText { return .multiple(FileServer.Share.makeItems(urls)) }
         if urls.count > 1 { return .multiple(FileServer.Share.makeItems(urls)) }
         var isDir: ObjCBool = false

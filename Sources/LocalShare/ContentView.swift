@@ -51,13 +51,17 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            if state.isEmpty {
+            // 分享屏只管文件：没有文件时即功能选择页（拖拽分享 / 传递文本），有文件才出票据。
+            // 文本收发是独立的二级页（.text），不再挤进这里。
+            if state.sharedItems.isEmpty {
                 EmptyScreen(t: t, dragging: isDropTargeted)
             } else if !state.hasNetwork {
                 NoNetworkScreen(t: t)
             } else {
                 ShareScreen(t: t)
             }
+        case .text:
+            TextScreen(t: t)
         }
     }
 
@@ -250,6 +254,10 @@ private struct PlainTextEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self   // 让回调里的 binding 始终指向最新的
         guard let tv = scroll.documentView as? PlaceholderTextView else { return }
+        // 输入法组合态（中文拼音未上屏）期间一律不碰文本视图直接返回——SwiftUI 因别处 @Published 变更
+        // （如服务运行时每 2s 的在线人数轮询）触发的周期性 updateNSView，若在此刻回写 string 或重设 typing
+        // 属性，会打断 marked text 造成吞字。组合结束（unmarkText）后的下一拍再补同步颜色等即可。
+        if tv.hasMarkedText() { return }
         if tv.string != text { tv.string = text }   // 仅在外部值变化时回写，避免打断输入光标
         tv.textColor = textColor
         tv.insertionPointColor = caret
@@ -299,7 +307,6 @@ private struct EmptyScreen: View {
     let t: Theme
     var dragging: Bool
     @EnvironmentObject var state: AppState
-    @State private var showText = false
     var body: some View {
         let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
@@ -309,17 +316,23 @@ private struct EmptyScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
+                // 选择页通常是「待命」；但传递文本可在后台续跑（从文本页 ← 退回来时），此刻如实显运行态
+                // （亮点 + 实际 IP:端口），不再骗「待命」。要彻底停在文本页点「停止」。
+                if state.isRunning {
+                    StatusPill(t: t, running: true, host: state.selectedInterface?.ip, port: state.port)
+                } else {
+                    IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
+                }
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
             VStack(spacing: 0) {
                 dropZone
-                // 文本入口：与文件并列的平级第二入口（设计语言上「或，分享一段文本」）。
-                GhostButton(t: t, title: L.shareTextButton(state.lang), systemImage: "text.alignleft", fullWidth: true) {
-                    showText = true
-                }
-                .padding(.top, 12)
+                // 平级第二入口：传递文本（收/发合一）。点进独立二级页，主页只负责选功能、不就地干活。
+                // 收件箱有未读时角标提示；传递在后台续跑时缀呼吸点（active=isRunning，此屏必无文件分享）。
+                TransferTextButton(t: t, lang: state.lang, active: state.isRunning,
+                                   unread: state.unreadReceived) { state.openText() }
+                    .padding(.top, 12)
                 if state.showRecents {
                     RecentSharesView(t: t, lang: state.lang, items: state.recents.filter { $0.exists },
                                      onAll: { state.openHistory() }, onReshare: { state.reshare($0) },
@@ -327,7 +340,6 @@ private struct EmptyScreen: View {
                 }
             }
         }
-        .sheet(isPresented: $showText) { TextEntrySheet(t: t, initial: state.textDraft, isUpdate: false) }
     }
 
     private var dropZone: some View {
@@ -703,6 +715,288 @@ private struct ReceivedRow: View {
     }
 }
 
+// 收件箱卡片（收文本 v2）：手机投递来的文本，新→旧。每条带来源（设备名 / IP）+ 收到时长 + 正文预览，
+// 单条复制 / 删除，整卡清空（二次确认）。复用「新收到」卡片视觉语言。未读角标随到达累加，进入本卡即清。
+private struct ReceivedTextsCard: View {
+    let t: Theme
+    @EnvironmentObject var state: AppState
+    @State private var confirmClear = false
+    var body: some View {
+        let lang = state.lang
+        let items = state.receivedTexts
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(t.accent).frame(width: 6, height: 6)
+                Text(L.receivedTextsTitle(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                if state.unreadReceived > 0 {
+                    Text(LStr.unreadCount(state.unreadReceived, lang)).font(.sans(10, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(t.accent))
+                }
+                Spacer()
+                if !items.isEmpty {
+                    Button { confirmClear = true } label: {
+                        Text(L.clearAll(lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+                    }
+                    .buttonStyle(.plain)
+                    .confirmationDialog(L.clearReceivedConfirm(lang), isPresented: $confirmClear, titleVisibility: .visible) {
+                        Button(L.clearAll(lang), role: .destructive) { state.clearReceivedTexts() }
+                        Button(L.cancel(lang), role: .cancel) {}
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 5)
+
+            if items.isEmpty {
+                // 只收模式空收件箱：一句等待提示，避免空卡突兀。
+                Text(L.inboxWaiting(lang)).font(.sans(12)).foregroundStyle(t.inkFaint)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+            } else {
+                ForEach(Array(items.prefix(12))) { rt in
+                    ReceivedTextRow(t: t, lang: lang, item: rt,
+                                    onCopy: { state.copyReceivedText(rt) },
+                                    onDelete: { state.deleteReceivedText(rt) })
+                }
+                if items.count > 12 {
+                    Text(LStr.receivedCount(items.count, lang)).font(.mono(11)).foregroundStyle(t.inkFaint)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 16).padding(.top, 4)
+                }
+            }
+        }
+        .padding(.bottom, 8)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+        .onAppear { state.markReceivedRead() }   // 看到收件箱即视作已读
+    }
+}
+
+// 收件箱单行：左小图标 + 来源/时长 + 正文预览（最多 3 行，可选中），右侧复制（成功闪 ✓）+ 删除。
+private struct ReceivedTextRow: View {
+    let t: Theme
+    let lang: Lang
+    let item: ReceivedText
+    let onCopy: () -> Void
+    let onDelete: () -> Void
+    @State private var hover = false
+    @State private var copied = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            TextGlyph(t: t, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(item.source).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text("·").font(.sans(10)).foregroundStyle(t.inkFaint)
+                    Text(LStr.elapsed(item.date, lang)).font(.mono(10.5)).foregroundStyle(t.inkFaint).fixedSize()
+                    Spacer(minLength: 0)
+                }
+                Text(item.text).font(.mono(11.5)).foregroundStyle(t.ink)
+                    .lineLimit(3).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            VStack(spacing: 2) {
+                Button {
+                    onCopy()
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(copied ? t.ok : (hover ? t.ink : t.inkFaint))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(hover && !copied ? t.surfaceAlt : .clear))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain).help(L.copyTextAction(lang))
+                ClearButton(t: t, lang: lang, help: L.deleteEntry(lang)) { onDelete() }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 7)
+        .onHover { hover = $0 }
+    }
+}
+
+// 缓慢呼吸（淡入淡出）的小圆点：表「实时进行中」的状态，用动效与静态未读角标区分，避免红点冒充未读。
+private struct PulsingDot: View {
+    let color: Color
+    var size: CGFloat = 6
+    @State private var lit = false
+    var body: some View {
+        Circle().fill(color).frame(width: size, height: size)
+            .opacity(lit ? 1 : 0.25)
+            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: lit)
+            .onAppear { lit = true }
+    }
+}
+
+// 主页「传递文本」入口：平级第二功能，点进 .text 二级页（收/发合一）。收件箱有未读时数字角标提示、
+// 接收开着时缀一个缓慢呼吸的红点——让「正在接收」与「有新文本」在选择页一眼可见，无须把内容堆到主页。
+private struct TransferTextButton: View {
+    let t: Theme
+    let lang: Lang
+    let active: Bool   // 接收正开着
+    let unread: Int
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.bubble").font(.system(size: 14, weight: .medium))
+                Text(L.transferText(lang)).font(.sans(13.5, .semibold))
+                // 未读 → 静态红色数字角标（看一眼收件箱即清）；接收开着但无未读 → 缓慢呼吸的红点，
+                // 用淡入淡出表明是"实时接收中"而非静态未读警报，与数字角标天然区分。
+                if unread > 0 {
+                    Text(LStr.unreadCount(unread, lang)).font(.sans(10, .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Capsule().fill(t.accent))
+                } else if active {
+                    PulsingDot(color: t.accent)
+                }
+            }
+            .foregroundStyle(t.ink)
+            .frame(maxWidth: .infinity).frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+    }
+}
+
+// MARK: - 传递文本二级页（收/发合一）
+
+// 一页一码：上半发文本（编辑器 + 发送/更新/撤回），中间一个二维码恒指 /ls/text，下半是「允许收文本」
+// 开关 + 收件箱。手机扫这一个码即可读取电脑文本并（开关开着时）发回文本——双向都在这页。
+private struct TextScreen: View {
+    let t: Theme
+    @EnvironmentObject var state: AppState
+    @State private var draft = ""
+    var body: some View {
+        let lang = state.lang
+        ScreenFrame(t: t) {
+            HStack(spacing: 10) {
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
+                Text(L.transferText(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
+                Spacer()
+                IconButton(t: t, systemImage: "gearshape", help: L.settings(lang)) { state.openSettings() }
+            }
+        } content: {
+            VStack(spacing: 16) {
+                if state.isRunning, state.qrImage != nil { qrCard } else { idleHint }
+                composeCard
+                receiveRow
+                if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
+                // 正在传递（发文本或收文本）才出「停止」：一步撤文本+关接收+停服务+回选择页，
+                // 对齐文件票据的「停止」。只是编辑没发、也没开接收时无可停，靠 ← 返回即可。
+                if state.isRunning && (state.hasText || state.textInboxEnabled) {
+                    HStack {
+                        Spacer()
+                        DangerButton(t: t, title: L.stop(state.lang)) { state.stopTextTransfer() }
+                        Spacer()
+                    }
+                    .padding(.top, 2)
+                }
+            }
+        }
+        .onAppear { draft = state.sharedText ?? state.textDraft }
+    }
+
+    // 发文本：编辑器 + 发送/更新（与当前广播一致时置灰）；已在广播则可「撤回」（撤下文本，文件不受影响）。
+    private var composeCard: some View {
+        let lang = state.lang
+        let blank = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let unchanged = draft == (state.sharedText ?? "")
+        return VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 6) {
+                Text(L.sendTextKicker(lang)).font(.sans(11, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
+                Spacer()
+                if state.hasText {
+                    Button { state.setSharedText(nil); draft = "" } label: {
+                        Text(L.retract(lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+                    }.buttonStyle(.plain)
+                }
+            }
+            PlainTextEditor(text: $draft, placeholder: L.textEditorPlaceholder(lang),
+                            placeholderColor: NSColor(t.inkFaint), textColor: NSColor(t.ink),
+                            caret: NSColor(t.accent), inset: 10, autoFocus: false)
+                .frame(minHeight: 118)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+            PrimaryButton(t: t, title: state.hasText ? L.textUpdateAction(lang) : L.textShareAction(lang),
+                          systemImage: "paperplane.fill", fullWidth: true) {
+                state.setSharedText(draft)
+            }
+            .disabled(blank || unchanged)
+            .opacity(blank || unchanged ? 0.5 : 1)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 二维码：恒指 /ls/text。说明文案随状态切换——发+收为「读取或发送」、仅发为「查看」、仅收为「发到本机」。
+    private var qrCard: some View {
+        let lang = state.lang
+        let caption = state.hasText
+            ? (state.textInboxEnabled ? L.scanCaptionTransfer(lang) : L.scanCaptionText(lang))
+            : L.scanCaptionSend(lang)
+        return VStack(spacing: 0) {
+            QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
+            Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
+            CopyPill(t: t, lang: lang, value: state.primaryURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
+            if let local = state.localURL {
+                BackupAddressRow(t: t, lang: lang, full: local) {
+                    if let u = URL(string: local) { NSWorkspace.shared.open(u) }
+                }
+                .padding(.top, 7).padding(.leading, 12)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18).padding(.vertical, 18)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 还没东西可服务（没发文本、也没开接收）：给一句提示而非空白二维码；无网络时换网提示。
+    private var idleHint: some View {
+        let lang = state.lang
+        let net = state.hasNetwork
+        return VStack(spacing: 10) {
+            Image(systemName: net ? "qrcode" : "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
+            Text(net ? L.textIdleHint(lang) : L.noNetwork(lang))
+                .font(.sans(12.5)).foregroundStyle(t.inkMute)
+                .multilineTextAlignment(.center).lineSpacing(2)
+        }
+        .frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.vertical, 34)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    // 允许收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
+    private var receiveRow: some View {
+        let lang = state.lang
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
+                Text(L.recvInboxDesc(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            ToggleSwitch(t: t, isOn: state.textInboxEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private func openInBrowser() {
+        guard let s = state.primaryURL, let url = URL(string: s) else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
 // 在线访客明细弹窗：列出全部活跃访客（设备名优先，查不到显示完整 IP），最近活跃在前。
 // 仅分享者本机可见——网页端永不外泄身份（见 FileServer.activeViewers）。
 private struct ViewerListPopover: View {
@@ -894,6 +1188,11 @@ private struct SettingsScreen: View {
                         on: state.permission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
+                // 收文本：独立闸门，不限分享形态（甚至什么都没分享也能开），故不随 share 置灰。
+                permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
+                        locked: false, on: state.textInboxEnabled, top: true) {
+                    state.setTextInboxEnabled(!state.textInboxEnabled)
+                }
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
@@ -937,6 +1236,9 @@ private struct SettingsScreen: View {
                 }
                 settingRow(top: true, title: L.rememberTextTitle(lang), desc: L.rememberTextDesc(lang)) {
                     ToggleSwitch(t: t, isOn: state.persistText) { state.setPersistText(!state.persistText) }
+                }
+                settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
+                    ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
                 }
                 settingRow(top: true, title: L.resetWindowTitle(lang)) {
                     GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {

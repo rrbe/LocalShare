@@ -13,6 +13,19 @@ struct ViewerInfo: Identifiable {
     var fullLabel: String { name.isEmpty ? ip : name }
 }
 
+// 手机投递到 Mac 的一段文本（传递文本 v2·收件箱条目）。由 FileServer 在 POST /ls/text 命中时构造，
+// 经 onReceiveText 回调交给 AppState 持有（FileServer 不存收件箱列表）。Codable 供「持久化收到的文本」
+// 落盘；Identifiable 供 SwiftUI 列表稳定标识。来源用反查到的设备名，查不到回退完整 IP（同 ViewerInfo）。
+struct ReceivedText: Identifiable, Codable, Equatable {
+    var id = UUID()
+    let text: String
+    let ip: String          // 来源 IPv4
+    let name: String        // 反查到的设备名，查不到为空串
+    let date: Date          // 收到时间
+    // 收件箱里的来源标签：有设备名显名，否则显完整 IP。
+    var source: String { name.isEmpty ? ip : name }
+}
+
 // 基于 Swifter 的只读静态文件服务。
 // 全部逻辑放进单个 middleware 闭包（永远返回 response），绕开 router。
 // 安全：① token 鉴权（query 或 cookie）；② 防目录穿越（路径解析后必须仍在所选文件夹内）。
@@ -93,6 +106,21 @@ final class FileServer {
     }
     // 每存好一个文件回调一次（socket 线程）；GUI 用它提示「新收到」，设置方自行 hop 主线程。
     var onUpload: ((URL) -> Void)?
+
+    // MARK: - 收文本（手机→Mac，v2）
+    // 与 share 正交的独立收件箱通道：开关开启时 POST /ls/text 收一段文本、GET /ls/send 出发送页。
+    // 不落盘、不依赖文件夹分享（任意分享形态甚至「什么都没分享」都能开）。同 uploadEnabled 加锁、运行中可切。
+    private var _textInboxEnabled = false
+    var textInboxEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _textInboxEnabled }
+        set { lock.lock(); _textInboxEnabled = newValue; lock.unlock() }
+    }
+    // 每收到一段文本回调一次（socket 线程）；GUI 用它入收件箱 + 提示未读，设置方自行 hop 主线程。
+    var onReceiveText: ((ReceivedText) -> Void)?
+
+    // 单条文本上限（远小于上传的 500MB）。Swifter 进 middleware 前已把 body 整段读进内存，故同上传只能
+    // 事后拒绝；总数上限（收件箱满挤旧）由 AppState 把关——两道一起才挡得住「刷一堆不超单条限的消息撑爆内存」。
+    static let textInboxLimit = 64 * 1024
 
     // MARK: - 分享文本（Mac→手机，v1）
     // 与 share 正交的一段文本：非 nil 即在保留路径 /ls/text 提供（导航发预览壳页、?raw=1/curl 发原文）。
@@ -262,6 +290,8 @@ final class FileServer {
         let token = self.token
         // 网页语言逐请求决定：按浏览器 Accept-Language，与原生 app 设置无关。往下穿进每个 HTML 生产者。
         let lang = Lang.fromAcceptLanguage(req.headers["accept-language"])
+        // 收件箱开启：listing 页（同上传表单的出现条件）多挂一张「发文本给电脑」表单。每请求取一次快照。
+        let recvOn = textInboxEnabled
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
         let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
         guard viaQuery || viaCookie else {
@@ -313,22 +343,45 @@ final class FileServer {
         // 分享文本端点（保留路径，先于分享内容路由；与 /ls/ping 同款）：导航发文本预览壳页，
         // ?raw=1 / curl（Accept */*）发 text/plain 原文。无分享文本时 404。token 清洗的 302 已在上面处理，
         // 故到这里要么带 cookie 要么是非导航请求，照常服务。
+        // 传递文本（收/发合一，保留路径，先于分享内容路由）：二维码恒指此页。
+        //  · 有共享文本：导航发文本预览壳页（开着接收时壳页自带发送框，见 PreviewPage canReceiveText），
+        //    ?raw=1/curl（Accept */*）发 text/plain 原文；
+        //  · 无共享文本但开着接收：退化成纯「发文本给电脑」页（手机→Mac）；
+        //  · 两者皆无：没东西可展示，404。token 清洗的 302 已在上面处理。
         if req.method == "GET", req.path == "/ls/text" {
-            guard let text = sharedText, !text.isEmpty else {
-                return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
-            }
-            if wantsViewer {
-                // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
-                // 复用 DirectoryListing.breadcrumb（同 md/json/csv 预览）：把「文本」当末段路径传入即得
-                // 「根(链) / 文本(当前)」，样式将来变动这里一并跟随。
-                var crumbs: String? = nil
-                if case .multiple(let items) = share, !items.isEmpty {
-                    crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
-                                                         rootName: Self.multipleRootName(lang))
+            let text = sharedText ?? ""
+            if !text.isEmpty {
+                if wantsViewer {
+                    // 与文件共存（虚拟根有文件项）时显示「分享内容 / 文本」面包屑；纯文本分享不显示。
+                    // 复用 DirectoryListing.breadcrumb（同 md/json/csv 预览）：把「文本」当末段路径传入即得
+                    // 「根(链) / 文本(当前)」，样式将来变动这里一并跟随。
+                    var crumbs: String? = nil
+                    if case .multiple(let items) = share, !items.isEmpty {
+                        crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
+                                                             rootName: Self.multipleRootName(lang))
+                    }
+                    return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang), extra: extra)
                 }
-                return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, lang: lang), extra: extra)
+                return plainTextResponse(text, extra: extra)
             }
-            return plainTextResponse(text, extra: extra)
+            if recvOn {
+                return htmlResponse(200, "OK", SendText.html(lang: lang), extra: extra)
+            }
+            return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
+        }
+
+        // 旧版「只收文本」二维码曾直指 /ls/send；现已并入 /ls/text（收发合一）。保留此路径做 302 兼容，
+        // 让老二维码/书签仍能落地（cookie 已在 token 清洗步种好，跟随重定向即可鉴权）。
+        if req.method == "GET", req.path == "/ls/send" {
+            var h = extra
+            h["Location"] = "/ls/text"
+            return .raw(302, "Found", h, nil)
+        }
+
+        // 收文本（保留路径，先于上传拦截）：POST /ls/text 投递一段文本到收件箱。开关关 → 403；
+        // 超单条上限 → 413；空白 → 400。落库与未读由 onReceiveText 交给 AppState。
+        if req.method == "POST", req.path == "/ls/text" {
+            return handleReceiveText(req: req, lang: lang, extra: extra)
         }
 
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
@@ -343,7 +396,7 @@ final class FileServer {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
             }
-            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, lang: lang, extra: extra)
+            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, canReceiveText: recvOn, lang: lang, extra: extra)
         }
 
         // 多选模式：虚拟根列出选中项；首段 key 映射到对应真实项后落地（目录项再走子树服务）。
@@ -354,7 +407,7 @@ final class FileServer {
                 let entries = items.map { (name: $0.key, url: $0.url, isDir: $0.isDir) }
                 // 文本与文件共存（或纯文本分享 items 为空）时，虚拟根列表多挂一个指向 /ls/text 的文本行。
                 let textRow = sharedText.flatMap { $0.isEmpty ? nil : Self.textPreview($0) }
-                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, textPreview: textRow, lang: lang), extra: extra)
+                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, textPreview: textRow, canReceiveText: recvOn, lang: lang), extra: extra)
             }
             var segs = decodedPath.split(separator: "/").map(String.init)
             let key = segs.removeFirst()
@@ -369,39 +422,39 @@ final class FileServer {
                     return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
                 }
                 let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, lang: lang, extra: extra)
+                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang, extra: extra)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
                              decodedPath: decodedPath, rootName: rootName,
-                             canUpload: false, viewer: wantsViewer, lang: lang, extra: extra)
+                             canUpload: false, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra)
         }
 
         guard case .directory(let rootURL) = share else { return .internalServerError }
         let rel = String(decodedPath.drop { $0 == "/" })
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
-                         canUpload: uploadEnabled, viewer: wantsViewer, lang: lang, extra: extra)
+                         canUpload: uploadEnabled, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra)
     }
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
     // 其余发文件本体。新增预览类型只需在此登记，壳页骨架见 PreviewPage。
     private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
-                                 canUpload: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
-        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload, lang: lang) {
+                                 canUpload: Bool, canReceiveText: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
+        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang) {
             return htmlResponse(200, "OK", html, extra: extra)
         }
         return fileResponse(url, lang: lang, extra: extra)
     }
 
-    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool, lang: Lang) -> String? {
+    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool, canReceiveText: Bool, lang: Lang) -> String? {
         let name = url.lastPathComponent
         switch url.pathExtension.lowercased() {
         case "md", "markdown":
-            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
+            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         case "json", "geojson":
-            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
+            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         case "csv", "tsv":
-            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, lang: lang)
+            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         default:
             return nil
         }
@@ -426,7 +479,7 @@ final class FileServer {
     // 单根目录与多选里的每个目录项共用此函数（多选时 rootURL=项目本身、relPath=去掉 key 段后的剩余）。
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
                            decodedPath: String, rootName: String, canUpload: Bool,
-                           viewer: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
+                           canReceiveText: Bool, viewer: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
         // 防目录穿越：判据抽进 resolveWithinRoot，与 handleUpload 共用一份，避免两处漂移。
         guard let target = Self.resolveWithinRoot(rootURL, relPath: relPath) else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
@@ -451,12 +504,38 @@ final class FileServer {
                 return fileResponse(indexURL, lang: lang, extra: extra)
             }
             let html = DirectoryListing.html(directory: target, requestPath: decodedPath,
-                                             rootName: rootName, canUpload: canUpload, lang: lang)
+                                             rootName: rootName, canUpload: canUpload,
+                                             canReceiveText: canReceiveText, lang: lang)
             return htmlResponse(200, "OK", html, extra: extra)
         }
 
         let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, lang: lang, extra: extra)
+        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang, extra: extra)
+    }
+
+    // MARK: - 收文本处理
+
+    // POST /ls/text（手机→Mac）：收一段纯文本投递进收件箱。请求体即原文（text/plain，前端 fetch 直接发
+    // textarea 内容，不走表单编码——免去 + / % 的歧义，body.count 即字节数，单条上限判得干净）。
+    // 安全：闸门 textInboxEnabled 把关；超 textInboxLimit → 413；去首尾空白后为空 → 400。
+    // 收到的文本经 onReceiveText 交 AppState（socket 线程，设置方 hop 主线程入收件箱）；FileServer 不存列表。
+    // 文本本身不回显进任何服务页（仅在 Mac 端 SwiftUI Text 里显示，天然不执行），故无须额外转义。
+    private func handleReceiveText(req: HttpRequest, lang: Lang, extra: [String: String]) -> HttpResponse {
+        guard textInboxEnabled else {
+            return jsonResponse(403, "Forbidden", errorJSON(L.recvDisabled(lang)), extra: extra)
+        }
+        guard req.body.count <= Self.textInboxLimit else {
+            return jsonResponse(413, "Payload Too Large", errorJSON(L.recvOverLimit(lang)), extra: extra)
+        }
+        let raw = String(decoding: req.body, as: UTF8.self)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return jsonResponse(400, "Bad Request", errorJSON(L.recvEmpty(lang)), extra: extra)
+        }
+        let ip = req.address ?? ""
+        lock.lock(); let name = nameCache[ip] ?? ""; lock.unlock()   // 反查到则带设备名，否则展示层回退 IP
+        onReceiveText?(ReceivedText(text: trimmed, ip: ip, name: name, date: Date()))
+        return jsonResponse(200, "OK", #"{"ok":true}"#, extra: extra)
     }
 
     // MARK: - 上传处理
