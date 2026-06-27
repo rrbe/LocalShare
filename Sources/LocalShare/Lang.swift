@@ -118,7 +118,7 @@ enum L: CaseIterable {
     case langFollow
 
     // 设置 —— 主界面
-    case showRecentsTitle, showRecentsDesc, resetWindowTitle
+    case showRecentsTitle, showRecentsDesc, resetWindowTitle, resetWindowDesc
 
     // 设置 —— 更新
     case autoUpdate, autoUpdateDescOn, autoUpdateDescOff
@@ -286,6 +286,7 @@ enum L: CaseIterable {
         case .showRecentsTitle: return ("展示最近分享", "Show Recent Shares")
         case .showRecentsDesc:  return ("关闭后主界面不再列出最近分享", "When off, the main screen won't list recent shares")
         case .resetWindowTitle: return ("恢复默认窗口尺寸", "Reset Window Size")
+        case .resetWindowDesc:  return ("把窗口还原成默认大小", "Restore the window to its default size")
 
         case .autoUpdate:        return ("自动更新", "Automatic Updates")
         case .autoUpdateDescOn:  return ("关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查",

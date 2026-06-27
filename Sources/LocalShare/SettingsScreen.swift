@@ -180,7 +180,7 @@ struct SettingsScreen: View {
                     settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
                         ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
                     }
-                    settingRow(top: true, title: L.resetWindowTitle(lang)) {
+                    settingRow(top: true, title: L.resetWindowTitle(lang), desc: L.resetWindowDesc(lang)) {
                         GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
                             state.resetWindowSize()
                         }
