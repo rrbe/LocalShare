@@ -3,8 +3,9 @@ import AppKit
 import UniformTypeIdentifiers
 
 // 单窗口 UI（票据风）。权威规范见 DESIGN.md。窗口为无边框工具窗（红绿灯浮于内容左上），
-// 内容收成约 420 宽的竖列，顶部留 40 给红绿灯。屏幕路由：分享 / 设置 / 历史；分享屏据状态再分
-// 空状态 / 单文件票据 / 文件夹票据 / 未接入网络。主题随系统浅深切换（Theme.make）。
+// 内容收成约 420 宽的竖列，顶部留 40 给红绿灯。屏幕路由：主页 / 文件票据 / 传递文本 / 设置 / 历史——
+// 文件票据与传递文本同为带返回的二级页；主页在文件后台续跑时挂「正在分享」横幅一键回票据。
+// 主题随系统浅深切换（Theme.make）。
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.colorScheme) private var systemScheme
@@ -51,15 +52,12 @@ struct ContentView: View {
         case .history:
             HistoryScreen(t: t)
         case .share:
-            // 分享屏只管文件：没有文件时即功能选择页（拖拽分享 / 传递文本），有文件才出票据。
-            // 文本收发是独立的二级页（.text），不再挤进这里。
-            if state.sharedItems.isEmpty {
-                EmptyScreen(t: t, dragging: isDropTargeted)
-            } else if !state.hasNetwork {
-                NoNetworkScreen(t: t)
-            } else {
-                ShareScreen(t: t)
-            }
+            // 功能主页（launchpad）：拖拽/选择分享文件、传递文本入口、最近分享。文件分享在后台续跑时
+            // 顶部出「正在分享」横幅一键回票据（见 HomeScreen）。文件票据本身是独立二级页 .file。
+            HomeScreen(t: t, dragging: isDropTargeted)
+        case .file:
+            // 文件二维码票据（二级页，带返回）。无网络时换未接入网络页（同样带返回）。
+            if state.hasNetwork { ShareScreen(t: t) } else { NoNetworkScreen(t: t) }
         case .text:
             TextScreen(t: t)
         }
@@ -303,10 +301,18 @@ private final class PlaceholderTextView: NSTextView {
 
 // MARK: - 空状态
 
-private struct EmptyScreen: View {
+private struct HomeScreen: View {
     let t: Theme
     var dragging: Bool
     @EnvironmentObject var state: AppState
+    // 横幅标题：单项=文件/夹名（中段截断），多选=「N 项」（与票据 multipleStub 标题一致）。
+    private var activeShareName: String {
+        state.isMultiple ? LStr.itemCount(state.sharedItems.count, state.lang)
+                         : (state.sharedURL?.lastPathComponent ?? "")
+    }
+    // 「传递文本」入口的呼吸点只该表「文本在后台续跑」，故精确判文本态——而非笼统的 isRunning
+    //（现在主页可能正跑着文件分享，那不该让文本入口误亮）。
+    private var textActive: Bool { state.isRunning && (state.hasText || state.textInboxEnabled) }
     var body: some View {
         let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
@@ -316,8 +322,8 @@ private struct EmptyScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                // 选择页通常是「待命」；但传递文本可在后台续跑（从文本页 ← 退回来时），此刻如实显运行态
-                // （亮点 + 实际 IP:端口），不再骗「待命」。要彻底停在文本页点「停止」。
+                // 主页通常「待命」；但文件分享 / 传递文本可在后台续跑（退回主页时），此刻如实显运行态
+                //（亮点 + 实际 IP:端口），不再骗「待命」。要彻底停就进对应票据点「停止」。
                 if state.isRunning {
                     StatusPill(t: t, running: true, host: state.selectedInterface?.ip, port: state.port)
                 } else {
@@ -327,10 +333,16 @@ private struct EmptyScreen: View {
             }
         } content: {
             VStack(spacing: 0) {
+                // 文件分享在后台续跑、用户退回主页时，顶部出可点横幅一键回票据；停止未清除也显（静默态）。
+                if !state.sharedItems.isEmpty {
+                    ActiveShareBanner(t: t, lang: state.lang, name: activeShareName,
+                                      running: state.isRunning, viewers: state.viewerCount) { state.enterFile() }
+                        .padding(.bottom, 12)
+                }
                 dropZone
                 // 平级第二入口：传递文本（收/发合一）。点进独立二级页，主页只负责选功能、不就地干活。
-                // 收件箱有未读时角标提示；传递在后台续跑时缀呼吸点（active=isRunning，此屏必无文件分享）。
-                TransferTextButton(t: t, lang: state.lang, active: state.isRunning,
+                // 收件箱有未读时角标提示；文本在后台续跑时缀呼吸点（见 textActive）。
+                TransferTextButton(t: t, lang: state.lang, active: textActive,
                                    unread: state.unreadReceived) { state.openText() }
                     .padding(.top, 12)
                 if state.showRecents {
@@ -376,13 +388,12 @@ private struct ShareScreen: View {
     var body: some View {
         let ps = permSummary(state.permission, state.lang)
         ScreenFrame(t: t) {
-            HStack(spacing: 8) {
-                Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 8)
-                StatusPill(t: t, running: state.isRunning, host: state.selectedInterface?.ip,
-                           port: state.isRunning ? state.port : state.configuredPort)
-                    .layoutPriority(1)   // IP:端口是数据，缺宽时让品牌标题先缩（它有 minimumScaleFactor），地址不被截断
+            // 二级页头部，与传递文本页同款：← 返回主页 + 标题 +齿轮。运行态/地址在票据正文（QR 说明 +
+            // CopyPill）已具，头部不再堆 StatusPill，避免与正文重复、并与 TextScreen 一致。
+            HStack(spacing: 10) {
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
+                Text(L.shareFileTitle(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
+                Spacer()
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
@@ -865,6 +876,45 @@ private struct TransferTextButton: View {
     }
 }
 
+// 主页「正在分享」横幅：文件分享在后台续跑、用户却退回主页时，用一条紧凑可点的横幅如实呈现——
+// 点按回到文件票据（.file）看二维码。运行中缀呼吸点 + 在线人数；停止未清除时静默（无呼吸点）。
+// 与 TransferTextButton 同手法，但承载更多信息故略高；前导 qrcode 图标暗示「点这里回到码」，
+// 配尾部 chevron 即足以表达「可点回去」，不另加文案（强约束：能用设计语言暗示就不堆字）。
+private struct ActiveShareBanner: View {
+    let t: Theme
+    let lang: Lang
+    let name: String     // 单项=文件/夹名；多选=「N 项」
+    let running: Bool
+    let viewers: Int
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: "qrcode").font(.system(size: 16, weight: .medium)).foregroundStyle(t.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(L.sharingKicker(lang)).font(.sans(10.5, .bold)).tracking(0.6).foregroundStyle(t.inkMute)
+                        if running { PulsingDot(color: t.ok) }
+                        if running && viewers > 0 {
+                            Text(LStr.viewerCountLabel(viewers, lang)).font(.sans(10.5)).foregroundStyle(t.inkMute)
+                        }
+                    }
+                    Text(name).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(t.inkFaint)
+            }
+            .padding(.horizontal, 14).frame(height: 52)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? t.surfaceAlt : t.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(hover ? t.lineStrong : t.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+    }
+}
+
 // MARK: - 传递文本二级页（收/发合一）
 
 // 一页一码：上半发文本（编辑器 + 发送/更新/撤回），中间一个二维码恒指 /ls/text，下半是「允许收文本」
@@ -1043,10 +1093,11 @@ private struct NoNetworkScreen: View {
     @EnvironmentObject var state: AppState
     var body: some View {
         ScreenFrame(t: t) {
-            HStack {
-                Text("LocalShare").font(.display(22, .semibold)).tracking(-0.2).foregroundStyle(t.ink)
+            // 现挂在文件票据二级页（.file）下，带 ← 返回主页，免得无网络时卡死在此页。
+            HStack(spacing: 10) {
+                IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
+                Text(L.shareFileTitle(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
-                StatusPill(t: t, running: false, port: state.configuredPort)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {

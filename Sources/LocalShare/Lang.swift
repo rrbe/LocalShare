@@ -85,6 +85,7 @@ enum L: CaseIterable {
     case dropToShare, dropHint, dropZoneTitle, dropZoneSub, pickAnyButton
 
     // 分享屏
+    case shareFileTitle   // 文件票据二级页标题（与「传递文本」并列）
     case received, changePerm, broadcastStopped, selectSource
     case sharingKicker, sharingFolderKicker
     case scanCaptionMultiple, scanCaptionFile, scanCaptionFolder
@@ -217,6 +218,7 @@ enum L: CaseIterable {
         case .dropZoneSub:     return ("同一 Wi-Fi 下的设备即可扫码访问", "Devices on the same Wi-Fi can scan to access")
         case .pickAnyButton:   return ("选择文件或文件夹", "Choose Files or Folders")
 
+        case .shareFileTitle:  return ("分享文件", "Share Files")
         case .received:        return ("新收到", "Received")
         case .changePerm:      return ("改权限 ›", "Permissions ›")
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
