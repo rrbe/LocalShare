@@ -2,9 +2,13 @@
 
 一个 macOS 小工具，启动一个静态文件托管服务，分享你电脑上的特定文件/文件夹，在同一个局域网下的其他设备中访问。
 
-<p align="left">
-  <img src="screenshot.png" alt="LocalShare 界面截图" width="380">
-</p>
+<table>
+  <tr>
+    <td align="center"><img src="screenshot-main-page.png" alt="主界面" width="240"><br>主界面</td>
+    <td align="center"><img src="screenshot-share-file.png" alt="分享文件" width="240"><br>分享文件</td>
+    <td align="center"><img src="screenshot-share-text.png" alt="传递文本" width="240"><br>传递文本</td>
+  </tr>
+</table>
 
 ## 功能
 
