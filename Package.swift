@@ -12,7 +12,7 @@ let package = Package(
         .package(url: "https://github.com/httpswift/swifter.git", from: "1.5.0"),
         // Sparkle 自动更新。注意：它不是纯源码包，而是二进制 framework（binaryTarget），
         // 会以 Sparkle.framework 内置进 .app/Contents/Frameworks（随包走、运行时不缺失），
-        // 不依赖任何包外 dylib——这正是放宽「零 dylib」戒律的边界（见 PLAN.md §0）。
+        // 不依赖任何包外 dylib——这正是放宽「零 dylib」戒律的边界（见 docs/ARCHITECTURE.md §0）。
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [

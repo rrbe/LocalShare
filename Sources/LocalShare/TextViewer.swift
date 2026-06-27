@@ -3,7 +3,7 @@ import Foundation
 // 文本预览页（Mac→手机发文本，PreviewPage 壳 + 客户端渲染）。与 md/json/csv 查看器同套路，
 // 但内容源不是磁盘文件而是内存里的一段字符串：服务端把文本以安全的 JS 字符串内联进页面
 // （共用 LStr.jsEscape：转义 < 挡 </script>、转义换行/行分隔符破坏 JS 串），客户端只读地放进 <pre>。
-// 关键约束（见 PLAN.md「传递文本」与 CLAUDE.md）：
+// 关键约束（见 docs/ARCHITECTURE.md「传递文本」与 CLAUDE.md）：
 //  · 纯文本展示——不当 Markdown 渲染（任意文本里的 * _ # 不该被吃掉），用 textContent 注入天然防 XSS；
 //  · 复制按钮必须走 execCommand 回退——纯 http 局域网是非安全上下文，navigator.clipboard 不可用；
 //  · 自动链接只认 http(s)，由正则保证 scheme，不会引入 javascript: 之类。
