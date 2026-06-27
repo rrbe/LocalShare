@@ -1,8 +1,11 @@
-# LocalShare (LAN file sharing)
+# LocalShare — share Mac files, scan a QR code to view or save them in your phone's browser
 
 [简体中文](README_CN.md) | English
 
-A small macOS tool that spins up a static file server so you can share specific files/folders from your Mac with other devices on the same local network.
+A small macOS app that moves files and text between your Mac and other devices (phone, tablet…) over WiFi — the other end just uses a browser, with no client to install.
+
+- Pick a file or folder, scan the QR code that appears (or just open the link), and browse the files in your phone's browser (HTML, PDF, Markdown, images…)
+- Two-way text transfer — type some text and share it via a QR code, or send text back from the phone to the Mac
 
 <table>
   <tr>
@@ -14,31 +17,28 @@ A small macOS tool that spins up a static file server so you can share specific 
 
 ## Features
 
-- Share via QR code — scan with the Camera app to open in a browser
-- Share multiple files / folders at once
-- Serves HTML / PDF / video / images; previews Markdown / JSON / CSV right in the browser
-- Optional guest upload (read-only by default) — send photos and documents from your phone back to the Mac
-- Shows who's currently viewing (device name when it can be resolved, otherwise the IP)
-- Optional "visible on current network only" — open on the current Wi-Fi only, unreachable from other networks the Mac is connected to
-- Automatic updates (prompts when a new version is found; installs only after you confirm)
+- Share files and text by QR code, or just by opening the link
+- Serves HTML / PDF / video / images; previews Markdown / JSON / CSV
+- After you share, the other end can send files and text back
+- Shows who's currently viewing
 - `localshare` command line: bring up the window to share, or `--headless` to print the link and QR code in the terminal
 
 ## Why this app exists
 
-- iPhone Safari can't open local HTML files directly — they need to be served from a static file server to preview
-- When you don't want to actually move files to your phone via AirDrop/LocalSend, you just want to preview them there
-- When you want to browse several files at once
-- To share files with other people on the same LAN
+- When AirDrop is flaky, or the other device isn't an Apple device
+- iPhone Safari can't open local HTML files directly, so previewing the web pages you vibe-coded is awkward
+- No need to spin up `python3 -m http.server`
+- No need to install a client like LocalSend
+- Preview only — no need to actually save files onto the phone
+- Quickly pass text around, without relying on flaky Handoff
 
-## Usage
+## GUI usage
 
-1. Open the app and drag files onto the window, or click "Choose Files or Folders".
-2. Connect your phone to **the same Wi-Fi as the Mac**, then scan the QR code in the window with the Camera app.
-3. If macOS shows a firewall prompt on first launch, click "Allow".
+Scan the QR code, or open the LAN address directly. If macOS shows a firewall prompt on first launch, click "Allow".
 
 The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`: the link carries a one-time token, so whoever scans it gets in seamlessly, while anyone who only knows the IP:port cannot access it.
 
-> ⚠️ Traffic is plain HTTP (unencrypted). That's fine on trusted networks like home or office; but on public Wi-Fi such as cafés or airports, others on the same network may be able to see what's transferred — don't share sensitive files there. When needed, turn on "visible on current network only" in the window to narrow the exposure.
+> ⚠️ Traffic is plain HTTP (unencrypted). Best avoided on public networks like airports and cafés.
 
 ## Terminal usage
 
@@ -64,6 +64,33 @@ The app is ad-hoc signed, so **opening** it may be blocked by Gatekeeper (warnin
 ```bash
 xattr -dr com.apple.quarantine /Applications/LocalShare.app
 ```
+
+## FAQ
+
+**How do I open a local HTML file on my iPhone?**
+iPhone Safari can't open `file://` HTML directly. Share the file (or its folder) with LocalShare and scan the QR code — Safari opens it from the local server, so links, CSS and images resolve normally.
+
+**Does the other device need to install anything?**
+No. Anything with a camera and a browser works — iPhone, iPad, Android, another Mac. Only the sharing Mac runs LocalShare.
+
+**Does it need internet?**
+No. Everything stays on your local network (the Mac and phone just need the same WiFi); nothing goes through the cloud.
+
+**Is it secure?**
+The link carries a one-time token, so knowing the IP:port isn't enough to get in. Traffic is plain HTTP, which is fine on a home/office network — avoid sharing sensitive files on public WiFi, and turn on "visible on current network only" to narrow exposure.
+
+**Can the phone send files back to the Mac?**
+Yes, if you turn on guest upload (off by default). Then the phone can upload photos and documents into the shared folder.
+
+**Can I send a link or some text to my phone?**
+Yes. Paste the text on the Mac and share it the same way — your phone opens it in the browser with a Copy button. You can also turn on the text inbox (off by default) so the phone can send text back to the Mac.
+
+**Windows or Linux?**
+LocalShare is macOS-only. On other platforms, dufs or LocalSend cover similar needs.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
