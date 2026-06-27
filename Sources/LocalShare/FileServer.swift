@@ -2,30 +2,6 @@ import Foundation
 import Darwin   // getnameinfo / inet_pton / sockaddr_in（设备名反查）
 import Swifter
 
-// 一名在线访客的明细（仅在分享者本机窗口展示，绝不外泄给网页端）。
-// name 是反查到的设备名，查不到为空串；ip 始终是完整 IPv4。
-struct ViewerInfo: Identifiable {
-    let ip: String
-    let name: String        // 反查到的设备名，查不到为空串
-    let since: Date         // 本次浏览会话首次出现时间（断开超出在线窗口再来即重新计）
-    var id: String { ip }
-    // 展开列表：设备名优先，查不到显示完整 IP（不再只剩尾号，便于区分是哪几台）。
-    var fullLabel: String { name.isEmpty ? ip : name }
-}
-
-// 手机投递到 Mac 的一段文本（传递文本 v2·收件箱条目）。由 FileServer 在 POST /ls/text 命中时构造，
-// 经 onReceiveText 回调交给 AppState 持有（FileServer 不存收件箱列表）。Codable 供「持久化收到的文本」
-// 落盘；Identifiable 供 SwiftUI 列表稳定标识。来源用反查到的设备名，查不到回退完整 IP（同 ViewerInfo）。
-struct ReceivedText: Identifiable, Codable, Equatable {
-    var id = UUID()
-    let text: String
-    let ip: String          // 来源 IPv4
-    let name: String        // 反查到的设备名，查不到为空串
-    let date: Date          // 收到时间
-    // 收件箱里的来源标签：有设备名显名，否则显完整 IP。
-    var source: String { name.isEmpty ? ip : name }
-}
-
 // 基于 Swifter 的只读静态文件服务。
 // 全部逻辑放进单个 middleware 闭包（永远返回 response），绕开 router。
 // 安全：① token 鉴权（query 或 cookie）；② 防目录穿越（路径解析后必须仍在所选文件夹内）。
