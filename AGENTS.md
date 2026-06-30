@@ -90,6 +90,8 @@ Utility modules have narrow responsibilities: `NetworkInfo`, `QRCode`, `Token`, 
 
 The version is defined by git tags: `vX.Y.Z` on `master` tip. `bundle/Info.plist` contains placeholder values; CI overwrites `CFBundleShortVersionString` from the tag and `CFBundleVersion` from the run number. Do not edit `Info.plist` just to release a version.
 
+When updating changelogs, update both `CHANGELOG.md` and `CHANGELOG_CN.md` in the same change so the English and Chinese histories stay aligned.
+
 Release flow:
 
 1. Merge all changes to `master`.
