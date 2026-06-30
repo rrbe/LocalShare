@@ -8,3 +8,6 @@ AppIcon.iconset/
 private_key.txt
 # 编辑器临时文件
 *.swp
+
+.claude/
+.codex/
