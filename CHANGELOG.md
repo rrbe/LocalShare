@@ -1,74 +1,74 @@
-# 更新日志
+# Changelog
 
 ## [0.9.1] - 2026-06-28
 
-- 设置页改用分组卡片布局，分组层级更清晰、信息更好找
-- 「恢复默认窗口尺寸」补充了说明文本
+- Reworked Settings into grouped cards so sections are clearer and easier to scan
+- Added explanatory copy for restoring the default window size
 
 ## [0.9.0] - 2026-06-27
 
-- 新增「传递文本」：Mac 与手机之间双向互传文字，扫码即收发，长文本和链接不必再靠聊天工具中转
-- 界面支持中英双语：原生窗口可跟随系统或手动切换，手机网页自动匹配浏览器语言
-- 分享文件改为带返回的二级页，文件在后台续传时主页一键回到二维码
-- 冷启动不再自动重播上次的分享，改由「最近分享」手动重发，更稳妥
+- Added Text Transfer for sending text both ways between Mac and phone; scan once to send or receive long text and links without using a chat app as a relay
+- Added Chinese and English UI support: the native app can follow the system language or be switched manually, while the browser UI follows the visitor's browser language
+- Moved shared files to a secondary page with back navigation, so the home screen can return to the QR code while transfers continue in the background
+- Stopped replaying the last share on cold launch; recent shares can now be restarted manually for a safer default
 
 ## [0.8.2] - 2026-06-18
 
-- 新增「自动更新」开关：可关闭后台自动检查，菜单「检查更新…」仍能手动查
-- 各主界面标题栏新增设置入口（齿轮按钮），不用先分享文件夹也能打开设置
-- 设置项重新分组（网络 / 访问权限 / 外观 / 主界面 / 命令行），更易查找
-- 加宽默认窗口，避免地址栏端口号被截断
-- 修复进入设置页时的几处界面闪烁
+- Added an automatic update setting: background checks can be disabled while the Check for Updates menu item remains available
+- Added a Settings entry point to each main title bar, so Settings can be opened without first sharing a folder
+- Regrouped Settings into Network, Access, Appearance, Home, and Command Line sections
+- Increased the default window width to avoid truncating port numbers in the address field
+- Fixed several visual flickers when entering Settings
 
 ## [0.8.1] - 2026-06-17
 
-- 修复卡片边缘豁口处在投影下显出的一块亮斑
-- 统一卡片、描边按钮与设置分段控件的边框粗细，静止态更协调
+- Fixed a bright artifact that appeared around the notched card edge under shadow
+- Unified border weights across cards, outline buttons, and Settings segmented controls for a calmer resting state
 
 ## [0.8.0] - 2026-06-17
 
-- 分享链接默认只在当前 WiFi 可见，换网或断网后自动失效，别的网络的人摸不到
-- 能看到谁正在浏览：显示在线人数和设备名，点开还能看每个人的地址和已经看了多久
-- 网页上新增提示，说明局域网传输走的是明文
-- 一批网页安全加固：堵住 Markdown 预览里的 XSS、清洗访问令牌、访客上传的网页/图片文件自动去掉可执行性并加隔离标记
+- Share links are now visible only on the current Wi-Fi by default; they expire automatically after switching networks or disconnecting
+- Added live visitor visibility with online counts and device names; details show each visitor's address and session duration
+- Added a browser notice that LAN transfers are sent over plain HTTP
+- Hardened browser security: blocked XSS vectors in Markdown preview, cleaned access tokens from browser history, defanged executable uploaded documents and images, and added quarantine metadata
 
 ## [0.7.0] - 2026-06-12
 
-- 自动更新换了新源：升级公告（appcast）改为随 GitHub Release 发布，app 从固定地址获取，从本版起生效
-- 发布说明随版本标签维护，Release 页自动展示更新内容
+- Moved automatic update feeds to GitHub Releases; appcast files are now published with each release and fetched from a stable latest-release URL
+- Release notes are now maintained through version tag annotations and displayed automatically on the Release page
 
 ## [0.6.0] - 2026-06-12
 
-- 访客上传：单文件夹分享可开启「允许上传」，访客在浏览页直接把文件传到当前目录；默认仍只读、更换分享自动回到只读，单文件上限 500MB
-- 浏览器预览 Markdown / JSON / CSV：点开即渲染（Markdown 排版、JSON 折叠树、CSV 表格），文内相对引用照常可用；加 `?raw=1` 或用 curl 仍取原文
-- 每次分享都生成新链接：停止或更换分享后旧链接立即失效，窗口里显示的地址与复制到的链接一致
-- 分享窗口显示「N 人正在浏览」
-- 列表页支持返回上一级，文件改为在新标签打开
-- 多选分享时，卡片中的每一项都可在 Finder 中定位
+- Added guest uploads for single-folder shares: visitors can upload files into the current folder from the browser; shares remain read-only by default, switch back to read-only after changing shares, and enforce a 500 MB per-file limit
+- Added browser previews for Markdown, JSON, and CSV: files render in place, relative references keep working, and `?raw=1` or curl still returns the original text
+- Generated a fresh link for every share: old links stop working immediately after stopping or changing a share, and the window URL matches copied links
+- Added the "N people browsing" indicator to the share window
+- Added parent-directory navigation to listing pages and opened files in new tabs
+- Made every selected item in a multi-share card revealable in Finder
 
 ## [0.5.0] - 2026-06-10
 
-- 新增 `localshare` 命令行：终端里一条命令即可分享路径，默认转发给 GUI，`--headless` 则前台起服务并打印终端二维码
-- 设置面板可一键安装 / 卸载命令行工具
-- 菜单栏常驻图标（显示 LocalShare / 退出）
-- 设置支持隐藏「最近分享」模块
+- Added the `localshare` command: share paths from Terminal, forward to the GUI by default, or run a foreground server with `--headless`
+- Added one-click install and uninstall controls for the command-line tool in Settings
+- Added a persistent menu bar icon with LocalShare and Quit actions
+- Added a setting to hide the Recent Shares section
 
 ## [0.4.0] - 2026-06-10
 
-- 支持一次分享多个文件 / 目录
+- Added support for sharing multiple files and folders at once
 
 ## [0.3.0] - 2026-06-09
 
-- 接入 Sparkle 自动更新，这是首个支持自动更新的版本
+- Added Sparkle automatic updates; this is the first version that can update itself
 
 ## [0.2.0] - 2026-06-08
 
-- 支持拖拽文件 / 文件夹分享
-- 分享卡按类型细分并标注格式，路径可在 Finder 定位或拷贝
+- Added drag-and-drop sharing for files and folders
+- Split share cards by file type and added format labels, Finder reveal, and path copy actions
 
 ## [0.1.2] - 2026-06-05
 
-- 局域网文件分享：选一个文件夹就生成二维码，同 WiFi 的手机扫码即可在浏览器里浏览
-- 支持单文件分享，网页端按类型过滤
-- 「暖纸 × 广播」编辑风界面，配套网页目录页与深色模式
-- 修复干净启动时不出窗口的问题
+- Added LAN file sharing: choose a folder, get a QR code, and let phones on the same Wi-Fi browse it in a browser
+- Added single-file sharing with browser-side type filtering
+- Added the warm-paper broadcast-style interface, matching browser listing pages, and dark mode
+- Fixed the window not appearing after a clean launch
