@@ -112,8 +112,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    // CLI 转发（NSWorkspace open）落地处：换分享项并唤回窗口。
+    // CLI / Share Extension 转发（NSWorkspace open）落地处：换分享项并唤回窗口。
     func application(_ application: NSApplication, open urls: [URL]) {
+        openSharedURLs(urls)
+    }
+
+    // 声明 CFBundleDocumentTypes 后，LaunchServices 可能走传统文稿打开回调。
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        openSharedURLs(filenames.map { URL(fileURLWithPath: $0) })
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        openSharedURLs([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    private func openSharedURLs(_ urls: [URL]) {
         let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !existing.isEmpty else { return }
         if let state = AppState.shared {
