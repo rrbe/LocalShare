@@ -29,7 +29,15 @@ struct LocalShareApp: App {
 
     var body: some Scene {
         Window("LocalShare", id: "main") {
-            ContentView().environmentObject(state).environmentObject(updater)
+            ContentView()
+                .environmentObject(state)
+                .environmentObject(updater)
+                .onOpenURL { url in
+                    let urls = AppDelegate.sharedFileURLs(from: [url])
+                    guard !urls.isEmpty else { return }
+                    state.setShared(urls)
+                    state.showMainWindow()
+                }
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：暖底铺到顶，红绿灯浮于内容之上
         // 票据风竖窗（设计稿 400×720）。数字与「恢复默认尺寸」共用 AppState 的常量。
@@ -139,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private static func sharedFileURLs(from urls: [URL]) -> [URL] {
+    static func sharedFileURLs(from urls: [URL]) -> [URL] {
         urls.flatMap { url -> [URL] in
             guard url.scheme == "localshare" else { return [url] }
             guard url.host == "share",
