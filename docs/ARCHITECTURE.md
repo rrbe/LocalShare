@@ -45,6 +45,8 @@ LocalShare/
   Package.resolved         # Swifter pinned at 1.5.0
   build.sh                 # swift build -c release -> assemble .app -> ad-hoc sign -> dist/
   bundle/Info.plist        # Static .app Info.plist template: Sparkle feed/key and version placeholders
+  bundle/ShareExtensionInfo.plist / ShareExtension.entitlements
+                             # macOS Share menu extension metadata and sandbox permission
   README.md / README_CN.md # English default + Chinese
   CLAUDE.md                # Claude Code working guide; loaded from repo root
   DESIGN.md                # Visual design spec; source references use section numbers from this file
@@ -72,6 +74,8 @@ LocalShare/
     HeadlessServer.swift   # LS_HEADLESS=1 mode and CLI foreground mode
     CLI.swift / CLIInstaller.swift  # argv parsing, GUI forwarding, symlink installer
     Updater.swift          # Sparkle automatic update wrapper, constructed only in GUI path
+  Sources/LocalShareShareExtension/
+    main.swift / ShareController.swift  # Finder/System Share menu bridge; forwards file URLs to the host app
   Tests/LocalShareTests/   # XCTest pure-function tests: traversal, filename sanitation, multi-share keys, i18n, text
   tools/                   # Headless + curl smoke scripts: traversal, filenames, multiselect, upload defang, token 302, md links, language, text
 ```
@@ -136,6 +140,13 @@ When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address
 - `localshare a.html b.pdf` forwards paths to the GUI with `NSWorkspace.open(urls, withApplicationAt:)`; a running instance is reused and hot-swaps the share without restarting the server. `--headless` runs a foreground server in the current process and prints terminal QR output with `QRCode.ansi`.
 - The installed `localshare` command is a **symlink** to the main binary inside the app bundle. dyld resolves `@executable_path` after realpath, so bundled Sparkle still loads. But CLI code **must not use `Bundle.main`** to locate the `.app`; it resolves `_NSGetExecutablePath`, follows symlinks, then walks up three levels.
 - **Release compiler trap**: with `-O`, the chain "optional `in_port_t` payload inside enum -> construct `[in_port_t]` inside function -> pass to `FileServer.start`" can miscompile into a bad array pointer. Debug works; release crashes. Workaround: `runForeground` accepts concrete `preferredPorts: [in_port_t]`, and callers unwrap the optional. Any CLI or `HeadlessServer` change must be smoke-tested in release with `--headless`.
+
+### macOS Share Menu Extension
+
+- `LocalShareShareExtension` is a separate SwiftPM executable target packaged as `Contents/PlugIns/ShareExtension.appex` with `NSExtensionPointIdentifier = com.apple.share-services`. It is intentionally thin: load file URLs from `NSItemProvider`, verify they still exist, then call `NSWorkspace.open(urls, withApplicationAt:)` so the existing `AppDelegate.application(_:open:)` path hot-swaps the share.
+- The extension has no Swifter or Sparkle dependency. It links only system frameworks and Swift system libraries, so it stays inside the no package-external dylib rule.
+- PluginKit will not list the extension unless the `.appex` is sandbox-signed. `build.sh` signs only the extension with `bundle/ShareExtension.entitlements` (`app-sandbox` + user-selected read-only files); the host app remains unsandboxed because server sharing still needs normal access to user-selected folders.
+- Local testing must use an installed app path such as `/Applications/LocalShare.app`; `dist/LocalShare.app` alone may not appear in `pluginkit` or System Settings. After replacing an installed app, open it once, then enable LocalShare under System Settings -> General -> Login Items & Extensions -> Extensions -> Sharing if macOS leaves it disabled.
 
 ### Automatic Updates with Sparkle
 

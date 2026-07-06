@@ -5,8 +5,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BINARY="LocalShare"
+EXT_BINARY="LocalShareShareExtension"
 APP_DISPLAY="LocalShare"
 APP="$ROOT/dist/$APP_DISPLAY.app"
+EXT="$APP/Contents/PlugIns/ShareExtension.appex"
 # 两个架构都编，cp 时合成 fat binary。纯 Swift（含 Swifter 源码）可在任一机型交叉编译。
 ARCHS=(--arch arm64 --arch x86_64)
 
@@ -14,17 +16,29 @@ echo "==> swift build -c release (arm64 + x86_64)"
 swift build -c release --package-path "$ROOT" "${ARCHS[@]}"
 
 BIN_PATH="$(swift build -c release --package-path "$ROOT" "${ARCHS[@]}" --show-bin-path)/$BINARY"
+EXT_BIN_PATH="$(swift build -c release --package-path "$ROOT" "${ARCHS[@]}" --show-bin-path)/$EXT_BINARY"
 [ -f "$BIN_PATH" ] || { echo "构建产物未找到: $BIN_PATH"; exit 1; }
+[ -f "$EXT_BIN_PATH" ] || { echo "构建产物未找到: $EXT_BIN_PATH"; exit 1; }
 
 echo "==> 校验 universal 切片"
 lipo -info "$BIN_PATH"
+lipo -info "$EXT_BIN_PATH"
 
 echo "==> 组装 $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$EXT/Contents/MacOS" "$EXT/Contents/Resources"
 cp "$BIN_PATH" "$APP/Contents/MacOS/$BINARY"
 cp "$ROOT/bundle/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/bundle/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cp "$EXT_BIN_PATH" "$EXT/Contents/MacOS/$EXT_BINARY"
+cp "$ROOT/bundle/ShareExtensionInfo.plist" "$EXT/Contents/Info.plist"
+cp "$ROOT/bundle/AppIcon.icns" "$EXT/Contents/Resources/AppIcon.icns"
+
+# 扩展版本号与宿主 app 保持一致；release workflow 会在 build.sh 前改写 bundle/Info.plist。
+APP_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+APP_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_SHORT_VERSION" "$EXT/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_VERSION" "$EXT/Contents/Info.plist"
 
 echo "==> 内置 Sparkle.framework（随包走，不依赖任何包外 dylib）"
 # Sparkle 是二进制 framework（非源码），SPM 把它解到 .build/artifacts 下的 xcframework；
@@ -36,10 +50,11 @@ mkdir -p "$APP/Contents/Frameworks"
 # ditto 完整保留 framework 的 Versions 符号链接与权限（codesign 对结构敏感，勿用 cp）。
 ditto "$FRAMEWORK_SRC" "$APP/Contents/Frameworks/Sparkle.framework"
 
-echo "==> ad-hoc 签名（inside-out：先内置 framework，再整个 app）"
+echo "==> ad-hoc 签名（inside-out：先内置 framework/extension，再整个 app）"
 # 必须先签嵌套代码再签外层。--deep 递归签 framework 内的 XPCServices / Updater.app / Autoupdate /
 # Sparkle dylib；ad-hoc 无特殊 requirement，--deep 在此可靠。随后签 app 主体并封包。
 codesign --force --deep --sign - "$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force --sign - --entitlements "$ROOT/bundle/ShareExtension.entitlements" "$EXT"
 codesign --force --sign - "$APP"
 
 echo "==> 校验依赖：禁止包外 dylib，仅允许已内置的 @rpath framework（放宽后的核心戒律）"
@@ -47,23 +62,30 @@ echo "==> 校验依赖：禁止包外 dylib，仅允许已内置的 @rpath frame
 # 系统库放行；@rpath 引用必须对应 Contents/Frameworks 里确实存在的 framework；其余（绝对路径
 # 包外 dylib）一律判失败。
 FAIL=0
-while IFS= read -r dep; do
-    [ -z "$dep" ] && continue
-    case "$dep" in
-        /usr/lib/*|/System/Library/*) ;;  # 系统库，放行
-        @rpath/*)
-            fw="${dep#@rpath/}"; fw="${fw%%/*}"   # 取 framework 名，如 Sparkle.framework
-            if [ -e "$APP/Contents/Frameworks/$fw" ]; then
-                echo "  ok  内置依赖: $dep"
-            else
-                echo "  ✗   @rpath 依赖未随包: $dep（缺 Contents/Frameworks/$fw）"; FAIL=1
-            fi
-            ;;
-        *) echo "  ✗   包外 dylib 依赖: $dep"; FAIL=1 ;;
-    esac
-# otool -L 对 universal 二进制会按架构各打一行头（顶格），依赖行则以制表符缩进——
-# 只取缩进行即可跳过所有头行，sort -u 合并 arm64/x86_64 的重复项。
-done < <(otool -L "$APP/Contents/MacOS/$BINARY" | grep '^[[:space:]]' | awk '{print $1}' | sort -u)
+check_deps() {
+    local executable="$1"
+    local label="$2"
+    echo "  $label"
+    while IFS= read -r dep; do
+        [ -z "$dep" ] && continue
+        case "$dep" in
+            /usr/lib/*|/System/Library/*) ;;  # 系统库，放行
+            @rpath/*)
+                fw="${dep#@rpath/}"; fw="${fw%%/*}"   # 取 framework 名，如 Sparkle.framework
+                if [ -e "$APP/Contents/Frameworks/$fw" ]; then
+                    echo "    ok  内置依赖: $dep"
+                else
+                    echo "    ✗   @rpath 依赖未随包: $dep（缺 Contents/Frameworks/$fw）"; FAIL=1
+                fi
+                ;;
+            *) echo "    ✗   包外 dylib 依赖: $dep"; FAIL=1 ;;
+        esac
+    # otool -L 对 universal 二进制会按架构各打一行头（顶格），依赖行则以制表符缩进——
+    # 只取缩进行即可跳过所有头行，sort -u 合并 arm64/x86_64 的重复项。
+    done < <(otool -L "$executable" | grep '^[[:space:]]' | awk '{print $1}' | sort -u)
+}
+check_deps "$APP/Contents/MacOS/$BINARY" "$BINARY"
+check_deps "$EXT/Contents/MacOS/$EXT_BINARY" "$EXT_BINARY"
 [ "$FAIL" -eq 0 ] || { echo "依赖校验失败：检测到包外 dylib，违反核心戒律（见 docs/ARCHITECTURE.md §0）"; exit 1; }
 
 echo "==> 验证签名有效性"
