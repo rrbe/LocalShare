@@ -9,20 +9,26 @@ final class ShareController: NSObject, NSExtensionRequestHandling {
             .flatMap { $0.attachments ?? [] }
 
         guard !providers.isEmpty else {
+            NSLog("LocalShare share extension received no item providers")
             context.completeRequest(returningItems: nil)
             return
         }
 
         loadFileURLs(from: providers) { urls in
-            let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-            guard !existing.isEmpty, let appURL = Self.hostAppURL() else {
+            guard !urls.isEmpty else {
+                NSLog("LocalShare share extension received no file URLs")
+                context.completeRequest(returningItems: nil)
+                return
+            }
+            guard let appURL = Self.hostAppURL() else {
+                NSLog("LocalShare share extension could not locate host app")
                 context.completeRequest(returningItems: nil)
                 return
             }
 
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
-            NSWorkspace.shared.open(existing, withApplicationAt: appURL, configuration: config) { _, error in
+            NSWorkspace.shared.open(urls, withApplicationAt: appURL, configuration: config) { _, error in
                 if let error {
                     NSLog("LocalShare share extension launch failed: \(error.localizedDescription)")
                 }
@@ -37,7 +43,11 @@ final class ShareController: NSObject, NSExtensionRequestHandling {
         var urls: [URL] = []
 
         for provider in providers {
-            guard let typeIdentifier = Self.supportedTypeIdentifier(for: provider) else { continue }
+            guard let typeIdentifier = Self.supportedTypeIdentifier(for: provider) else {
+                let types = provider.registeredTypeIdentifiers.joined(separator: ", ")
+                NSLog("LocalShare share extension unsupported provider types: \(types)")
+                continue
+            }
             group.enter()
             provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
                 defer { group.leave() }
