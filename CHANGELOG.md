@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.0] - 2026-07-06
+
+- Added the macOS Share Extension, so files and folders can be sent to LocalShare directly from the system Share menu
+- Internationalized the project documentation so setup, architecture, design, and contributor guidance are available in English
+
 ## [0.9.1] - 2026-06-28
 
 - Reworked Settings into grouped cards so sections are clearer and easier to scan
