@@ -30,6 +30,12 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]
         ),
+        // macOS 分享菜单扩展：只接收 Finder/系统分享面板传来的文件 URL，再唤起主 app。
+        // 不依赖 Swifter/Sparkle，也不引入任何包外 dylib。
+        .executableTarget(
+            name: "LocalShareShareExtension",
+            dependencies: []
+        ),
         // 单元测试：@testable import 可执行 target，无须把源码拆成单独 library、也无须把
         // internal 符号提成 public——直接测纯函数（防穿越判据、文件名清洗、key 去重等）。
         .testTarget(

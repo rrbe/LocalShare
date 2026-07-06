@@ -29,7 +29,15 @@ struct LocalShareApp: App {
 
     var body: some Scene {
         Window("LocalShare", id: "main") {
-            ContentView().environmentObject(state).environmentObject(updater)
+            ContentView()
+                .environmentObject(state)
+                .environmentObject(updater)
+                .onOpenURL { url in
+                    let urls = AppDelegate.sharedFileURLs(from: [url])
+                    guard !urls.isEmpty else { return }
+                    state.setShared(urls)
+                    state.showMainWindow()
+                }
         }
         .windowStyle(.hiddenTitleBar) // 全幅出血：暖底铺到顶，红绿灯浮于内容之上
         // 票据风竖窗（设计稿 400×720）。数字与「恢复默认尺寸」共用 AppState 的常量。
@@ -112,8 +120,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    // CLI 转发（NSWorkspace open）落地处：换分享项并唤回窗口。
+    // CLI / Share Extension 转发（NSWorkspace open）落地处：换分享项并唤回窗口。
     func application(_ application: NSApplication, open urls: [URL]) {
+        openSharedURLs(Self.sharedFileURLs(from: urls))
+    }
+
+    // 声明 CFBundleDocumentTypes 后，LaunchServices 可能走传统文稿打开回调。
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        openSharedURLs(filenames.map { URL(fileURLWithPath: $0) })
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        openSharedURLs([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    private func openSharedURLs(_ urls: [URL]) {
         let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !existing.isEmpty else { return }
         if let state = AppState.shared {
@@ -121,6 +144,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.showMainWindow()
         } else {
             Self.pendingOpenURLs += existing
+        }
+    }
+
+    static func sharedFileURLs(from urls: [URL]) -> [URL] {
+        urls.flatMap { url -> [URL] in
+            guard url.scheme == "localshare" else { return [url] }
+            guard url.host == "share",
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return []
+            }
+            return (components.queryItems ?? [])
+                .filter { $0.name == "path" }
+                .compactMap(\.value)
+                .filter { !$0.isEmpty && ($0 as NSString).isAbsolutePath }
+                .map { URL(fileURLWithPath: $0).standardizedFileURL }
         }
     }
 }
