@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (components.queryItems ?? [])
                 .filter { $0.name == "path" }
                 .compactMap(\.value)
+                .filter { !$0.isEmpty && ($0 as NSString).isAbsolutePath }
                 .map { URL(fileURLWithPath: $0).standardizedFileURL }
         }
     }
