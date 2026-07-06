@@ -25,10 +25,15 @@ final class ShareController: NSObject, NSExtensionRequestHandling {
                 context.completeRequest(returningItems: nil)
                 return
             }
+            guard let shareURL = Self.shareURL(for: urls) else {
+                NSLog("LocalShare share extension could not build callback URL")
+                context.completeRequest(returningItems: nil)
+                return
+            }
 
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
-            NSWorkspace.shared.open(urls, withApplicationAt: appURL, configuration: config) { _, error in
+            NSWorkspace.shared.open([shareURL], withApplicationAt: appURL, configuration: config) { _, error in
                 if let error {
                     NSLog("LocalShare share extension launch failed: \(error.localizedDescription)")
                 }
@@ -95,5 +100,13 @@ final class ShareController: NSObject, NSExtensionRequestHandling {
         }
         if url.pathExtension == "app" { return url }
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "live.ezze.localshare")
+    }
+
+    private static func shareURL(for urls: [URL]) -> URL? {
+        var components = URLComponents()
+        components.scheme = "localshare"
+        components.host = "share"
+        components.queryItems = urls.map { URLQueryItem(name: "path", value: $0.path) }
+        return components.url
     }
 }

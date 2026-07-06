@@ -143,7 +143,7 @@ When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address
 
 ### macOS Share Menu Extension
 
-- `LocalShareShareExtension` is a separate SwiftPM executable target packaged as `Contents/PlugIns/ShareExtension.appex` with `NSExtensionPointIdentifier = com.apple.share-services`. It is intentionally thin: load file URLs from `NSItemProvider`, verify they still exist, then call `NSWorkspace.open(urls, withApplicationAt:)` so the existing `AppDelegate.application(_:open:)` path hot-swaps the share.
+- `LocalShareShareExtension` is a separate SwiftPM executable target packaged as `Contents/PlugIns/ShareExtension.appex` with `NSExtensionPointIdentifier = com.apple.share-services`. It is intentionally thin: load file URLs from `NSItemProvider`, encode their paths into `localshare://share?path=...`, then open that URL with the host app so `AppDelegate.application(_:open:)` hot-swaps the share.
 - The host app declares `CFBundleDocumentTypes` for file/folder content. Without this LaunchServices can show "cannot open the specified document or URL" before the app delegate receives the shared URLs.
 - The extension has no Swifter or Sparkle dependency. It links only system frameworks and Swift system libraries, so it stays inside the no package-external dylib rule.
 - PluginKit will not list the extension unless the `.appex` is sandbox-signed. `build.sh` signs only the extension with `bundle/ShareExtension.entitlements` (`app-sandbox` + user-selected read-only files); the host app remains unsandboxed because server sharing still needs normal access to user-selected folders.
