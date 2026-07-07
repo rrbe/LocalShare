@@ -122,6 +122,7 @@ enum L: CaseIterable {
 
     // 设置 —— 更新
     case autoUpdate, autoUpdateDescOn, autoUpdateDescOff
+    case manualUpdate, manualUpdateDescOn, manualUpdateDescOff
 
     // 设置 —— 命令行工具
     case cliHintAvailable, cliHintUnavailable
@@ -289,9 +290,14 @@ enum L: CaseIterable {
         case .resetWindowDesc:  return ("把窗口还原成默认大小", "Restore the window to its default size")
 
         case .autoUpdate:        return ("自动更新", "Automatic Updates")
-        case .autoUpdateDescOn:  return ("关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查",
-                                         "When off, no auto-updates or prompts; you can still check manually via the menu")
+        case .autoUpdateDescOn:  return ("关闭后不自动检查、不弹提示；仍可手动检查",
+                                         "When off, no automatic checks or prompts; manual checks still work")
         case .autoUpdateDescOff: return ("开发构建未启用更新，正式版生效", "Updates are disabled in dev builds; active in release")
+        case .manualUpdate:      return ("手动检查更新", "Manual Update Check")
+        case .manualUpdateDescOn: return ("立刻检查是否有新版，有更新时按提示安装",
+                                          "Check for a new version now and install when prompted")
+        case .manualUpdateDescOff: return ("开发构建未启用更新，正式版可手动检查",
+                                           "Updates are disabled in dev builds; active in release")
 
         case .cliHintAvailable:   return ("在终端用 localshare 分享文件", "Use localshare in the terminal to share files")
         case .cliHintUnavailable: return ("以 app 包运行时可安装", "Installable when run as an app bundle")
