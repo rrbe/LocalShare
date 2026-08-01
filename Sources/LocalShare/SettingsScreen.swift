@@ -8,6 +8,10 @@ struct SettingsScreen: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
+    @State private var remoteOriginText = ""
+    @State private var remoteSSHHostText = ""
+    @State private var remoteSSHPortText = ""
+    @State private var remoteIdentityText = ""
     var body: some View {
         // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
         // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
@@ -104,6 +108,32 @@ struct SettingsScreen: View {
                     }
                 }
 
+                // MARK: 远程访问
+                eyebrow(L.sectionRemote(lang))
+                groupBox {
+                    remoteField(title: L.remotePublicOrigin(lang), text: $remoteOriginText)
+                    remoteField(title: L.remoteSSHHost(lang), text: $remoteSSHHostText, top: true)
+                    remoteField(title: L.remoteSSHPort(lang), text: $remoteSSHPortText, top: true, width: 72,
+                                numbersOnly: true)
+                    remoteField(title: L.remoteIdentityPath(lang), text: $remoteIdentityText, top: true)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lock.shield").font(.system(size: 13)).foregroundStyle(t.accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(L.remoteHTTPSHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            Text(L.remoteHostKeyHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 10)
+                    HStack {
+                        Spacer()
+                        GhostButton(t: t, title: L.remoteSave(lang), systemImage: "checkmark") {
+                            saveRemoteSettings()
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+
                 // MARK: 访问权限（眼标右侧挂「当前权限」胶囊）
                 HStack(spacing: 8) {
                     SectionLabel(t: t, text: L.sectionPermission(lang))
@@ -119,14 +149,16 @@ struct SettingsScreen: View {
                 groupBox {
                     permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
                     permRow(name: L.permUploadName(lang),
-                            desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
-                            locked: !state.canToggleUpload,
+                            desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang)
+                                                             : (state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang)),
+                            locked: !state.canToggleUpload || state.remoteAccessEnabled,
                             on: state.permission.add, top: true) {
                         state.setUploadAllowed(!state.permission.add)
                     }
                     // 收文本：独立闸门，不限分享形态（甚至什么都没分享也能开），故不随 share 置灰。
-                    permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
-                            locked: false, on: state.textInboxEnabled, top: true) {
+                    permRow(name: L.recvInboxTitle(lang),
+                            desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang) : L.recvInboxDesc(lang),
+                            locked: state.remoteAccessEnabled, on: state.textInboxEnabled, top: true) {
                         state.setTextInboxEnabled(!state.textInboxEnabled)
                     }
                 }
@@ -241,6 +273,10 @@ struct SettingsScreen: View {
         }
         .onAppear {
             portText = String(state.configuredPort)
+            remoteOriginText = state.remoteSettings.publicOrigin
+            remoteSSHHostText = state.remoteSettings.sshHost
+            remoteSSHPortText = String(state.remoteSettings.sshPort)
+            remoteIdentityText = state.remoteSettings.identityPath
             state.refreshCLIStatus()
         }
     }
@@ -341,5 +377,34 @@ struct SettingsScreen: View {
         guard pv.state != .invalid, changed, let p = Int(portText) else { return }
         state.applyPort(in_port_t(p))
         state.goShare()
+    }
+
+    private func remoteField(title: String, text: Binding<String>, top: Bool = false,
+                             width: CGFloat = 190, numbersOnly: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            Text(title).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+            Spacer(minLength: 8)
+            TextField("", text: text)
+                .textFieldStyle(.plain)
+                .font(.mono(11.5))
+                .frame(width: width)
+                .padding(.horizontal, 9).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(t.field))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+                .onChange(of: text.wrappedValue) { value in
+                    if numbersOnly { text.wrappedValue = String(value.filter(\.isNumber).prefix(5)) }
+                }
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .top) { if top { Rectangle().fill(t.line).frame(height: 1) } }
+    }
+
+    private func saveRemoteSettings() {
+        state.saveRemoteSettings(RemoteSettings(
+            publicOrigin: remoteOriginText,
+            sshHost: remoteSSHHostText,
+            sshPort: Int(remoteSSHPortText) ?? 0,
+            identityPath: remoteIdentityText
+        ))
     }
 }

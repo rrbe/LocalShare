@@ -94,6 +94,21 @@ final class FileServer {
     // 每收到一段文本回调一次（socket 线程）；GUI 用它入收件箱 + 提示未读，设置方自行 hop 主线程。
     var onReceiveText: ((ReceivedText) -> Void)?
 
+    // Remote mode is deliberately a server-wide read-only gate: the same origin is
+    // reachable on LAN and through the tunnel, so allowing POST locally would also
+    // expose it publicly. The proxy address allowlist limits forwarded-header trust
+    // to the local SSH connection rather than any arbitrary LAN request.
+    private var _remoteAccessEnabled = false
+    var remoteAccessEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _remoteAccessEnabled }
+        set { lock.lock(); _remoteAccessEnabled = newValue; lock.unlock() }
+    }
+    private var _trustedProxyAddresses: Set<String> = ["127.0.0.1", "::1"]
+    var trustedProxyAddresses: Set<String> {
+        get { lock.lock(); defer { lock.unlock() }; return _trustedProxyAddresses }
+        set { lock.lock(); _trustedProxyAddresses = newValue; lock.unlock() }
+    }
+
     // 单条文本上限（远小于上传的 500MB）。Swifter 进 middleware 前已把 body 整段读进内存，故同上传只能
     // 事后拒绝；总数上限（收件箱满挤旧）由 AppState 把关——两道一起才挡得住「刷一堆不超单条限的消息撑爆内存」。
     static let textInboxLimit = 64 * 1024
@@ -219,6 +234,28 @@ final class FileServer {
         return String(String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces).prefix(40))
     }
 
+    // Only accept forwarded identity from a request that arrived at a trusted local
+    // tunnel endpoint and carries the HTTPS marker added by Nginx. The first XFF
+    // value is the original browser address; malformed values fall back to req.address.
+    static func forwardedClientAddress(headers: [String: String], sourceAddress: String?,
+                                       remoteEnabled: Bool, trustedProxyAddresses: Set<String>) -> String? {
+        guard remoteEnabled,
+              let sourceAddress,
+              trustedProxyAddresses.contains(sourceAddress),
+              headers["x-forwarded-proto"]?.lowercased() == "https",
+              let raw = headers["x-forwarded-for"]?.split(separator: ",").first else { return nil }
+        let address = raw.trimmingCharacters(in: .whitespaces)
+        guard isIPAddress(address) else { return nil }
+        return address
+    }
+
+    private static func isIPAddress(_ value: String) -> Bool {
+        var v4 = in_addr()
+        if inet_pton(AF_INET, value, &v4) == 1 { return true }
+        var v6 = in6_addr()
+        return inet_pton(AF_INET6, value, &v6) == 1
+    }
+
     init(share: Share, token: String) {
         self._share = share
         self._token = token
@@ -264,24 +301,36 @@ final class FileServer {
         // 1. 鉴权：query ?t= 或 cookie 任一匹配当前分享的 token（每请求取一次快照，
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
+        let remoteMode = remoteAccessEnabled
+        let forwardedAddress = Self.forwardedClientAddress(
+            headers: req.headers,
+            sourceAddress: req.address,
+            remoteEnabled: remoteMode,
+            trustedProxyAddresses: trustedProxyAddresses
+        )
+        let clientAddress = forwardedAddress ?? req.address
         // 网页语言逐请求决定：按浏览器 Accept-Language，与原生 app 设置无关。往下穿进每个 HTML 生产者。
         let lang = Lang.fromAcceptLanguage(req.headers["accept-language"])
         // 收件箱开启：listing 页（同上传表单的出现条件）多挂一张「发文本给电脑」表单。每请求取一次快照。
-        let recvOn = textInboxEnabled
+        let recvOn = textInboxEnabled && !remoteMode
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
         let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
         guard viaQuery || viaCookie else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
         }
+        if remoteMode && req.method != "GET" && req.method != "HEAD" {
+            return jsonResponse(405, "Method Not Allowed", errorJSON(L.remoteReadOnly(lang)), extra: [:])
+        }
         // 经 query 放行且尚无（有效）cookie 时，种会话 cookie，后续资源请求免带 token。
         // 不设 Max-Age：随浏览器会话走；token 轮换后旧值反正立即失效。页面 JS 不读它，HttpOnly。
         var extra: [String: String] = [:]
         if viaQuery, !viaCookie {
-            extra["Set-Cookie"] = "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly"
+            let secure = forwardedAddress != nil ? "; Secure" : ""
+            extra["Set-Cookie"] = "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly\(secure)"
         }
 
         // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。
-        touchPresence(req.address)
+        touchPresence(clientAddress)
 
         // 心跳/在线数端点（保留路径，优先于分享内容命中；分享里恰好有 ls/ping 的概率可忽略）。
         // req.path 不含 query（Swifter 用 URLComponents.path），精确比较即可。
@@ -357,7 +406,7 @@ final class FileServer {
         // 收文本（保留路径，先于上传拦截）：POST /ls/text 投递一段文本到收件箱。开关关 → 403；
         // 超单条上限 → 413；空白 → 400。落库与未读由 onReceiveText 交给 AppState。
         if req.method == "POST", req.path == "/ls/text" {
-            return handleReceiveText(req: req, lang: lang, extra: extra)
+            return handleReceiveText(req: req, clientAddress: clientAddress, lang: lang, extra: extra)
         }
 
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
@@ -409,7 +458,8 @@ final class FileServer {
         let rel = String(decodedPath.drop { $0 == "/" })
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
-                         canUpload: uploadEnabled, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra)
+                         canUpload: uploadEnabled && !remoteMode, canReceiveText: recvOn,
+                         viewer: wantsViewer, lang: lang, extra: extra)
     }
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
@@ -496,8 +546,9 @@ final class FileServer {
     // 安全：闸门 textInboxEnabled 把关；超 textInboxLimit → 413；去首尾空白后为空 → 400。
     // 收到的文本经 onReceiveText 交 AppState（socket 线程，设置方 hop 主线程入收件箱）；FileServer 不存列表。
     // 文本本身不回显进任何服务页（仅在 Mac 端 SwiftUI Text 里显示，天然不执行），故无须额外转义。
-    private func handleReceiveText(req: HttpRequest, lang: Lang, extra: [String: String]) -> HttpResponse {
-        guard textInboxEnabled else {
+    private func handleReceiveText(req: HttpRequest, clientAddress: String?, lang: Lang,
+                                   extra: [String: String]) -> HttpResponse {
+        guard textInboxEnabled && !remoteAccessEnabled else {
             return jsonResponse(403, "Forbidden", errorJSON(L.recvDisabled(lang)), extra: extra)
         }
         guard req.body.count <= Self.textInboxLimit else {
@@ -508,7 +559,7 @@ final class FileServer {
         guard !trimmed.isEmpty else {
             return jsonResponse(400, "Bad Request", errorJSON(L.recvEmpty(lang)), extra: extra)
         }
-        let ip = req.address ?? ""
+        let ip = clientAddress ?? ""
         lock.lock(); let name = nameCache[ip] ?? ""; lock.unlock()   // 反查到则带设备名，否则展示层回退 IP
         onReceiveText?(ReceivedText(text: trimmed, ip: ip, name: name, date: Date()))
         return jsonResponse(200, "OK", #"{"ok":true}"#, extra: extra)

@@ -51,6 +51,9 @@ jobs:
       - name: 网页逐请求语言（Accept-Language）
         run: ./tools/smoke-accept-language.sh
 
+      - name: 远程访问只读策略
+        run: ./tools/smoke-remote-readonly.sh
+
       - name: 传递文本（/ls/text + 转义 + 虚拟根文本行）
         run: ./tools/smoke-text.sh
 

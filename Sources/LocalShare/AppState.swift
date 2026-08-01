@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Network
 
 // 全局状态：当前分享对象（文件夹或单个文件）、服务运行态、网络接口候选、二维码 URL、
 // 监听端口配置、最近分享历史、屏幕路由、权限（读取常开，上传可切换）。
@@ -45,6 +46,11 @@ final class AppState: ObservableObject {
     @Published var textInboxEnabled = false         // 「允许收文本」闸门（默认关，持久化；不限分享形态）
     @Published var persistReceivedText = false      // 「记住收到的文本」（默认关，持久化）
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
+    @Published var remoteSettings = RemoteSettings()
+    @Published private(set) var remoteAccessEnabled = false
+    @Published private(set) var remoteStatus: RemoteTunnel.Status = .disabled
+    @Published private(set) var remoteExpiresAt: Date?
+    @Published private(set) var remoteError: String?
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
     static private(set) var shared: AppState?
@@ -54,6 +60,10 @@ final class AppState: ObservableObject {
     @Published private(set) var token = Token.generate()
     private var server: FileServer?
     private var viewerTimer: Timer?
+    private let remoteTunnel = RemoteTunnel()
+    private var remoteExpiryTimer: Timer?
+    private var networkMonitor: NWPathMonitor?
+    private var networkPathStatus: NWPath.Status?
 
     private let portKey = "configuredPort"
     private let bindSelectedOnlyKey = "bindSelectedOnly"
@@ -66,12 +76,28 @@ final class AppState: ObservableObject {
     private let textInboxKey = "textInboxEnabled"       // 收件箱闸门（默认关）
     private let persistReceivedKey = "persistReceivedText"  // 是否记住收到的文本（默认关）
     private let receivedTextsKey = "receivedTexts"      // 收件箱内容（仅 persistReceivedText 开时写入）
+    private let remoteOriginKey = "remotePublicOrigin"
+    private let remoteSSHHostKey = "remoteSSHHost"
+    private let remoteSSHPortKey = "remoteSSHPort"
+    private let remoteIdentityPathKey = "remoteSSHIdentityPath"
+    private static let remoteLifetime: TimeInterval = 60 * 60
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
     init() {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
+        let savedRemotePort = UserDefaults.standard.integer(forKey: remoteSSHPortKey)
+        remoteSettings = RemoteSettings(
+            publicOrigin: UserDefaults.standard.string(forKey: remoteOriginKey) ?? "",
+            sshHost: UserDefaults.standard.string(forKey: remoteSSHHostKey) ?? "",
+            sshPort: (1...65535).contains(savedRemotePort) ? savedRemotePort : 2200,
+            identityPath: UserDefaults.standard.string(forKey: remoteIdentityPathKey) ?? ""
+        )
+        remoteTunnel.onStateChange = { [weak self] status, error in
+            self?.remoteStatus = status
+            self?.remoteError = error
+        }
         bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
@@ -107,6 +133,7 @@ final class AppState: ObservableObject {
             AppDelegate.pendingOpenURLs = []
             setShared(urls)
         }
+        startNetworkMonitoring()
     }
 
     // MARK: - 选择态派生
@@ -126,27 +153,34 @@ final class AppState: ObservableObject {
     // MARK: - 派生 URL / 二维码
 
     // 文件夹/多选模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
-    private func makeURL(host: String) -> String {
+    private func makeURL(base: String) -> String {
         let q = "?t=\(token)"
+        let root = base.hasSuffix("/") ? String(base.dropLast()) : base
         // 传递文本（收/发合一）：二维码恒指 /ls/text——这一页既显示电脑共享的文本（可读可复制），
         // 又在「允许手机发回来」开着时挂出发送框；只收文本时它退化成纯发送页。扫一次，双向都在这。
-        if isTextOnly || isReceiveOnly { return "http://\(host):\(port)/ls/text\(q)" }
+        if isTextOnly || isReceiveOnly { return "\(root)/ls/text\(q)" }
         // 单文件直链该文件（文本与文件共存时走虚拟根，不直链，故附带 !hasText）。
         if sharedIsFile, !hasText, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
-            return "http://\(host):\(port)/\(enc)\(q)"
+            return "\(root)/\(enc)\(q)"
         }
-        return "http://\(host):\(port)/\(q)"
+        return "\(root)/\(q)"
+    }
+
+    var remoteURL: String? {
+        guard remoteAccessEnabled, isRunning, let origin = remoteSettings.publicURL else { return nil }
+        return makeURL(base: origin.absoluteString)
     }
 
     var primaryURL: String? {
+        if let remoteURL { return remoteURL }
         guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
-        return makeURL(host: ip)
+        return makeURL(base: "http://\(ip):\(port)")
     }
 
     var localURL: String? {
         guard isRunning, port != 0, let host = localHost else { return nil }
-        return makeURL(host: host)
+        return makeURL(base: "http://\(host):\(port)")
     }
 
     var qrImage: NSImage? {
@@ -163,6 +197,129 @@ final class AppState: ObservableObject {
         localHost = NetworkInfo.localHostName()
         if let sel = selectedInterface, interfaces.contains(sel) { return }
         selectedInterface = interfaces.first
+    }
+
+    // Remote access is session-only. Connection details persist, but the public
+    // switch never does: reopening the app cannot silently publish a share.
+    var canEnableRemote: Bool { isRunning && !isEmpty && remoteSettings.isValid }
+
+    func saveRemoteSettings(_ settings: RemoteSettings) {
+        remoteSettings = settings
+        UserDefaults.standard.set(settings.publicOrigin, forKey: remoteOriginKey)
+        UserDefaults.standard.set(settings.sshHost, forKey: remoteSSHHostKey)
+        UserDefaults.standard.set(settings.sshPort, forKey: remoteSSHPortKey)
+        UserDefaults.standard.set(settings.identityPath, forKey: remoteIdentityPathKey)
+        guard remoteAccessEnabled else { return }
+        guard settings.isValid else {
+            disableRemoteAccess()
+            remoteError = L.remoteConfigInvalid(lang)
+            return
+        }
+        startRemoteTunnel()
+    }
+
+    func setRemoteAccessEnabled(_ on: Bool) {
+        guard on != remoteAccessEnabled else { return }
+        if on {
+            guard canEnableRemote else {
+                remoteError = L.remoteConfigHint(lang)
+                return
+            }
+            permission.add = false
+            textInboxEnabled = false
+            UserDefaults.standard.set(false, forKey: textInboxKey)
+            remoteAccessEnabled = true
+            remoteError = nil
+            remoteExpiresAt = Date().addingTimeInterval(Self.remoteLifetime)
+            scheduleRemoteExpiry()
+            applyRemotePolicy()
+            pushToServer()
+            startRemoteTunnel()
+        } else {
+            disableRemoteAccess()
+        }
+    }
+
+    func retryRemoteAccess() {
+        guard remoteAccessEnabled else { return }
+        remoteError = nil
+        startRemoteTunnel()
+    }
+
+    private func disableRemoteAccess(rotateToken: Bool = false) {
+        remoteTunnel.stop()
+        remoteExpiryTimer?.invalidate()
+        remoteExpiryTimer = nil
+        remoteAccessEnabled = false
+        remoteExpiresAt = nil
+        remoteError = nil
+        if rotateToken { token = Token.generate() }
+        if isRunning { pushToServer() }
+    }
+
+    private func expireRemoteAccess() {
+        guard remoteAccessEnabled, let expires = remoteExpiresAt, expires <= Date() else { return }
+        disableRemoteAccess(rotateToken: true)
+        remoteError = L.remoteExpired(lang)
+    }
+
+    private func scheduleRemoteExpiry() {
+        remoteExpiryTimer?.invalidate()
+        remoteExpiryTimer = Timer.scheduledTimer(withTimeInterval: Self.remoteLifetime, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.expireRemoteAccess() }
+        }
+    }
+
+    private var tunnelLocalAddress: String {
+        bindSelectedOnly ? (selectedInterface?.ip ?? "127.0.0.1") : "127.0.0.1"
+    }
+
+    private var tunnelProxyAddresses: Set<String> {
+        var addresses: Set<String> = ["127.0.0.1", "::1"]
+        if let selected = selectedInterface?.ip { addresses.insert(selected) }
+        return addresses
+    }
+
+    private func applyRemotePolicy() {
+        server?.remoteAccessEnabled = remoteAccessEnabled
+        server?.trustedProxyAddresses = tunnelProxyAddresses
+        server?.uploadEnabled = permission.add && canToggleUpload && !remoteAccessEnabled
+        server?.textInboxEnabled = textInboxEnabled && !remoteAccessEnabled
+    }
+
+    private func startRemoteTunnel() {
+        guard remoteAccessEnabled, isRunning else { return }
+        guard let configuration = remoteSettings.tunnelConfiguration(localAddress: tunnelLocalAddress, localPort: port) else {
+            remoteStatus = .offline
+            remoteError = L.remoteConfigInvalid(lang)
+            return
+        }
+        applyRemotePolicy()
+        remoteTunnel.start(configuration)
+    }
+
+    private func startNetworkMonitoring() {
+        let monitor = NWPathMonitor()
+        networkMonitor = monitor
+        let queue = DispatchQueue(label: "localshare.network-monitor")
+        monitor.pathUpdateHandler = { [weak self] path in
+            let status = path.status
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let statusChanged = self.networkPathStatus != status
+                self.networkPathStatus = status
+                guard self.isRunning else { return }
+                let oldInterfaces = self.interfaces
+                self.refreshNetwork()
+                guard self.remoteAccessEnabled else { return }
+                if self.bindSelectedOnly && oldInterfaces != self.interfaces {
+                    self.rebindServer()
+                } else if statusChanged || oldInterfaces != self.interfaces {
+                    self.startRemoteTunnel()
+                }
+            }
+        }
+        monitor.start(queue: queue)
     }
 
     // MARK: - 选择分享对象
@@ -203,8 +360,8 @@ final class AppState: ObservableObject {
     private func pushToServer() {
         server?.token = token
         server?.sharedText = hasText ? sharedText : nil
-        server?.textInboxEnabled = textInboxEnabled
         server?.share = currentShare
+        applyRemotePolicy()
     }
 
     // 分享 / 更新一段文本（Mac→手机）。token 的「会话」维度与分享文件一致：只在会话边界轮换
@@ -273,11 +430,12 @@ final class AppState: ObservableObject {
 
     // 仅「单个文件夹」分享有上传落点；单文件/多选时设置页开关置灰。
     // 附带文本会把分享转成虚拟根（无单一落点），故此时上传也不可用。
-    var canToggleUpload: Bool { sharedItems.count == 1 && !sharedIsFile && !hasText }
+    var canToggleUpload: Bool { !remoteAccessEnabled && sharedItems.count == 1 && !sharedIsFile && !hasText }
 
     func setUploadAllowed(_ on: Bool) {
+        guard !remoteAccessEnabled else { return }
         permission.add = on && canToggleUpload
-        server?.uploadEnabled = permission.add
+        applyRemotePolicy()
     }
 
     private func resetUpload() {
@@ -307,11 +465,12 @@ final class AppState: ObservableObject {
     // 「允许收文本」闸门。开：不限分享形态都能开，开了就把服务拉起（无分享时即「只收模式」），不轮换 token、
     // 不重启（运行中只切 server 标志，发送表单随之显隐、已发链接继续有效）。关：若再无其它分享则停服务。
     func setTextInboxEnabled(_ on: Bool) {
+        guard !(remoteAccessEnabled && on) else { return }
         guard on != textInboxEnabled else { return }
         textInboxEnabled = on
         UserDefaults.standard.set(on, forKey: textInboxKey)
         if isRunning {
-            if isServing { server?.textInboxEnabled = on }   // 仍有理由服务：原地切标志
+            if isServing { applyRemotePolicy() }              // 仍有理由服务：原地切标志
             else { stop() }                                  // 关掉且无其它分享 → 拆服务，回到空状态
         } else if isServing {
             start()                                          // 从空状态开启 → 起服务（只收模式）
@@ -389,8 +548,10 @@ final class AppState: ObservableObject {
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
         fs.sharedText = hasText ? sharedText : nil
-        fs.uploadEnabled = permission.add && canToggleUpload
-        fs.textInboxEnabled = textInboxEnabled
+        fs.remoteAccessEnabled = remoteAccessEnabled
+        fs.trustedProxyAddresses = tunnelProxyAddresses
+        fs.uploadEnabled = permission.add && canToggleUpload && !remoteAccessEnabled
+        fs.textInboxEnabled = textInboxEnabled && !remoteAccessEnabled
         fs.onUpload = { url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
         }
@@ -407,6 +568,7 @@ final class AppState: ObservableObject {
             isRunning = true
             lastError = nil
             startViewerPolling()
+            if remoteAccessEnabled { startRemoteTunnel() }
         } catch {
             // 绑定指定网卡失败（IP 刚因 DHCP/切网消失）：退回全接口重试一次，给提示但不让分享中断。
             if bindIP != nil {
@@ -417,6 +579,7 @@ final class AppState: ObservableObject {
                     isRunning = true
                     lastError = LStr.ifaceUnavailable(lang)
                     startViewerPolling()
+                    if remoteAccessEnabled { startRemoteTunnel() }
                     return
                 }
             }
@@ -430,6 +593,7 @@ final class AppState: ObservableObject {
     private func rebindServer() {
         guard isRunning else { return }
         viewerTimer?.invalidate(); viewerTimer = nil
+        if remoteAccessEnabled { remoteTunnel.stop() }
         server?.stop()
         server = nil
         start()   // 复用 self.token，仅监听地址/端口随当前选择重算
@@ -450,6 +614,7 @@ final class AppState: ObservableObject {
     }
 
     func stop() {
+        disableRemoteAccess()
         viewerTimer?.invalidate()
         viewerTimer = nil
         viewerCount = 0

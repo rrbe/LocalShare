@@ -1,6 +1,6 @@
 # Remote Sharing Plan
 
-> Status: proposed. This document records the architecture decision and implementation plan; LocalShare remains LAN-only until the plan is implemented.
+> Status: app implementation complete. Public-server deployment and end-to-end internet acceptance remain environment-specific.
 
 ## Goal
 

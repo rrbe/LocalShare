@@ -23,6 +23,7 @@ struct ShareScreen: View {
         } content: {
             VStack(spacing: 16) {
                 ticket(ps)
+                if state.isRunning { remoteCard }
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
                 if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
@@ -46,6 +47,74 @@ struct ShareScreen: View {
             else { AnyView(folderStub(ps)) }
         } pass: {
             qrPass
+        }
+    }
+
+    private var remoteCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "globe").font(.system(size: 17, weight: .medium)).foregroundStyle(t.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L.remoteAccess(state.lang)).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                    Text(L.remoteAccessDesc(state.lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                }
+                Spacer(minLength: 8)
+                ToggleSwitch(t: t, isOn: state.remoteAccessEnabled,
+                             locked: !state.remoteAccessEnabled && !state.canEnableRemote) {
+                    state.setRemoteAccessEnabled(!state.remoteAccessEnabled)
+                }
+            }
+            if state.remoteAccessEnabled {
+                if let url = state.remoteURL {
+                    CopyPill(t: t, lang: state.lang, value: url, compact: true) {
+                        if let url = URL(string: url) { NSWorkspace.shared.open(url) }
+                    }
+                }
+                HStack(spacing: 7) {
+                    Circle().fill(remoteStatusColor).frame(width: 7, height: 7)
+                    Text(remoteStatusText).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
+                    Spacer()
+                    if state.remoteStatus == .offline {
+                        GhostButton(t: t, title: L.remoteRetry(state.lang), systemImage: "arrow.clockwise") {
+                            state.retryRemoteAccess()
+                        }
+                    }
+                    GhostButton(t: t, title: L.remoteStop(state.lang)) {
+                        state.setRemoteAccessEnabled(false)
+                    }
+                }
+                if let expires = state.remoteExpiresAt {
+                    Text(LStr.remoteExpiry(expires, state.lang)).font(.mono(10.5)).foregroundStyle(t.inkFaint)
+                }
+                if let error = state.remoteError, !error.isEmpty {
+                    Text(error).font(.sans(11)).foregroundStyle(t.danger).lineLimit(2)
+                }
+            } else {
+                Text(state.remoteError ?? (state.remoteSettings.isValid ? L.remoteAccessDesc(state.lang) : L.remoteConfigHint(state.lang)))
+                    .font(.sans(11.5)).foregroundStyle(state.remoteError == nil ? t.inkMute : t.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private var remoteStatusText: String {
+        switch state.remoteStatus {
+        case .connecting: return L.remoteConnecting(state.lang)
+        case .online: return L.remoteOnline(state.lang)
+        case .offline: return L.remoteOffline(state.lang)
+        case .disabled: return L.remoteConfigHint(state.lang)
+        }
+    }
+
+    private var remoteStatusColor: Color {
+        switch state.remoteStatus {
+        case .online: return t.ok
+        case .offline: return t.danger
+        case .connecting: return t.warn
+        case .disabled: return t.inkFaint
         }
     }
 
