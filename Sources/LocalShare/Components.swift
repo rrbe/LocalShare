@@ -104,6 +104,19 @@ struct IconButton: View {
     }
 }
 
+// 所有页面头部常驻的宽屏切换；窗口状态由 AppState 统一维护，跨页面不丢。
+struct WideLayoutButton: View {
+    let t: Theme
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        IconButton(t: t,
+                   systemImage: state.wideLayout ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                   help: state.wideLayout ? L.exitWide(state.lang) : L.expandWide(state.lang)) {
+            state.toggleWideLayout()
+        }
+    }
+}
+
 // 低调 ✕ 小钮：hover 显淡底圆。票据卡用作「清除当前分享」，历史/最近行用作「删除这条记录」——
 // 同一视觉语言，仅 help 文案随用途传入（默认「清除当前分享」）。
 struct ClearButton: View {
@@ -317,8 +330,8 @@ struct HoverIcon: View {
     }
 }
 
-// 可复制地址条：field 底，左 mono 地址，右复制（成功显示绿 check 1.3s）+ 浏览器打开。
-// 显示与复制是同一字符串（完整 URL，含 token），超长仅由 UI 中段省略——所见即所复制。
+// 可复制地址条：field 底，左 mono 地址，右展开 + 复制（成功显示绿 check 1.3s）+ 浏览器打开。
+// 折叠时中段省略；悬停 tooltip 与展开态都显示完整 URL（含 token）。
 struct CopyPill: View {
     let t: Theme
     var lang: Lang
@@ -327,78 +340,54 @@ struct CopyPill: View {
     var compact = false
     var onOpen: (() -> Void)? = nil
     @State private var copied = false
+    @State private var expanded = false
     var body: some View {
-        HStack(spacing: 4) {
-            // 不开放文本选择：点按会触发选区、把中段省略的地址撑成整条，遮住右侧按钮。复制走右侧按钮即可。
-            Text(value).font(.mono(13)).foregroundStyle(t.ink)
-                .lineLimit(1).truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12)
-            HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
-                      color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
-            if withOpen {
-                HoverIcon(t: t, systemImage: "arrow.up.forward.square",
-                          color: t.inkMute, help: L.openInBrowser(lang)) { onOpen?() }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                address.lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                trailingActions
             }
+            HStack(alignment: expanded ? .top : .center, spacing: 4) {
+                address
+                    .lineLimit(expanded ? nil : 1).truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: expanded)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HoverIcon(t: t,
+                          systemImage: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                          color: t.inkMute,
+                          help: expanded ? L.collapseAddress(lang) : L.expandAddress(lang)) { expanded.toggle() }
+                trailingActions
+            }
+            .padding(.vertical, expanded ? 7 : 0)
         }
-        .frame(height: compact ? 42 : 48)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: compact ? 42 : 48)
         .padding(.trailing, 6)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
+
+    private var address: some View {
+        Text(value).font(.mono(13)).foregroundStyle(t.ink)
+            .padding(.leading, 12)
+            .help(value)
+    }
+
+    @ViewBuilder private var trailingActions: some View {
+        HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
+                  color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
+        if withOpen {
+            HoverIcon(t: t, systemImage: "arrow.up.forward.square",
+                      color: t.inkMute, help: L.openInBrowser(lang)) { onOpen?() }
+        }
+    }
+
     private func copy() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
-    }
-}
-
-// 备用地址行：主地址条下方的次级地址（主机名 / .local）。无字段底，但与主地址同样可用——
-// 右侧两枚小钮：复制完整 URL（含 token，成功显示绿 check）+ 在浏览器打开。
-// 「备用 ·」是行标签；其后展示的 URL 与复制结果逐字一致，超长仅由 UI 中段省略。
-struct BackupAddressRow: View {
-    let t: Theme
-    var lang: Lang
-    let full: String          // 完整 http URL（含 token），显示/复制/打开都用它
-    let onOpen: () -> Void
-    @State private var copied = false
-    private var display: String { L.backupPrefix(lang) + full }
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(display).font(.mono(10)).foregroundStyle(t.inkFaint)
-                .lineLimit(1).truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            MiniIconButton(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
-                           tint: copied ? t.ok : t.inkFaint, help: L.copyBackup(lang)) { copyURL() }
-            MiniIconButton(t: t, systemImage: "arrow.up.forward.square",
-                           tint: t.inkFaint, help: L.openInBrowser(lang), action: onOpen)
-        }
-    }
-    private func copyURL() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(full, forType: .string)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
-    }
-}
-
-// 备用地址行用的小图标钮：size 10、16×16 固定框（防字形高度差抖动）、hover 提亮到 ink。
-private struct MiniIconButton: View {
-    let t: Theme
-    let systemImage: String
-    var tint: Color
-    var help: String
-    let action: () -> Void
-    @State private var hover = false
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage).font(.system(size: 10, weight: .medium))
-                .foregroundStyle(hover ? t.ink : tint)
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).onHover { hover = $0 }.help(help)
     }
 }
 

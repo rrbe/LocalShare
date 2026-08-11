@@ -130,6 +130,7 @@ enum L: CaseIterable {
 
     // 设置 —— 更新
     case autoUpdate, autoUpdateDescOn, autoUpdateDescOff
+    case manualUpdate, manualUpdateDescOn, manualUpdateDescOff
 
     // 设置 —— 命令行工具
     case cliHintAvailable, cliHintUnavailable
@@ -144,8 +145,8 @@ enum L: CaseIterable {
     case showLocalShare, quit, checkForUpdates
 
     // 组件 help / 标签
-    case clearShareHelp, idle, copy, openInBrowser, copyBackup
-    case revealFileHelp, openFolderHelp, copyPathHelp, backupPrefix
+    case clearShareHelp, idle, copy, openInBrowser
+    case revealFileHelp, openFolderHelp, copyPathHelp, expandWide, exitWide, expandAddress, collapseAddress
 
     // 文件选择面板
     case pickFolderMsg, pickFileMsg, pickAnyMsg, sharePrompt
@@ -317,9 +318,14 @@ enum L: CaseIterable {
         case .resetWindowDesc:  return ("把窗口还原成默认大小", "Restore the window to its default size")
 
         case .autoUpdate:        return ("自动更新", "Automatic Updates")
-        case .autoUpdateDescOn:  return ("关闭后不自动更新、不弹提示；仍可在菜单「检查更新…」手动检查",
-                                         "When off, no auto-updates or prompts; you can still check manually via the menu")
+        case .autoUpdateDescOn:  return ("关闭后不自动检查、不弹提示；仍可手动检查",
+                                         "When off, no automatic checks or prompts; manual checks still work")
         case .autoUpdateDescOff: return ("开发构建未启用更新，正式版生效", "Updates are disabled in dev builds; active in release")
+        case .manualUpdate:      return ("手动检查更新", "Manual Update Check")
+        case .manualUpdateDescOn: return ("立刻检查是否有新版，有更新时按提示安装",
+                                          "Check for a new version now and install when prompted")
+        case .manualUpdateDescOff: return ("开发构建未启用更新，正式版可手动检查",
+                                           "Updates are disabled in dev builds; active in release")
 
         case .cliHintAvailable:   return ("在终端用 localshare 分享文件", "Use localshare in the terminal to share files")
         case .cliHintUnavailable: return ("以 app 包运行时可安装", "Installable when run as an app bundle")
@@ -344,11 +350,13 @@ enum L: CaseIterable {
         case .idle:            return ("待命", "Idle")
         case .copy:            return ("复制", "Copy")
         case .openInBrowser:   return ("在浏览器打开", "Open in browser")
-        case .copyBackup:      return ("复制备用地址", "Copy backup address")
         case .revealFileHelp:  return ("在 Finder 中显示该文件", "Show this file in Finder")
         case .openFolderHelp:  return ("在 Finder 中打开该文件夹", "Open this folder in Finder")
         case .copyPathHelp:    return ("拷贝完整路径", "Copy full path")
-        case .backupPrefix:    return ("备用 · ", "Alt · ")
+        case .expandWide:      return ("切换到宽屏", "Use wide layout")
+        case .exitWide:        return ("退出宽屏", "Exit wide layout")
+        case .expandAddress:   return ("展开完整地址", "Show full address")
+        case .collapseAddress: return ("收起地址", "Collapse address")
 
         case .pickFolderMsg:   return ("选择要广播到局域网的文件夹", "Choose a folder to broadcast on the LAN")
         case .pickFileMsg:     return ("选择要单独分享的文件（扫码直接打开它）", "Choose a single file to share (scan opens it directly)")

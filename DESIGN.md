@@ -131,7 +131,7 @@ New icons must keep the same visual weight and 16px grid.
 ### 5.6 QR and Address
 
 - **QR**: decorative placeholder in mocks, deterministic pseudo QR, white background, rounded corners, foreground `#1a1813` (dark mode `#0e0c09`). **Replace with a real QR code in implementation**, but keep size, radius, white background, and padding.
-- **CopyPill**: `field` rounded bar. Left side is mono address with ellipsis; right side has copy button with green check for 1.3s after success and an open-in-browser button.
+- **CopyPill**: `field` rounded bar. Left side is a mono address with middle ellipsis and a full-address hover tooltip. Right side has copy (green check for 1.3s after success) and open-in-browser buttons; expand/collapse appears only when the full address does not fit on one line. Expanded addresses wrap without a fixed row height.
 
 ---
 
@@ -199,7 +199,7 @@ Browser navigation to `.md(.markdown)` / `.json(.geojson)` / `.csv(.tsv)` render
 
 Screen sections, top to bottom:
 
-1. **QR card / empty state**: service running with URL -> QRCard (172x172, padding 18, radius 14) + explanatory text + CopyPill + fallback mono address. Otherwise show empty copy: send text or enable receiving, then scan.
+1. **QR card / empty state**: service running with URL -> QRCard (172x172, padding 18, radius 14) + explanatory text + CopyPill. Otherwise show empty copy: send text or enable receiving, then scan.
 2. **Send text card**: `surface` radius 16, padding 16, `line` border. Section eyebrow -> `PlainTextEditor` (`field`, radius 12, **mono 13**, min-height 118, custom placeholder compatible with Chinese IME, accent caret) -> PrimaryBtn "Share" or "Update"; show "Withdraw" GhostBtn when already shared.
 3. **Allow receiving row**: `surface` radius 14, padding 14. Title + helper copy + Switch. Opt-in and off by default.
 4. **Inbox card**: visible only when receiving is enabled or messages exist. Header = accent status dot + title + unread badge + Clear action. List shows up to 12 items, then a count. Each row has TextGlyph, source device/IP and relative time, text preview up to 3 selectable lines, copy success check, and delete button.

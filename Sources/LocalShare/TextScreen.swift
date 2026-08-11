@@ -147,6 +147,7 @@ struct TextScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
                 Text(L.transferText(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(lang)) { state.openSettings() }
             }
         } content: {
@@ -213,12 +214,6 @@ struct TextScreen: View {
             QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
             Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             CopyPill(t: t, lang: lang, value: state.primaryURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
-            if let local = state.localURL {
-                BackupAddressRow(t: t, lang: lang, full: local) {
-                    if let u = URL(string: local) { NSWorkspace.shared.open(u) }
-                }
-                .padding(.top, 7).padding(.leading, 12)
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)

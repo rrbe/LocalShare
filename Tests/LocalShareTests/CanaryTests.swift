@@ -11,4 +11,15 @@ final class CanaryTests: XCTestCase {
         XCTAssertEqual(Mime.contentType(forExtension: "svg"), "image/svg+xml; charset=utf-8")
         XCTAssertEqual(Mime.contentType(forExtension: "xyz"), "application/octet-stream")   // 未知回退
     }
+
+    func testGeneratedBrowserPagesExposeWideLayout() {
+        let csv = CsvViewer.html(fileName: "wide.csv", crumbs: nil, canUpload: false, lang: .zh)
+        let listing = DirectoryListing.html(items: [], rootName: "Files", lang: .en)
+        for page in [csv, listing] {
+            XCTAssertTrue(page.contains("id=\"widebtn\""))
+            XCTAssertTrue(page.contains("sessionStorage.getItem('ls-wide')"))
+            XCTAssertTrue(page.contains("body.wide main{max-width:none"))
+            XCTAssertTrue(page.contains("clamp(24px,4vw,64px)"))
+        }
+    }
 }

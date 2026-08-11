@@ -24,6 +24,7 @@ struct SettingsScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
                 Text(L.shareSettings(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                WideLayoutButton(t: t)
             }
         } content: {
             VStack(alignment: .leading, spacing: 0) {
@@ -233,6 +234,17 @@ struct SettingsScreen: View {
                         ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
                             updater.setAutomaticChecks(!updater.automaticChecks)
                         }
+                    }
+                    settingRow(top: true,
+                               title: L.manualUpdate(lang),
+                               desc: updater.isActive
+                                    ? L.manualUpdateDescOn(lang)
+                                    : L.manualUpdateDescOff(lang)) {
+                        GhostButton(t: t, title: L.checkForUpdates(lang), systemImage: "arrow.clockwise") {
+                            updater.checkForUpdates()
+                        }
+                        .disabled(!updater.canCheckForUpdates)
+                        .opacity(updater.canCheckForUpdates ? 1 : 0.5)
                     }
                 }
 

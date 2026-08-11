@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     // 「恢复默认尺寸」共用同一处真相，避免两边各写一份数字漂移。
     static let defaultWindowWidth: CGFloat = 450
     static let defaultWindowHeight: CGFloat = 720
+    static let wideWindowWidth: CGFloat = 900
 
     @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
     @Published var sharedIsFile = false   // 仅单项有意义：true=单个文件，false=单个文件夹
@@ -26,7 +27,6 @@ final class AppState: ObservableObject {
     @Published var port: in_port_t = 0    // 实际绑定端口（可能因占用回退而异于 configuredPort）
     @Published var interfaces: [NetworkInterface] = []
     @Published var selectedInterface: NetworkInterface?
-    @Published var localHost: String?
     @Published var lastError: String?
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
     @Published var viewers: [ViewerInfo] = []   // 在线访客明细（设备名 / 完整 IP），最近活跃在前
@@ -39,6 +39,7 @@ final class AppState: ObservableObject {
     @Published var bindSelectedOnly = false         // 仅绑选中网卡（默认关=绑全部接口，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（默认落功能主页）
+    @Published var wideLayout = false               // 当前窗口是否使用宽屏内容布局（仅会话内）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
     @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
@@ -177,11 +178,6 @@ final class AppState: ObservableObject {
         return makeURL(base: "http://\(ip):\(port)")
     }
 
-    var localURL: String? {
-        guard isRunning, port != 0, let host = localHost else { return nil }
-        return makeURL(base: "http://\(host):\(port)")
-    }
-
     var qrImage: NSImage? {
         guard let primaryURL else { return nil }
         return QRCode.image(for: primaryURL)
@@ -193,7 +189,6 @@ final class AppState: ObservableObject {
 
     func refreshNetwork() {
         interfaces = NetworkInfo.privateIPv4Interfaces()
-        localHost = NetworkInfo.localHostName()
         if let sel = selectedInterface, interfaces.contains(sel) { return }
         selectedInterface = interfaces.first
     }
@@ -792,11 +787,25 @@ final class AppState: ObservableObject {
     // 把主窗口恢复到设计默认尺寸：锚定左上角不动（macOS 原点在左下，故顶随高变），带动画回弹。
     // 用 canBecomeMain 过滤掉弹层/面板（popover、NSPanel 均为 false），单窗口 app 只会命中主窗。
     func resetWindowSize() {
+        wideLayout = false
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { return }
         let target = NSSize(width: AppState.defaultWindowWidth, height: AppState.defaultWindowHeight)
         var frame = window.frame
         frame.origin.y = frame.maxY - target.height
         frame.size = target
+        window.setFrame(frame, display: true, animate: true)
+    }
+
+    func toggleWideLayout() {
+        wideLayout.toggle()
+        guard let window = NSApp.keyWindow,
+              let visible = window.screen?.visibleFrame else { return }
+        let maxWidth = max(Self.defaultWindowWidth, visible.width - 24)
+        let width = wideLayout ? min(max(window.frame.width, Self.wideWindowWidth), maxWidth) : Self.defaultWindowWidth
+        var frame = window.frame
+        frame.origin.x += (frame.width - width) / 2
+        frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - width))
+        frame.size.width = width
         window.setFrame(frame, display: true, animate: true)
     }
 }

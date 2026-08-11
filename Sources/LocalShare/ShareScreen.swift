@@ -18,6 +18,7 @@ struct ShareScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
                 Text(L.shareFileTitle(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {
@@ -274,13 +275,6 @@ struct ShareScreen: View {
             Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             CopyPill(t: t, lang: state.lang, value: state.primaryURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)
-            if let local = state.localURL {
-                // 备用地址（主机名 / .local）紧贴主地址、归入卡内，保持内聚。左缩进对齐上方地址文字。
-                BackupAddressRow(t: t, lang: state.lang, full: local) {
-                    if let url = URL(string: local) { NSWorkspace.shared.open(url) }
-                }
-                .padding(.top, 7).padding(.leading, 12)
-            }
             // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
             // 0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {
