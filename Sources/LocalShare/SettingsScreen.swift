@@ -202,6 +202,17 @@ struct SettingsScreen: View {
                             updater.setAutomaticChecks(!updater.automaticChecks)
                         }
                     }
+                    settingRow(top: true,
+                               title: L.manualUpdate(lang),
+                               desc: updater.isActive
+                                    ? L.manualUpdateDescOn(lang)
+                                    : L.manualUpdateDescOff(lang)) {
+                        GhostButton(t: t, title: L.checkForUpdates(lang), systemImage: "arrow.clockwise") {
+                            updater.checkForUpdates()
+                        }
+                        .disabled(!updater.canCheckForUpdates)
+                        .opacity(updater.canCheckForUpdates ? 1 : 0.5)
+                    }
                 }
 
                 // MARK: 命令行工具

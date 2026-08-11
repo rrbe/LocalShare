@@ -34,9 +34,37 @@ cp "$EXT_BIN_PATH" "$EXT/Contents/MacOS/$EXT_BINARY"
 cp "$ROOT/bundle/ShareExtensionInfo.plist" "$EXT/Contents/Info.plist"
 cp "$ROOT/bundle/AppIcon.icns" "$EXT/Contents/Resources/AppIcon.icns"
 
-# 扩展版本号与宿主 app 保持一致；release workflow 会在 build.sh 前改写 bundle/Info.plist。
+# 本地构建时 bundle/Info.plist 仍是占位版本；CI release 会在 build.sh 前按 tag 改写，
+# 因此这里只在占位值仍存在时，用最近的 vX.Y.Z tag 生成一个可用的本地版本号。
+# build number 必须沿用 Sparkle appcast 的 github.run_number 序列；提交数可能更大，
+# 会让本地构建长期收不到正式更新。复用当前正式版的 build number 后，下次 release
+# 的 run number 会自然更大。
 APP_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 APP_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
+if [ "$APP_SHORT_VERSION" = "0.2.0" ] && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    GIT_VERSION="$(git -C "$ROOT" describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
+    if [ -n "$GIT_VERSION" ]; then
+        APP_SHORT_VERSION="${GIT_VERSION#v}"
+        APPCAST_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP/Contents/Info.plist")"
+        if ! APP_BUILD_VERSION="$(
+            /usr/bin/curl --fail --silent --show-error --location --retry 2 --max-time 15 "$APPCAST_URL" \
+                | /usr/bin/xmllint --xpath 'string((//*[local-name()="item"]/*[local-name()="version"])[1])' -
+        )"; then
+            echo "无法从 Sparkle appcast 读取当前 build number: $APPCAST_URL"
+            exit 1
+        fi
+        case "$APP_BUILD_VERSION" in
+            ''|*[!0-9]*)
+                echo "Sparkle appcast 中的 build number 无效: $APP_BUILD_VERSION"
+                exit 1
+                ;;
+        esac
+        /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_SHORT_VERSION" "$APP/Contents/Info.plist"
+        /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_VERSION" "$APP/Contents/Info.plist"
+        echo "==> 本地版本号: $APP_SHORT_VERSION ($APP_BUILD_VERSION)"
+    fi
+fi
+# 扩展版本号与宿主 app 保持一致。
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_SHORT_VERSION" "$EXT/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_VERSION" "$EXT/Contents/Info.plist"
 
