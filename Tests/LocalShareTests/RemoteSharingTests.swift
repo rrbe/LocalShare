@@ -1,54 +1,49 @@
-import Foundation
 import XCTest
 @testable import LocalShare
 
 final class RemoteSharingTests: XCTestCase {
-    func testTokensHave128BitsOfHexEntropy() {
+    func testRemoteSettingsAcceptOnlyBaseServerAddress() {
+        XCTAssertTrue(RemoteSettings(serverAddress: "https://ls.example.com").isValid)
+        XCTAssertEqual(RemoteSettings(serverAddress: "https://ls.example.com/").serverURL?.absoluteString,
+                       "https://ls.example.com")
+        XCTAssertTrue(RemoteSettings(serverAddress: "http://127.0.0.1:8080").isValid)
+        XCTAssertFalse(RemoteSettings(serverAddress: "").isValid)
+        XCTAssertFalse(RemoteSettings(serverAddress: "https://ls.example.com/path").isValid)
+        XCTAssertFalse(RemoteSettings(serverAddress: "https://user:pass@ls.example.com").isValid)
+        XCTAssertFalse(RemoteSettings(serverAddress: "not a url").isValid)
+    }
+
+    func testShareTokenStillHas128BitsOfHexEntropy() {
         let token = Token.generate()
         XCTAssertEqual(token.count, 32)
         XCTAssertTrue(token.allSatisfy { "0123456789abcdef".contains($0) })
     }
 
-    func testRemoteSettingsRequireHttpsAndValidSSHPort() {
-        let valid = RemoteSettings(publicOrigin: "https://share.example.com", sshHost: "relay.example.com",
-                                   sshPort: 2200)
-        XCTAssertTrue(valid.isValid)
-        XCTAssertEqual(valid.customDomain, "share.example.com")
-
-        XCTAssertFalse(RemoteSettings(publicOrigin: "http://share.example.com", sshHost: "relay.example.com",
-                                      sshPort: 2200).isValid)
-        XCTAssertFalse(RemoteSettings(publicOrigin: "https://share.example.com/path", sshHost: "relay.example.com",
-                                      sshPort: 2200).isValid)
-        XCTAssertFalse(RemoteSettings(publicOrigin: "https://share.example.com", sshHost: "relay.example.com",
-                                      sshPort: 0).isValid)
+    @MainActor func testRemoteDataFrameHasOneLengthPrefix() {
+        let frame = RemoteAgent.encodeData("req_1", Data("hello".utf8))
+        XCTAssertEqual(Array(frame.prefix(4)), [0, 0, 0, 5])
+        XCTAssertEqual(String(data: frame.dropFirst(4).dropFirst(5), encoding: .utf8), "hello")
     }
 
-    func testTunnelArgumentsStayDirectAndVerifyHostKeys() {
-        let settings = RemoteSettings(publicOrigin: "https://share.example.com", sshHost: "relay.example.com",
-                                       sshPort: 2200, identityPath: "~/.ssh/localshare")
-        let config = settings.tunnelConfiguration(localAddress: "127.0.0.1", localPort: 18081)!
-        let args = RemoteTunnel.arguments(for: config)
-        XCTAssertTrue(args.contains("StrictHostKeyChecking=yes"))
-        XCTAssertTrue(args.contains("-i"))
-        XCTAssertTrue(args.contains("\(NSHomeDirectory())/.ssh/localshare"))
-        XCTAssertTrue(args.contains(":80:127.0.0.1:18081"))
-        XCTAssertEqual(args.suffix(5), ["http", "--proxy_name", "localshare", "--custom_domain", "share.example.com"])
+    @MainActor func testRemotePairStatusUsesUserDefaultsMarker() {
+        let key = "remotePairedServerAddress"
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.set("http://127.0.0.1:18080", forKey: key)
+        let agent = RemoteAgent()
+        XCTAssertTrue(agent.isPaired(for: URL(string: "http://127.0.0.1:18080")))
+        XCTAssertFalse(agent.isPaired(for: URL(string: "http://127.0.0.1:18081")))
     }
 
-    func testForwardedAddressNeedsTrustedHTTPSProxy() {
-        let headers = [
-            "x-forwarded-proto": "https",
-            "x-forwarded-for": "203.0.113.4, 127.0.0.1",
-        ]
-        XCTAssertEqual(
-            FileServer.forwardedClientAddress(headers: headers, sourceAddress: "127.0.0.1",
-                                               remoteEnabled: true, trustedProxyAddresses: ["127.0.0.1"]),
-            "203.0.113.4"
-        )
-        XCTAssertNil(FileServer.forwardedClientAddress(headers: headers, sourceAddress: "192.168.1.2",
-                                                       remoteEnabled: true, trustedProxyAddresses: ["127.0.0.1"]))
-        XCTAssertNil(FileServer.forwardedClientAddress(headers: ["x-forwarded-proto": "http"],
-                                                       sourceAddress: "127.0.0.1", remoteEnabled: true,
-                                                       trustedProxyAddresses: ["127.0.0.1"]))
+    func testByteRangesSupportPrefixSuffixAndRejectMultipleRanges() {
+        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.start, 2)
+        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.end, 5)
+        XCTAssertEqual(FileServer.byteRange("bytes=-3", size: 10)?.start, 7)
+        XCTAssertEqual(FileServer.byteRange("bytes=8-", size: 10)?.end, 9)
+        XCTAssertNil(FileServer.byteRange("bytes=20-", size: 10))
+        XCTAssertNil(FileServer.byteRange("bytes=0-1,4-5", size: 10))
     }
 }

@@ -95,20 +95,13 @@ final class FileServer {
     var onReceiveText: ((ReceivedText) -> Void)?
 
     // Remote mode is deliberately a server-wide read-only gate: the same origin is
-    // reachable on LAN and through the tunnel, so allowing POST locally would also
-    // expose it publicly. The proxy address allowlist limits forwarded-header trust
-    // to the local SSH connection rather than any arbitrary LAN request.
+    // reachable on LAN and through the remote agent, so allowing POST locally would
+    // also expose it remotely.
     private var _remoteAccessEnabled = false
     var remoteAccessEnabled: Bool {
         get { lock.lock(); defer { lock.unlock() }; return _remoteAccessEnabled }
         set { lock.lock(); _remoteAccessEnabled = newValue; lock.unlock() }
     }
-    private var _trustedProxyAddresses: Set<String> = ["127.0.0.1", "::1"]
-    var trustedProxyAddresses: Set<String> {
-        get { lock.lock(); defer { lock.unlock() }; return _trustedProxyAddresses }
-        set { lock.lock(); _trustedProxyAddresses = newValue; lock.unlock() }
-    }
-
     // 单条文本上限（远小于上传的 500MB）。Swifter 进 middleware 前已把 body 整段读进内存，故同上传只能
     // 事后拒绝；总数上限（收件箱满挤旧）由 AppState 把关——两道一起才挡得住「刷一堆不超单条限的消息撑爆内存」。
     static let textInboxLimit = 64 * 1024
@@ -234,28 +227,6 @@ final class FileServer {
         return String(String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces).prefix(40))
     }
 
-    // Only accept forwarded identity from a request that arrived at a trusted local
-    // tunnel endpoint and carries the HTTPS marker added by Nginx. The first XFF
-    // value is the original browser address; malformed values fall back to req.address.
-    static func forwardedClientAddress(headers: [String: String], sourceAddress: String?,
-                                       remoteEnabled: Bool, trustedProxyAddresses: Set<String>) -> String? {
-        guard remoteEnabled,
-              let sourceAddress,
-              trustedProxyAddresses.contains(sourceAddress),
-              headers["x-forwarded-proto"]?.lowercased() == "https",
-              let raw = headers["x-forwarded-for"]?.split(separator: ",").first else { return nil }
-        let address = raw.trimmingCharacters(in: .whitespaces)
-        guard isIPAddress(address) else { return nil }
-        return address
-    }
-
-    private static func isIPAddress(_ value: String) -> Bool {
-        var v4 = in_addr()
-        if inet_pton(AF_INET, value, &v4) == 1 { return true }
-        var v6 = in6_addr()
-        return inet_pton(AF_INET6, value, &v6) == 1
-    }
-
     init(share: Share, token: String) {
         self._share = share
         self._token = token
@@ -302,13 +273,7 @@ final class FileServer {
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
         let remoteMode = remoteAccessEnabled
-        let forwardedAddress = Self.forwardedClientAddress(
-            headers: req.headers,
-            sourceAddress: req.address,
-            remoteEnabled: remoteMode,
-            trustedProxyAddresses: trustedProxyAddresses
-        )
-        let clientAddress = forwardedAddress ?? req.address
+        let clientAddress = req.address
         // 网页语言逐请求决定：按浏览器 Accept-Language，与原生 app 设置无关。往下穿进每个 HTML 生产者。
         let lang = Lang.fromAcceptLanguage(req.headers["accept-language"])
         // 收件箱开启：listing 页（同上传表单的出现条件）多挂一张「发文本给电脑」表单。每请求取一次快照。
@@ -325,8 +290,7 @@ final class FileServer {
         // 不设 Max-Age：随浏览器会话走；token 轮换后旧值反正立即失效。页面 JS 不读它，HttpOnly。
         var extra: [String: String] = [:]
         if viaQuery, !viaCookie {
-            let secure = forwardedAddress != nil ? "; Secure" : ""
-            extra["Set-Cookie"] = "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly\(secure)"
+            extra["Set-Cookie"] = "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly"
         }
 
         // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。
@@ -364,6 +328,7 @@ final class FileServer {
         // 壳页自身的取文 fetch（Accept */*）拿原始文件；?raw=1 为显式逃生门（页角「查看原文」）。
         let rawRequested = req.queryParams.contains { $0.0 == "raw" && $0.1 == "1" }
         let wantsViewer = !rawRequested && (req.headers["accept"] ?? "").contains("text/html")
+        let rangeHeader = req.headers["range"]
 
         // 分享文本端点（保留路径，先于分享内容路由；与 /ls/ping 同款）：导航发文本预览壳页，
         // ?raw=1 / curl（Accept */*）发 text/plain 原文。无分享文本时 404。token 清洗的 302 已在上面处理，
@@ -421,7 +386,8 @@ final class FileServer {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
             }
-            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, canReceiveText: recvOn, lang: lang, extra: extra)
+            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, canReceiveText: recvOn,
+                                   lang: lang, extra: extra, range: rangeHeader)
         }
 
         // 多选模式：虚拟根列出选中项；首段 key 映射到对应真实项后落地（目录项再走子树服务）。
@@ -447,11 +413,13 @@ final class FileServer {
                     return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
                 }
                 let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang, extra: extra)
+                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, canReceiveText: recvOn,
+                                       lang: lang, extra: extra, range: rangeHeader)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
                              decodedPath: decodedPath, rootName: rootName,
-                             canUpload: false, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra)
+                             canUpload: false, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra,
+                             range: rangeHeader)
         }
 
         guard case .directory(let rootURL) = share else { return .internalServerError }
@@ -459,17 +427,18 @@ final class FileServer {
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
                          canUpload: uploadEnabled && !remoteMode, canReceiveText: recvOn,
-                         viewer: wantsViewer, lang: lang, extra: extra)
+                         viewer: wantsViewer, lang: lang, extra: extra, range: rangeHeader)
     }
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
     // 其余发文件本体。新增预览类型只需在此登记，壳页骨架见 PreviewPage。
     private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
-                                 canUpload: Bool, canReceiveText: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
+                                 canUpload: Bool, canReceiveText: Bool, lang: Lang, extra: [String: String],
+                                 range: String? = nil) -> HttpResponse {
         if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang) {
             return htmlResponse(200, "OK", html, extra: extra)
         }
-        return fileResponse(url, lang: lang, extra: extra)
+        return fileResponse(url, lang: lang, extra: extra, range: range)
     }
 
     private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool, canReceiveText: Bool, lang: Lang) -> String? {
@@ -505,7 +474,8 @@ final class FileServer {
     // 单根目录与多选里的每个目录项共用此函数（多选时 rootURL=项目本身、relPath=去掉 key 段后的剩余）。
     private func serveTree(rootURL: URL, relPath: String, encodedPath: String,
                            decodedPath: String, rootName: String, canUpload: Bool,
-                           canReceiveText: Bool, viewer: Bool, lang: Lang, extra: [String: String]) -> HttpResponse {
+                           canReceiveText: Bool, viewer: Bool, lang: Lang, extra: [String: String],
+                           range: String? = nil) -> HttpResponse {
         // 防目录穿越：判据抽进 resolveWithinRoot，与 handleUpload 共用一份，避免两处漂移。
         guard let target = Self.resolveWithinRoot(rootURL, relPath: relPath) else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
@@ -527,7 +497,7 @@ final class FileServer {
             }
             let indexURL = target.appendingPathComponent("index.html")
             if fm.fileExists(atPath: indexURL.path) {
-                return fileResponse(indexURL, lang: lang, extra: extra)
+                return fileResponse(indexURL, lang: lang, extra: extra, range: range)
             }
             let html = DirectoryListing.html(directory: target, requestPath: decodedPath,
                                              rootName: rootName, canUpload: canUpload,
@@ -536,7 +506,8 @@ final class FileServer {
         }
 
         let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang, extra: extra)
+        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText,
+                               lang: lang, extra: extra, range: range)
     }
 
     // MARK: - 收文本处理
@@ -689,27 +660,62 @@ final class FileServer {
         return .raw(code, reason, headers) { writer in try? writer.write(body) }
     }
 
-    private func fileResponse(_ url: URL, lang: Lang, extra: [String: String]) -> HttpResponse {
+    private func fileResponse(_ url: URL, lang: Lang, extra: [String: String], range: String? = nil) -> HttpResponse {
         var headers = extra
         headers["Content-Type"] = Mime.contentType(forExtension: url.pathExtension)
         // 关掉浏览器的 MIME 猜测兜底：一律按上面声明的类型处理。已正确声明类型的文件照常内联显示，
         // 未知类型本就回退 octet-stream 下载——nosniff 只是确保它不会被某些浏览器猜成 HTML 执行。
         headers["X-Content-Type-Options"] = "nosniff"
-        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-            headers["Content-Length"] = String(size)
+        let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        headers["Accept-Ranges"] = "bytes"
+        var status = 200
+        var start: Int64 = 0
+        var length = size
+        if let range, !range.isEmpty {
+            guard let selected = Self.byteRange(range, size: size) else {
+                headers["Content-Range"] = "bytes */\(size)"
+                headers["Content-Length"] = "0"
+                return .raw(416, "Range Not Satisfiable", headers, nil)
+            }
+            status = 206
+            start = selected.start
+            length = selected.end - selected.start + 1
+            headers["Content-Range"] = "bytes \(selected.start)-\(selected.end)/\(size)"
         }
-        return .raw(200, "OK", headers) { writer in
+        headers["Content-Length"] = String(length)
+        return .raw(status, status == 206 ? "Partial Content" : "OK", headers) { writer in
             guard let handle = try? FileHandle(forReadingFrom: url) else {
                 try? writer.write(Data(L.webReadFailed(lang).utf8))
                 return
             }
             defer { try? handle.close() }
-            while true {
-                let chunk = handle.readData(ofLength: 64 * 1024)
+            if start > 0 { try? handle.seek(toOffset: UInt64(start)) }
+            var remaining = length
+            while remaining > 0 {
+                let chunk = handle.readData(ofLength: Int(min(Int64(64 * 1024), remaining)))
                 if chunk.isEmpty { break }
                 try writer.write(chunk)
+                remaining -= Int64(chunk.count)
             }
         }
+    }
+
+    static func byteRange(_ header: String, size: Int64) -> (start: Int64, end: Int64)? {
+        guard size > 0,
+              header.lowercased().hasPrefix("bytes="),
+              let value = header.dropFirst(6).split(separator: ",", omittingEmptySubsequences: false).first,
+              !header.dropFirst(6).contains(","),
+              let dash = value.firstIndex(of: "-") else { return nil }
+        let first = value[..<dash].trimmingCharacters(in: .whitespaces)
+        let last = value[value.index(after: dash)...].trimmingCharacters(in: .whitespaces)
+        if first.isEmpty {
+            guard let suffix = Int64(last), suffix > 0 else { return nil }
+            return (max(0, size - suffix), size - 1)
+        }
+        guard let start = Int64(first), start >= 0, start < size else { return nil }
+        let end = last.isEmpty ? size - 1 : (Int64(last) ?? -1)
+        guard end >= start else { return nil }
+        return (start, min(end, size - 1))
     }
 
     // 分享文本的原文响应（?raw=1 / curl）：text/plain；带 Content-Length 让客户端显示进度、知道何时收完。

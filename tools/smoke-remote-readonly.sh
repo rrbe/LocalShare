@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 防回归冒烟测：远程模式只读、拒绝 POST、并只在受信任 HTTPS 转发请求上使用 Secure cookie。
+# 防回归冒烟测：远程模式只读，并验证文件流支持 Range。
 set -u
 
 BIN="${BIN:-.build/debug/LocalShare}"
@@ -34,10 +34,11 @@ S=$(curl -s -o /dev/null -w '%{http_code}' -X POST -F 'f=@/etc/hosts' "$base/?t=
 S=$(curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary 'x' "$base/ls/text?t=$TOK")
 [ "$S" = "405" ] && ok "收文本 405" || bad "收文本应 405 实为 $S"
 
-echo "── 仅受信任 HTTPS 转发请求的 cookie 带 Secure"
-H=$(curl -s -D - -o /dev/null -H 'Accept: text/html' \
-  -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 203.0.113.4' "$base/?t=$TOK")
-echo "$H" | grep -qi '^Set-Cookie:.*Secure' && ok "Secure cookie" || bad "缺 Secure cookie"
+echo "── 远程模式仍可读取并支持 Range"
+S=$(curl -s -o /dev/null -w '%{http_code}' "$base/a.txt?t=$TOK")
+[ "$S" = "200" ] && ok "读取 200" || bad "读取应 200 实为 $S"
+S=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-1' "$base/a.txt?t=$TOK")
+[ "$S" = "206" ] && ok "Range 206" || bad "Range 应 206 实为 $S"
 
 echo
 echo "结果：PASS=$PASS  FAIL=$FAIL"

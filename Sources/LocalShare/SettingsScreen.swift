@@ -8,10 +8,8 @@ struct SettingsScreen: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
-    @State private var remoteOriginText = ""
-    @State private var remoteSSHHostText = ""
-    @State private var remoteSSHPortText = ""
-    @State private var remoteIdentityText = ""
+    @State private var remoteServerText = ""
+    @State private var remoteKeyText = ""
     var body: some View {
         // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
         // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
@@ -111,16 +109,14 @@ struct SettingsScreen: View {
                 // MARK: 远程访问
                 eyebrow(L.sectionRemote(lang))
                 groupBox {
-                    remoteField(title: L.remotePublicOrigin(lang), text: $remoteOriginText)
-                    remoteField(title: L.remoteSSHHost(lang), text: $remoteSSHHostText, top: true)
-                    remoteField(title: L.remoteSSHPort(lang), text: $remoteSSHPortText, top: true, width: 72,
-                                numbersOnly: true)
-                    remoteField(title: L.remoteIdentityPath(lang), text: $remoteIdentityText, top: true)
+                    remoteField(title: L.remoteServerAddress(lang), text: $remoteServerText)
+                    if !state.remotePaired {
+                        remoteField(title: L.remoteEnrollmentKey(lang), text: $remoteKeyText, top: true)
+                    }
                     HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "lock.shield").font(.system(size: 13)).foregroundStyle(t.accent)
+                        Image(systemName: "key.horizontal").font(.system(size: 13)).foregroundStyle(t.accent)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(L.remoteHTTPSHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                            Text(L.remoteHostKeyHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            Text(L.remotePairHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
                         }
                         Spacer(minLength: 0)
                     }
@@ -129,6 +125,11 @@ struct SettingsScreen: View {
                         Spacer()
                         GhostButton(t: t, title: L.remoteSave(lang), systemImage: "checkmark") {
                             saveRemoteSettings()
+                        }
+                        if state.remotePaired {
+                            Button { state.forgetRemoteDevice() } label: {
+                                Text(L.remoteForget(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.danger)
+                            }.buttonStyle(.plain)
                         }
                     }
                     .padding(.bottom, 12)
@@ -273,10 +274,8 @@ struct SettingsScreen: View {
         }
         .onAppear {
             portText = String(state.configuredPort)
-            remoteOriginText = state.remoteSettings.publicOrigin
-            remoteSSHHostText = state.remoteSettings.sshHost
-            remoteSSHPortText = String(state.remoteSettings.sshPort)
-            remoteIdentityText = state.remoteSettings.identityPath
+            remoteServerText = state.remoteSettings.serverAddress
+            remoteKeyText = state.remoteEnrollmentKey
             state.refreshCLIStatus()
         }
     }
@@ -400,11 +399,7 @@ struct SettingsScreen: View {
     }
 
     private func saveRemoteSettings() {
-        state.saveRemoteSettings(RemoteSettings(
-            publicOrigin: remoteOriginText,
-            sshHost: remoteSSHHostText,
-            sshPort: Int(remoteSSHPortText) ?? 0,
-            identityPath: remoteIdentityText
-        ))
+        state.saveRemoteSettings(RemoteSettings(serverAddress: remoteServerText), enrollmentKey: remoteKeyText)
+        remoteKeyText = ""
     }
 }

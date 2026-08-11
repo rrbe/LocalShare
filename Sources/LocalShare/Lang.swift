@@ -104,8 +104,8 @@ enum L: CaseIterable {
     case bindOnlyTitle, bindOnlyDescMulti, bindOnlyDescSingle
 
     // 设置 —— 远程访问
-    case remotePublicOrigin, remoteSSHHost, remoteSSHPort, remoteIdentityPath, remoteSave
-    case remoteHTTPSHint, remoteHostKeyHint
+    case remoteServerAddress, remoteEnrollmentKey, remoteSave, remoteConnect, remoteDisconnect, remoteForget
+    case remotePairHint
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
@@ -116,9 +116,8 @@ enum L: CaseIterable {
     case permInfoWritable, permInfoReadonly, plaintextWarning
 
     // 远程访问
-    case remoteAccess, remoteAccessDesc, remoteConfigHint, remoteConfigInvalid
-    case remoteConnecting, remoteOnline, remoteOffline, remoteRetry, remoteStop
-    case remoteExpired, remoteReadOnly
+    case remoteAccess, remoteAccessDesc, remoteConfigHint
+    case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly
 
     // 设置 —— 外观
     case appearanceFollow, appearanceLight, appearanceDark
@@ -270,15 +269,14 @@ enum L: CaseIterable {
         case .bindOnlyDescSingle: return ("只在当前网络开放，日后接入别的网络时也访问不到",
                                           "Open only on the current network; future networks won't reach it either")
 
-        case .remotePublicOrigin: return ("公共地址", "Public origin")
-        case .remoteSSHHost:      return ("SSH 主机", "SSH host")
-        case .remoteSSHPort:      return ("SSH 端口", "SSH port")
-        case .remoteIdentityPath: return ("SSH 私钥路径（可选）", "SSH identity path (optional)")
-        case .remoteSave:         return ("保存远程设置", "Save remote settings")
-        case .remoteHTTPSHint:    return ("需要 HTTPS 地址，例如 https://share.example.com",
-                                          "Use an HTTPS origin, for example https://share.example.com")
-        case .remoteHostKeyHint:  return ("SSH 使用系统 known_hosts 严格校验；先确认服务器指纹已登记。",
-                                          "SSH uses the system known_hosts with strict verification; add the server fingerprint first.")
+        case .remoteServerAddress: return ("Server 地址", "Server address")
+        case .remoteEnrollmentKey: return ("配对 Key", "Enrollment key")
+        case .remoteSave:         return ("保存", "Save")
+        case .remoteConnect:      return ("Connect", "Connect")
+        case .remoteDisconnect:   return ("Disconnect", "Disconnect")
+        case .remoteForget:       return ("忘记此 Server", "Forget this server")
+        case .remotePairHint:     return ("首次连接需要管理员生成的一次性 Key；配对后凭证会安全保存。",
+                                          "The first connection needs a one-time key from the server administrator; the device credential is saved after pairing.")
 
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
@@ -298,17 +296,13 @@ enum L: CaseIterable {
                                          "Traffic isn't encrypted on the LAN · on public Wi-Fi (cafés, airports) others on the network may see the content. Don't share sensitive files there.")
 
         case .remoteAccess:      return ("远程访问", "Remote Access")
-        case .remoteAccessDesc:  return ("通过你的 HTTPS 地址，让浏览器跨网络只读访问当前分享。",
-                                          "Let a browser read the current share through your HTTPS origin.")
-        case .remoteConfigHint:  return ("先在设置中填写公共地址和 SSH 连接信息。",
-                                          "Add the public origin and SSH connection details in Settings first.")
-        case .remoteConfigInvalid: return ("远程设置不完整或无效。", "Remote settings are incomplete or invalid.")
+        case .remoteAccessDesc:  return ("通过 LocalShare Server，让浏览器跨网络只读访问当前分享。",
+                                          "Let a browser read the current share through LocalShare Server.")
+        case .remoteConfigHint:  return ("先在设置中填写 Server 地址和配对 Key。",
+                                          "Enter the Server address and enrollment key in Settings first.")
         case .remoteConnecting:   return ("连接中", "Connecting")
         case .remoteOnline:       return ("在线", "Online")
         case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
-        case .remoteRetry:        return ("重试", "Retry")
-        case .remoteStop:         return ("停止远程访问", "Stop remote access")
-        case .remoteExpired:      return ("远程分享已过期，旧链接已失效。", "Remote sharing expired; the old link is no longer valid.")
         case .remoteReadOnly:     return ("远程访问为只读。", "Remote access is read-only.")
 
         case .appearanceFollow: return ("跟随系统", "System")
@@ -470,13 +464,6 @@ enum L: CaseIterable {
 
 // 语序、复数、数字位置中英各异，故不入 key→value 表，由函数按 lang 拼装。
 enum LStr {
-    static func remoteExpiry(_ date: Date, _ lang: Lang) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = lang == .zh ? Locale(identifier: "zh_CN") : Locale(identifier: "en_US")
-        formatter.dateFormat = lang == .zh ? "M月d日 HH:mm 失效" : "expires MMM d, HH:mm"
-        return formatter.string(from: date)
-    }
-
     // "3 项" / "3 items"（目录元信息、计数、describeShared 共用）
     static func itemCount(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 项" : "\(n) item\(n == 1 ? "" : "s")"

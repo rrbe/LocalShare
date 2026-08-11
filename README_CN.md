@@ -22,7 +22,7 @@
 - 支持分享后，由对端反向传输文件、文本
 - 显示当前在线访客
 - 命令行 `localshare` 命令：唤起窗口分享，或 `--headless` 在终端显示链接和二维码
-- 可选通过自有 HTTPS 地址和 frp SSH 网关远程访问；远程分享只读，默认一小时后失效
+- 可选通过自托管 LocalShare Server 远程访问浏览器；远程分享只读
 
 ## 为什么有这个 app
 
@@ -43,7 +43,7 @@
 
 ### 远程浏览器分享
 
-在「设置」里填写 HTTPS 公共地址、转发服务器 SSH 主机/端口和可选私钥路径，然后在正在分享的票据上打开「远程访问」。这需要按[远程分享计划](docs/REMOTE_SHARING_PLAN.md)部署自有 Nginx + frp SSH 网关，对端设备只需浏览器；转发服务器属于信任边界，远程访问只读，默认一小时后失效。
+运行自包含的 [`localshare-server`](server/README.md)，生成一次性 Enrollment Key，在「设置」里填写 Server 地址和 key。配对后设备凭据会保存到 Keychain；正在分享时只需点击 Connect/Disconnect，对端设备只需浏览器。详见[远程分享计划](docs/REMOTE_SHARING_PLAN.md)。
 
 ## 终端用法
 

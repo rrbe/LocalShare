@@ -11,7 +11,7 @@ import Foundation
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
-//   LS_REMOTE   置 1 模拟远程只读策略（仅用于本地回归，不启动 SSH 隧道）
+//   LS_REMOTE   置 1 模拟远程只读策略（仅用于本地回归，不启动远程 Agent）
 enum HeadlessServer {
     static func run() {
         let env = ProcessInfo.processInfo.environment

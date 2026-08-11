@@ -59,39 +59,41 @@ struct ShareScreen: View {
                     Text(L.remoteAccessDesc(state.lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
                 }
                 Spacer(minLength: 8)
-                ToggleSwitch(t: t, isOn: state.remoteAccessEnabled,
-                             locked: !state.remoteAccessEnabled && !state.canEnableRemote) {
-                    state.setRemoteAccessEnabled(!state.remoteAccessEnabled)
+                if state.remoteAccessEnabled {
+                    GhostButton(t: t, title: L.remoteDisconnect(state.lang), systemImage: "xmark.circle") {
+                        state.disconnectRemote()
+                    }
+                } else {
+                    GhostButton(t: t, title: L.remoteConnect(state.lang), systemImage: "link") {
+                        state.connectRemote(enrollmentKey: state.remoteEnrollmentKey)
+                    }
+                    .disabled(!state.canEnableRemote)
                 }
             }
             if state.remoteAccessEnabled {
-                if let url = state.remoteURL {
-                    CopyPill(t: t, lang: state.lang, value: url, compact: true) {
-                        if let url = URL(string: url) { NSWorkspace.shared.open(url) }
-                    }
-                }
                 HStack(spacing: 7) {
+                    Text(state.remoteSettings.serverAddress)
+                        .font(.mono(11.5))
+                        .foregroundStyle(t.inkMute)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Circle().fill(remoteStatusColor).frame(width: 7, height: 7)
                     Text(remoteStatusText).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
-                    Spacer()
-                    if state.remoteStatus == .offline {
-                        GhostButton(t: t, title: L.remoteRetry(state.lang), systemImage: "arrow.clockwise") {
-                            state.retryRemoteAccess()
-                        }
+                    if state.remoteStatus == .reconnecting {
+                        Text(L.remoteOffline(state.lang)).font(.sans(11)).foregroundStyle(t.inkMute)
                     }
-                    GhostButton(t: t, title: L.remoteStop(state.lang)) {
-                        state.setRemoteAccessEnabled(false)
-                    }
-                }
-                if let expires = state.remoteExpiresAt {
-                    Text(LStr.remoteExpiry(expires, state.lang)).font(.mono(10.5)).foregroundStyle(t.inkFaint)
                 }
                 if let error = state.remoteError, !error.isEmpty {
                     Text(error).font(.sans(11)).foregroundStyle(t.danger).lineLimit(2)
                 }
-            } else {
-                Text(state.remoteError ?? (state.remoteSettings.isValid ? L.remoteAccessDesc(state.lang) : L.remoteConfigHint(state.lang)))
-                    .font(.sans(11.5)).foregroundStyle(state.remoteError == nil ? t.inkMute : t.danger)
+            } else if let error = state.remoteError, !error.isEmpty {
+                Text(error)
+                    .font(.sans(11.5)).foregroundStyle(t.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !state.remoteSettings.isValid {
+                Text(L.remoteConfigHint(state.lang))
+                    .font(.sans(11.5)).foregroundStyle(t.inkMute)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -103,18 +105,18 @@ struct ShareScreen: View {
     private var remoteStatusText: String {
         switch state.remoteStatus {
         case .connecting: return L.remoteConnecting(state.lang)
-        case .online: return L.remoteOnline(state.lang)
-        case .offline: return L.remoteOffline(state.lang)
-        case .disabled: return L.remoteConfigHint(state.lang)
+        case .connected: return L.remoteOnline(state.lang)
+        case .reconnecting: return L.remoteOffline(state.lang)
+        case .disconnected: return L.remoteConfigHint(state.lang)
         }
     }
 
     private var remoteStatusColor: Color {
         switch state.remoteStatus {
-        case .online: return t.ok
-        case .offline: return t.danger
+        case .connected: return t.ok
+        case .reconnecting: return t.danger
         case .connecting: return t.warn
-        case .disabled: return t.inkFaint
+        case .disconnected: return t.inkFaint
         }
     }
 

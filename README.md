@@ -22,7 +22,7 @@ A small macOS app that moves files and text between your Mac and other devices (
 - After you share, the other end can send files and text back
 - Shows who's currently viewing
 - `localshare` command line: bring up the window to share, or `--headless` to print the link and QR code in the terminal
-- Optional remote access through your own HTTPS origin and frp SSH gateway; remote shares are read-only and expire after one hour
+- Optional browser-only remote access through a self-hosted LocalShare Server; remote shares are read-only
 
 ## Why this app exists
 
@@ -43,7 +43,7 @@ The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`
 
 ### Remote browser sharing
 
-Configure your HTTPS origin, relay SSH host, port, and optional identity in Settings, then enable Remote Access on an active share. This requires the user-owned Nginx + frp SSH gateway described in [the remote-sharing plan](docs/REMOTE_SHARING_PLAN.md); the receiving device only needs a browser. The relay is inside the trust boundary, and remote access is read-only with a one-hour lifetime.
+Run the self-contained [`localshare-server`](server/README.md), create a one-time Enrollment Key, then enter the Server address and key in Settings. After pairing, the app remembers the device credential in Keychain; active shares use Connect/Disconnect and the receiving device only needs a browser. See the [remote-sharing plan](docs/REMOTE_SHARING_PLAN.md).
 
 ## Terminal usage
 

@@ -21,15 +21,15 @@ The typical crash this project avoids is an arm64 binary that **misses a dynamic
 | Area | Decision |
 |---|---|
 | Platform | macOS only, native `.app`, Apple Silicon first |
-| Network | Same Wi-Fi / LAN by default; optional user-owned Nginx + frp SSH gateway; no receiver app, VPN, or account |
+| Network | Same Wi-Fi / LAN by default; optional self-hosted LocalShare Server with one outbound WebSocket; no receiver app or VPN |
 | Stack | Swift / SwiftUI, system frameworks only, no external package dylib risk |
 | HTTP server | Swifter from SPM source, primarily read-only static serving |
 | Share model | Three shapes: single folder -> mobile-friendly directory listing, serving `index.html` directly when present; single file -> scan opens the file and sibling files are not exposed; multiple files/folders -> synthetic virtual root listing selected items, with the first path segment mapped to a real URL. All shapes block directory traversal, each item using its own root |
 | Auth | Every share action creates a random token embedded in the QR URL as `?t=...`; first visit validates it and sets a session cookie; later resources are allowed by cookie. Changing or stopping a share rotates the token immediately, invalidating old links, cookies, and QR codes. Anyone guessing `IP:port` receives 403 |
-| Protocol | LAN uses plain HTTP; remote mode uses the configured HTTPS origin terminated by the user's Nginx. A 128-bit token blocks guessed addresses, rotates on share boundaries, and expires remote access after one hour |
+| Protocol | LAN uses the existing HTTP FileServer; remote mode uses the Server's HTTP/WebSocket relay. Device and share tokens are high-entropy and rotate at share boundaries |
 | QR code | Uses the public origin while remote mode is active, otherwise the selected LAN IP; generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. Window keeps the LAN `.local` fallback |
 | GUI | Single window: functional home screen with drag/drop and picker, Text Transfer entry, and Recent Shares; file ticket, Text Transfer, Settings, and History are secondary pages with back navigation |
-| Lifecycle | Cold launch does **not** replay the last share or remote switch. The app starts on the home screen; the last share remains in Recent Shares for one-click restart. Closing the window does not quit; process, server, and an enabled tunnel continue running, and menu bar activation restores the previous screen. Ports are selected automatically; service and tunnel stop on app quit |
+| Lifecycle | Cold launch does **not** replay the last share or remote switch. The app starts on the home screen; the last share remains in Recent Shares for one-click restart. Closing the window does not quit; process and server continue running, and menu bar activation restores the previous screen. Ports are selected automatically; an enabled remote agent stops on app quit |
 | Distribution | Xcode ad-hoc signing. The first Gatekeeper approval is handled manually and then remembered by macOS |
 | Automatic updates | Sparkle bundled through `@rpath`; background checks, user-confirmed update prompt, EdDSA trust chain independent of ad-hoc code signing and notarization |
 | Sandbox | App Sandbox is off because this is internally distributed and must read arbitrary user-selected folders |
@@ -52,6 +52,7 @@ LocalShare/
   DESIGN.md                # Visual design spec; source references use section numbers from this file
   docs/
     ARCHITECTURE.md        # This file
+    REMOTE_SHARING_PLAN.md # LocalShare Server, pairing, relay, and client flow
     images/                # README screenshots
   Sources/LocalShare/
     App.swift              # @main EntryPoint: GUI / headless / CLI dispatch; LocalShareApp and AppDelegate
@@ -67,7 +68,7 @@ LocalShare/
     MarkdownViewer / JsonViewer / CsvViewer  # Preview cards; Markdown uses vendored marked; JSON/CSV are zero-dependency
     MarkedJS.swift         # Vendored marked compiled as a Swift string constant
     SendTextPage / TextViewer  # Text Transfer: phone -> Mac send page and text preview shell
-    RemoteTunnel.swift     # HTTPS-origin settings and direct /usr/bin/ssh reverse tunnel
+    RemoteAgent.swift      # Server pairing, Keychain device token, WebSocket relay, reconnect
     NetworkInfo.swift      # getifaddrs -> private IPv4 candidates and .local hostname
     QRCode.swift           # CoreImage QR -> NSImage, plus terminal ANSI output
     Token.swift / Mime.swift   # Random token and extension -> MIME mapping with charset=utf-8 for text
@@ -79,6 +80,7 @@ LocalShare/
     main.swift / ShareController.swift  # Finder/System Share menu bridge; forwards file URLs to the host app
   Tests/LocalShareTests/   # XCTest pure-function tests: traversal, filename sanitation, multi-share keys, i18n, text
   tools/                   # Headless + curl smoke scripts: traversal, filenames, multiselect, upload defang, token 302, remote read-only, md links, language, text
+  server/                  # Separate Go module: self-contained Control Plane and Data Relay binary
 ```
 
 `@main enum EntryPoint` has three dispatch layers: `LS_HEADLESS=1` -> `HeadlessServer`; matching `CLI.parse` argv -> `CLI.run`; otherwise `LocalShareApp` (SwiftUI). All three paths share the same `FileServer`, which keeps request logic from forking.
@@ -99,7 +101,7 @@ LocalShare/
 2. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
 3. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
 4. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
-5. **Remote policy**: while remote mode is enabled, only `GET` and `HEAD` are accepted, upload and text-receive routes disappear, and `ls_token` receives `Secure` only for a request from the trusted local tunnel with `X-Forwarded-Proto: https`. `X-Forwarded-For` is used for presence only in that same case.
+5. **Remote policy**: while remote mode is enabled, only `GET` and `HEAD` are accepted, and upload and text-receive routes disappear. The Server authenticates its own Share Token and never forwards browser credentials to the Mac.
 
 Single-folder serving extracts steps 2-4 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
 
@@ -127,16 +129,16 @@ When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address
 
 ### Remote Sharing
 
-Remote settings persist only the HTTPS origin, SSH host/port, and optional identity path. The switch is session-only and starts `/usr/bin/ssh` directly with `BatchMode`, `ExitOnForwardFailure`, keepalives, and `StrictHostKeyChecking=yes`; the system SSH agent, config, and `known_hosts` remain the trust store. The tunnel forwards the actual LocalShare listen address, so current-network-only binding remains valid.
+Remote settings persist the Server address. The first connection also accepts a one-time Enrollment Key, exchanges it for a Device Token, and stores that token in macOS Keychain. `RemoteAgent` then opens an outbound WebSocket to `/api/v1/agent`, registers the current share, and retries with a 1–60 second capped backoff.
 
-`RemoteTunnel` reports connecting/online/offline state and retries with a 1–60 second capped backoff. Changing share content only updates the locked `FileServer` state and rotates the token; stopping the share, disabling remote mode, app termination, or the one-hour expiry stops the tunnel. Expiry also rotates the token while leaving the LAN share available.
+The Server combines the Control Plane and Data Relay on one public port. Browser requests use `/share/<share-token>/...`; the Server sends them over the existing WebSocket to the Client, which calls its local `FileServer` and streams the response back. The Client keeps the existing token and traversal logic as the single source of file-serving truth. Remote mode is read-only and does not restore on cold launch; Connect/Disconnect controls the session while Forget Device removes the Keychain credential.
 
 ### AppState and Lifecycle
 
 - Single source of truth is `sharedItems: [URL]`: empty, single, or multiple. Derived values include `isMultiple`, `isEmpty`, and convenience `sharedURL`.
 - **Cold launch does not restore sharing**. `init` does not read the last share back into `sharedItems`, and no file service starts automatically. Quietly serving a folder on LAN after opening the app would be unsafe. The last share remains available in Recent Shares (`RecentShare.paths`) for manual restart. Text inbox can auto-start only when explicitly enabled.
 - Closing the window does **not** quit. The process and service continue; `@StateObject` is created once per process, so reactivating the app returns to the previous screen.
-- Remote access is opt-in per session. It is forced read-only, never restored on cold launch, and the public URL/QR replace the LAN primary URL only while the switch is enabled. A disconnected tunnel retries without changing the expiry deadline.
+- Remote access is opt-in per session. It is forced read-only, never restored on cold launch, and the Server URL/QR replace the LAN primary URL only after share registration. A disconnected agent retries and re-registers the current share.
 - Port preference order is `[8080, 8000, 8888, 9000]`; if all fail, choose a random high port.
 - **Changing a share does not restart the server** when the port is unchanged. The lock updates `share` and `token`, with the key changed before the content to prevent an old token from briefly reading the new share.
 
@@ -193,6 +195,9 @@ swift test                      # XCTest pure-function tests
 ./build.sh                      # Assemble and ad-hoc sign -> dist/LocalShare.app
 open dist/LocalShare.app        # Local GUI smoke test
 
+cd server && go test ./...      # LocalShare Server unit tests
+go build -o localshare-server ./server
+
 # Headless end-to-end test for server logic
 LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debug/LocalShare &
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # Should return a directory listing or index.html
@@ -210,7 +215,7 @@ Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable uplo
 
 - Apple notarization, which requires a paid developer account.
 - HTTPS with a self-signed certificate, which would replace scan-to-use with certificate warnings.
-- Vendor tunnel clients such as cloudflared, ngrok, or Tailscale; the first remote mode uses the user-owned Nginx/frp gateway and system SSH only.
+- SSH/frp/Nginx/Tailscale/Cloudflare tunnel integration; the remote path is the self-contained LocalShare Server. These remain possible transport or deployment references, not Client runtime dependencies.
 - **Online edit/delete in the browser**. This is intentionally not supported: mobile browser editing is poor, overwrite/delete risks are high, and guest upload already covers the primary phone -> Mac need. `Permission.edit` and `Permission.del` remain `false`.
 
 **Potential future work:**
