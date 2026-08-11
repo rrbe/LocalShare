@@ -12,6 +12,7 @@ struct NoNetworkScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
                 Text(L.shareFileTitle(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {

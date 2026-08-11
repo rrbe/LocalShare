@@ -27,7 +27,7 @@ The typical crash this project avoids is an arm64 binary that **misses a dynamic
 | Share model | Three shapes: single folder -> mobile-friendly directory listing, serving `index.html` directly when present; single file -> scan opens the file and sibling files are not exposed; multiple files/folders -> synthetic virtual root listing selected items, with the first path segment mapped to a real URL. All shapes block directory traversal, each item using its own root |
 | Auth | Every share action creates a random token embedded in the QR URL as `?t=...`; first visit validates it and sets a session cookie; later resources are allowed by cookie. Changing or stopping a share rotates the token immediately, invalidating old links, cookies, and QR codes. Anyone guessing `IP:port` receives 403 |
 | Protocol | Plain HTTP. Threat model: block people who only guess the address; do not protect against same-network sniffing or forwarded links. Token rotation limits forwarded-link lifetime to the current share. Self-signed TLS would turn scan-to-use into certificate warnings, so it is intentionally not used |
-| QR code | Raw LAN IP selected from network candidates; generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. Window also shows a `.local` fallback and copyable URL |
+| QR code | Raw LAN IP selected from network candidates; generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. The copyable URL can expand to show the full address |
 | GUI | Single window: functional home screen with drag/drop and picker, Text Transfer entry, and Recent Shares; file ticket, Text Transfer, Settings, and History are secondary pages with back navigation |
 | Lifecycle | Cold launch does **not** replay the last share. The app starts on the home screen; the last share remains in Recent Shares for one-click restart. Closing the window does not quit; process and server continue running, and menu bar activation restores the previous screen. Ports are selected automatically; service stops on app quit |
 | Distribution | Xcode ad-hoc signing. The first Gatekeeper approval is handled manually and then remembered by macOS |
@@ -67,7 +67,7 @@ LocalShare/
     MarkdownViewer / JsonViewer / CsvViewer  # Preview cards; Markdown uses vendored marked; JSON/CSV are zero-dependency
     MarkedJS.swift         # Vendored marked compiled as a Swift string constant
     SendTextPage / TextViewer  # Text Transfer: phone -> Mac send page and text preview shell
-    NetworkInfo.swift      # getifaddrs -> private IPv4 candidates and .local hostname
+    NetworkInfo.swift      # getifaddrs -> private IPv4 candidates
     QRCode.swift           # CoreImage QR -> NSImage, plus terminal ANSI output
     Token.swift / Mime.swift   # Random token and extension -> MIME mapping with charset=utf-8 for text
     Lang.swift             # i18n string tables compiled into the binary: L / LStr / i18nJSON

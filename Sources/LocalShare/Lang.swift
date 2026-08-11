@@ -136,8 +136,8 @@ enum L: CaseIterable {
     case showLocalShare, quit, checkForUpdates
 
     // 组件 help / 标签
-    case clearShareHelp, idle, copy, openInBrowser, copyBackup
-    case revealFileHelp, openFolderHelp, copyPathHelp, backupPrefix
+    case clearShareHelp, idle, copy, openInBrowser
+    case revealFileHelp, openFolderHelp, copyPathHelp, expandWide, exitWide, expandAddress, collapseAddress
 
     // 文件选择面板
     case pickFolderMsg, pickFileMsg, pickAnyMsg, sharePrompt
@@ -316,11 +316,13 @@ enum L: CaseIterable {
         case .idle:            return ("待命", "Idle")
         case .copy:            return ("复制", "Copy")
         case .openInBrowser:   return ("在浏览器打开", "Open in browser")
-        case .copyBackup:      return ("复制备用地址", "Copy backup address")
         case .revealFileHelp:  return ("在 Finder 中显示该文件", "Show this file in Finder")
         case .openFolderHelp:  return ("在 Finder 中打开该文件夹", "Open this folder in Finder")
         case .copyPathHelp:    return ("拷贝完整路径", "Copy full path")
-        case .backupPrefix:    return ("备用 · ", "Alt · ")
+        case .expandWide:      return ("切换到宽屏", "Use wide layout")
+        case .exitWide:        return ("退出宽屏", "Exit wide layout")
+        case .expandAddress:   return ("展开完整地址", "Show full address")
+        case .collapseAddress: return ("收起地址", "Collapse address")
 
         case .pickFolderMsg:   return ("选择要广播到局域网的文件夹", "Choose a folder to broadcast on the LAN")
         case .pickFileMsg:     return ("选择要单独分享的文件（扫码直接打开它）", "Choose a single file to share (scan opens it directly)")

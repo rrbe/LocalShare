@@ -22,6 +22,7 @@ struct SettingsScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
                 Text(L.shareSettings(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
+                WideLayoutButton(t: t)
             }
         } content: {
             VStack(alignment: .leading, spacing: 0) {

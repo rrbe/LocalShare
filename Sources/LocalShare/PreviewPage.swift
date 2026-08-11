@@ -60,6 +60,7 @@ enum PreviewPage {
         .rawlink{flex:none;font:12px var(--mono);color:var(--inkMute);text-decoration:none;
           border-bottom:1px dotted var(--inkFaint)}
         .rawlink:hover{color:var(--accent);border-bottom-color:var(--accent)}
+        \(WebWideLayout.css)
 
         .ledger{position:relative;margin-top:22px;padding:8px 0}
         .mark{position:absolute;width:16px;height:16px;pointer-events:none}
@@ -87,6 +88,7 @@ enum PreviewPage {
           <div class="subline">
             <nav class="crumbs">\(crumbs ?? "")</nav>
             <a class="rawlink" href="?raw=1">\(esc(rawLabel ?? L.webViewRaw(lang)))</a>
+            \(WebWideLayout.button(lang))
           </div>
           <section class="ledger">
             <span class="mark tl"></span><span class="mark tr"></span><span class="mark bl"></span><span class="mark br"></span>
@@ -96,6 +98,7 @@ enum PreviewPage {
           <div class="colophon">\(L.webProvidedBy(lang)) · \(esc(ps.tag))</div>
         </main>
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
+        <script>\(WebWideLayout.script)</script>
         <script>
         (function(){
           // 与列表页同款在线心跳（仅保活，不显示人数）。鉴权走已种下的 cookie / 首次进入的 ?t=。
@@ -113,4 +116,40 @@ enum PreviewPage {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
     }
+}
+
+// 目录页与 LocalShare 自定义预览共用；浏览器原生支持的文件直接返回原文件，不会出现此按钮。
+enum WebWideLayout {
+    static func button(_ lang: Lang) -> String {
+        """
+        <button class="widebtn" id="widebtn" data-expand="\(L.expandWide(lang))" data-collapse="\(L.exitWide(lang))" title="\(L.expandWide(lang))" aria-label="\(L.expandWide(lang))">
+          <svg class="expand" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H3v3M10 3h3v3M6 13H3v-3M10 13h3v-3"/></svg>
+          <svg class="collapse" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h3V3M13 6h-3V3M3 10h3v3M13 10h-3v3"/></svg>
+        </button>
+        """
+    }
+
+    static let css = """
+        body.wide main{max-width:none;padding-left:clamp(24px,4vw,64px);padding-right:clamp(24px,4vw,64px)}
+        .widebtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;
+          border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--inkMute);cursor:pointer}
+        .widebtn:hover{border-color:var(--lineStrong);color:var(--ink)}
+        .widebtn svg{width:16px;height:16px}
+        .widebtn .collapse,body.wide .widebtn .expand{display:none}
+        body.wide .widebtn .collapse{display:block}
+        @media(max-width:760px){.widebtn{display:none}}
+        """
+
+    static let script = """
+        (function(){
+          var b=document.getElementById('widebtn'),wide=false;if(!b)return;
+          try{wide=sessionStorage.getItem('ls-wide')==='1'}catch(e){}
+          function apply(v){
+            wide=v;document.body.classList.toggle('wide',v);
+            var label=v?b.dataset.collapse:b.dataset.expand;b.title=label;b.setAttribute('aria-label',label);
+            try{sessionStorage.setItem('ls-wide',v?'1':'0')}catch(e){}
+          }
+          apply(wide);b.addEventListener('click',function(){apply(!wide)});
+        })();
+        """
 }

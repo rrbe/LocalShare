@@ -33,7 +33,7 @@ struct ContentView: View {
         ZStack {
             t.bg.ignoresSafeArea()
             content
-                .frame(maxWidth: 470)
+                .frame(maxWidth: state.wideLayout ? AppState.wideWindowWidth : 470)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         // 最小宽度对齐默认宽度（共用同一常量）：留出 min↔默认 的缝隙时，切换屏幕的瞬间内容会被
@@ -57,7 +57,11 @@ struct ContentView: View {
             HomeScreen(t: t, dragging: isDropTargeted)
         case .file:
             // 文件二维码票据（二级页，带返回）。无网络时换未接入网络页（同样带返回）。
-            if state.hasNetwork { ShareScreen(t: t) } else { NoNetworkScreen(t: t) }
+            if state.hasNetwork {
+                ShareScreen(t: t)
+            } else {
+                NoNetworkScreen(t: t)
+            }
         case .text:
             TextScreen(t: t)
         }
