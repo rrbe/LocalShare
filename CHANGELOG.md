@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.0] - 2026-08-12
+
+- Added adaptive wide layouts for the native file picker and custom browser previews, while keeping the existing compact layout as the default
+- Added a manual "Check for Updates" action in Settings and kept local build numbers compatible with Sparkle update ordering
+
 ## [0.10.0] - 2026-07-06
 
 - Added the macOS Share Extension, so files and folders can be sent to LocalShare directly from the system Share menu
