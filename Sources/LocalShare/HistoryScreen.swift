@@ -21,6 +21,7 @@ struct HistoryScreen: View {
                         Button(L.cancel(state.lang), role: .cancel) {}
                     }
                 }
+                WideLayoutButton(t: t)
             }
         } content: {
             if state.recents.isEmpty {

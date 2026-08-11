@@ -30,6 +30,7 @@ struct HomeScreen: View {
                 } else {
                     IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
                 }
+                WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
         } content: {

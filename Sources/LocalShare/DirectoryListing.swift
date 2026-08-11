@@ -252,6 +252,8 @@ enum DirectoryListing {
         .vw{display:none;align-items:center;gap:6px;font:13px var(--mono);color:var(--ok)}
         .vw.on{display:inline-flex}
         .vw i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+        .countline .widebtn{margin-left:auto}
+        \(WebWideLayout.css)
 
         .toolbar{display:flex;gap:10px;margin-top:22px;align-items:center}
         .search{display:flex;align-items:center;gap:9px;flex:1;min-width:0;height:44px;padding:0 14px;
@@ -380,7 +382,7 @@ enum DirectoryListing {
           <div class="kicker"><span class="dot"></span><span>\(htmlText(ps.eyebrow))</span></div>
           <h1>\(htmlText(title))</h1>
           <nav class="crumbs">\(crumbs)</nav>
-          <div class="countline"><span class="count" data-total="\(total)">\(LStr.itemCount(total, lang))</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span></div>
+          <div class="countline"><span class="count" data-total="\(total)">\(LStr.itemCount(total, lang))</span><span class="vw" id="vw"><i></i><span id="vwn"></span></span>\(WebWideLayout.button(lang))</div>
 
           <div class="toolbar">
             <div class="search" id="search">
@@ -415,6 +417,7 @@ enum DirectoryListing {
         </main>
         \(dropMask)
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
+        <script>\(WebWideLayout.script)</script>
         <script>
         (function(){
           // 在线心跳：每 15s ping 一次，刷新本机活跃时间并取回在线数；

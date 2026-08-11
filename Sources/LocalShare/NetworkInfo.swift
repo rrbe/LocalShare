@@ -45,12 +45,6 @@ enum NetworkInfo {
         return result.sorted(by: rank)
     }
 
-    // Bonjour .local 主机名（备选链接）。仅在确实以 .local 结尾时展示，避免给出连不上的名字。
-    static func localHostName() -> String? {
-        let h = ProcessInfo.processInfo.hostName
-        return h.hasSuffix(".local") ? h : nil
-    }
-
     private static func isPrivateIPv4(_ ip: String) -> Bool {
         if ip.hasPrefix("192.168.") || ip.hasPrefix("10.") { return true }
         // 172.16.0.0 – 172.31.255.255
