@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 // 文件夹始终分组在前；③ 类型 chips 真实过滤；④ 计数随过滤显示 N / total。无 emoji、无彩色填充图标。
 // 导航：非根列表首行固定「返回上一级」（.row.back，不参与搜索/排序/过滤，空目录也保留）；
 // 目录行原地进入，文件行新标签打开(target=_blank，与行尾外开箭头图标一致，列表不丢)。
-// 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 用绝对路径并逐段编码。
+// 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 使用相对路径并逐段编码，
+// 同时兼容 LAN 根路径与远程 `/share/<token>/` 挂载前缀。
 enum DirectoryListing {
     private static let dateFmt: DateFormatter = {
         let f = DateFormatter()
@@ -34,14 +35,13 @@ enum DirectoryListing {
             return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
         }
 
-        let base = requestPath.hasSuffix("/") ? requestPath : requestPath + "/"
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
-        return render(entries: entries, base: base, requestPath: requestPath, rootName: rootName,
+        return render(entries: entries, requestPath: requestPath, rootName: rootName,
                       canUpload: canUpload, canReceiveText: canReceiveText, textPreview: nil, lang: lang)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
-    // href 基路径为根 `/`，请求路径为 `/`（面包屑只显根名）；同样目录在前/名称序。
+    // 请求路径为 `/`（面包屑只显根名）；同样目录在前/名称序。
     // textPreview 非 nil：在文件项之上钉一个指向 /ls/text 的「文本」行（首行预览）——文本与文件共存、
     // 或纯文本分享（items 为空）时由 FileServer 传入；它不参与搜索/排序/筛选（同「返回上一级」行）。
     static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String,
@@ -50,14 +50,14 @@ enum DirectoryListing {
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
-        return render(entries: sorted, base: "/", requestPath: "/", rootName: rootName,
+        return render(entries: sorted, requestPath: "/", rootName: rootName,
                       canUpload: false, canReceiveText: canReceiveText, textPreview: textPreview, lang: lang)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
-                               base: String, requestPath: String, rootName: String, canUpload: Bool,
+                               requestPath: String, rootName: String, canUpload: Bool,
                                canReceiveText: Bool, textPreview: String?, lang: Lang) -> String {
         let fm = FileManager.default
         var rows = ""
@@ -68,7 +68,7 @@ enum DirectoryListing {
             let vals = try? e.url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey])
             let cat = FileType.category(isDir: dir, contentType: vals?.contentType, name: e.url.lastPathComponent)
             if dir { folderCount += 1 } else { counts[cat, default: 0] += 1 }
-            let href = encodePath(base + e.name + (dir ? "/" : ""))
+            let href = encodePath(e.name + (dir ? "/" : ""))
             let date = vals?.creationDate ?? vals?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
             let meta: String
             if dir {
@@ -88,7 +88,7 @@ enum DirectoryListing {
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
                     isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
                     canReceiveText: canReceiveText, backHref: parentHref(of: requestPath),
-                    textPreview: textPreview, lang: lang)
+                    textPreview: textPreview, rootPrefix: rootRelativePrefix(requestPath: requestPath), lang: lang)
     }
 
     // MARK: - 片段
@@ -138,7 +138,7 @@ enum DirectoryListing {
     private static func parentHref(of requestPath: String) -> String? {
         let segs = requestPath.split(separator: "/").map(String.init)
         guard !segs.isEmpty else { return nil }
-        return encodePath("/" + segs.dropLast().map { $0 + "/" }.joined())
+        return "../"
     }
 
     // 面包屑：根(站名) / seg / …，末段当前不可点。Markdown 预览页（FileServer.contentResponse）复用。
@@ -146,15 +146,14 @@ enum DirectoryListing {
         let segs = requestPath.split(separator: "/").map(String.init)
         var html = segs.isEmpty
             ? "<span class=\"cur\">\(htmlText(rootName))</span>"
-            : "<a href=\"/\">\(htmlText(rootName))</a>"
-        var cum = "/"
+            : "<a href=\"\(htmlAttr(relativeDirectoryHref(from: requestPath, targetDepth: 0)))\">\(htmlText(rootName))</a>"
         for (i, seg) in segs.enumerated() {
-            cum += seg + "/"
             html += "<span class=\"sep\">/</span>"
             if i == segs.count - 1 {
                 html += "<span class=\"cur\">\(htmlText(seg))</span>"
             } else {
-                html += "<a href=\"\(htmlAttr(encodePath(cum)))\">\(htmlText(seg))</a>"
+                let href = relativeDirectoryHref(from: requestPath, targetDepth: i + 1)
+                html += "<a href=\"\(htmlAttr(href))\">\(htmlText(seg))</a>"
             }
         }
         return html
@@ -162,7 +161,7 @@ enum DirectoryListing {
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
                              isEmpty: Bool, total: Int, canUpload: Bool, canReceiveText: Bool,
-                             backHref: String?, textPreview: String?, lang: Lang) -> String {
+                             backHref: String?, textPreview: String?, rootPrefix: String, lang: Lang) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI）：网页端可能出现「上传」与「可收文本」两类写能力
         let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
         let uploadButton = canUpload ? """
@@ -187,7 +186,7 @@ enum DirectoryListing {
             let display = textPreview.isEmpty ? L.webText(lang) : textPreview
             let firstCls = backRow.isEmpty ? " first" : ""
             textRow = """
-            <li class="row txtentry\(firstCls)"><a href="/ls/text">\
+            <li class="row txtentry\(firstCls)"><a href="\(htmlAttr(rootPrefix + "ls/text"))">\
             <span class="ic ic-text"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h7.5L16 7v9.5H5z"/><path d="M12 3.5V7h3.5"/><path d="M7.5 10.5h6M7.5 13h4"/></svg></span>\
             <span class="meta"><span class="nm">\(htmlText(display))</span>\
             <span class="sub2">\(L.webText(lang))</span></span>\
@@ -416,7 +415,7 @@ enum DirectoryListing {
           <div class="colophon">\(L.webProvidedBy(lang)) · \(htmlText(ps.tag))</div>
         </main>
         \(dropMask)
-        <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";</script>
         <script>\(WebWideLayout.script)</script>
         <script>
         (function(){
@@ -424,7 +423,7 @@ enum DirectoryListing {
           // 自己即 1 人，独自浏览不提示，≥2 人才显示。鉴权走已种下的 cookie。
           var vw=document.getElementById('vw'),vwn=document.getElementById('vwn');
           function ping(){
-            fetch('/ls/ping'+location.search,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+            fetch(LS_ROOT+'ls/ping'+location.search,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
               var n=d.viewers||0;
               vwn.textContent=LS_I18N.viewersN.replace('{n}',n);
               vw.classList.toggle('on',n>=2);
@@ -587,6 +586,19 @@ enum DirectoryListing {
         path.split(separator: "/", omittingEmptySubsequences: false)
             .map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }
             .joined(separator: "/")
+    }
+
+    static func rootRelativePrefix(requestPath: String) -> String {
+        let segments = requestPath.split(separator: "/")
+        let baseDepth = requestPath.hasSuffix("/") ? segments.count : max(segments.count - 1, 0)
+        return String(repeating: "../", count: baseDepth)
+    }
+
+    private static func relativeDirectoryHref(from requestPath: String, targetDepth: Int) -> String {
+        let segments = requestPath.split(separator: "/")
+        let baseDepth = requestPath.hasSuffix("/") ? segments.count : max(segments.count - 1, 0)
+        let up = max(baseDepth - targetDepth, 0)
+        return up == 0 ? "./" : String(repeating: "../", count: up)
     }
 
     private static func formatSize(_ bytes: Int) -> String {

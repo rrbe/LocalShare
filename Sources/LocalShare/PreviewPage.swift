@@ -9,10 +9,11 @@ enum PreviewPage {
     // `<article class="card md">…</article>`）。css：查看器专属样式。scripts：依序各成一个
     // <script>（vendored 库与启动脚本分开传，启动脚本约定从 location.pathname + '?raw=1' 取原文）。
     // rawLabel：页角「查看原文」链接文案，默认「查看原文 / View source」；纯文本预览传「查看原始文本」。
-    static func html(fileName: String, crumbs: String?, canUpload: Bool, lang: Lang,
+    static func html(fileName: String, requestPath: String, crumbs: String?, canUpload: Bool, lang: Lang,
                      body: String, css: String, scripts: [String], rawLabel: String? = nil,
                      canReceiveText: Bool = false) -> String {
         let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
+        let rootPrefix = DirectoryListing.rootRelativePrefix(requestPath: requestPath)
         // 收件箱开启时，预览/文本壳页底部嵌同一份「发文本给电脑」表单（与列表页一致）——让纯文本分享、
         // 单文件预览等没有列表页的形态也能就地回填文本给 Mac。
         let allScripts = canReceiveText ? scripts + [SendText.boot] : scripts
@@ -97,12 +98,12 @@ enum PreviewPage {
           \(canReceiveText ? SendText.card(lang: lang) : "")
           <div class="colophon">\(L.webProvidedBy(lang)) · \(esc(ps.tag))</div>
         </main>
-        <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";</script>
         <script>\(WebWideLayout.script)</script>
         <script>
         (function(){
           // 与列表页同款在线心跳（仅保活，不显示人数）。鉴权走已种下的 cookie / 首次进入的 ?t=。
-          function ping(){fetch('/ls/ping',{cache:'no-store'}).catch(function(){})}
+          function ping(){fetch(LS_ROOT+'ls/ping',{cache:'no-store'}).catch(function(){})}
           ping();setInterval(ping,15000);
         })();
         </script>

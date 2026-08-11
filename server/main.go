@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -26,6 +27,8 @@ import (
 
 const protocolVersion = 1
 const maxWebSocketMessageSize = 8 << 20
+const defaultRelayIdleTimeout = 60 * time.Second
+const webSocketWriteTimeout = 10 * time.Second
 
 type credential struct {
 	ID        string    `json:"id"`
@@ -49,24 +52,35 @@ type state struct {
 }
 
 type stateStore struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	lockPath string
+	mu       sync.Mutex
 }
 
 func newStateStore(dir string) (*stateStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &stateStore{path: filepath.Join(dir, "state.json")}, nil
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	return &stateStore{
+		path:     filepath.Join(dir, "state.json"),
+		lockPath: filepath.Join(dir, ".state.lock"),
+	}, nil
 }
 
 func (s *stateStore) load() (state, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadLocked()
+	var current state
+	err := s.withFileLock(false, func() error {
+		var err error
+		current, err = s.loadUnlocked()
+		return err
+	})
+	return current, err
 }
 
-func (s *stateStore) loadLocked() (state, error) {
+func (s *stateStore) loadUnlocked() (state, error) {
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return state{}, nil
@@ -81,22 +95,67 @@ func (s *stateStore) loadLocked() (state, error) {
 	return current, nil
 }
 
-func (s *stateStore) save(current state) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveLocked(current)
-}
-
-func (s *stateStore) saveLocked(current state) error {
+func (s *stateStore) saveUnlocked(current state) error {
 	data, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+func (s *stateStore) withFileLock(exclusive bool, work func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	lockFile, err := os.OpenFile(s.lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lockFile.Close()
+	if err := lockFile.Chmod(0o600); err != nil {
+		return err
+	}
+	mode := syscall.LOCK_SH
+	if exclusive {
+		mode = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), mode); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	return work()
+}
+
+func (s *stateStore) update(work func(*state) error) error {
+	return s.withFileLock(true, func() error {
+		current, err := s.loadUnlocked()
+		if err != nil {
+			return err
+		}
+		if err := work(&current); err != nil {
+			return err
+		}
+		return s.saveUnlocked(current)
+	})
 }
 
 func randomToken(prefix string) (string, error) {
@@ -121,37 +180,18 @@ func (s *stateStore) createEnrollmentKey(name string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	current, err := s.load()
-	if err != nil {
-		return "", "", err
-	}
-	current.EnrollmentKeys = append(current.EnrollmentKeys, credential{
-		ID: id, Name: name, Hash: tokenHash(raw), CreatedAt: time.Now().UTC(),
-	})
-	if err := s.save(current); err != nil {
+	if err := s.update(func(current *state) error {
+		current.EnrollmentKeys = append(current.EnrollmentKeys, credential{
+			ID: id, Name: name, Hash: tokenHash(raw), CreatedAt: time.Now().UTC(),
+		})
+		return nil
+	}); err != nil {
 		return "", "", err
 	}
 	return id, raw, nil
 }
 
 func (s *stateStore) enroll(raw, name string) (string, string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, err := s.loadLocked()
-	if err != nil {
-		return "", "", err
-	}
-	hash := tokenHash(raw)
-	keyIndex := -1
-	for i := range current.EnrollmentKeys {
-		if subtle.ConstantTimeCompare([]byte(current.EnrollmentKeys[i].Hash), []byte(hash)) == 1 && !current.EnrollmentKeys[i].Used {
-			keyIndex = i
-			break
-		}
-	}
-	if keyIndex < 0 {
-		return "", "", errors.New("invalid or already used enrollment key")
-	}
 	deviceID, err := randomToken("device_")
 	if err != nil {
 		return "", "", err
@@ -160,11 +200,24 @@ func (s *stateStore) enroll(raw, name string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	current.EnrollmentKeys[keyIndex].Used = true
-	current.Devices = append(current.Devices, device{
-		ID: deviceID, Name: name, TokenHash: tokenHash(deviceToken), CreatedAt: time.Now().UTC(),
-	})
-	if err := s.saveLocked(current); err != nil {
+	hash := tokenHash(raw)
+	if err := s.update(func(current *state) error {
+		keyIndex := -1
+		for i := range current.EnrollmentKeys {
+			if subtle.ConstantTimeCompare([]byte(current.EnrollmentKeys[i].Hash), []byte(hash)) == 1 && !current.EnrollmentKeys[i].Used {
+				keyIndex = i
+				break
+			}
+		}
+		if keyIndex < 0 {
+			return errors.New("invalid or already used enrollment key")
+		}
+		current.EnrollmentKeys[keyIndex].Used = true
+		current.Devices = append(current.Devices, device{
+			ID: deviceID, Name: name, TokenHash: tokenHash(deviceToken), CreatedAt: time.Now().UTC(),
+		})
+		return nil
+	}); err != nil {
 		return "", "", err
 	}
 	return deviceID, deviceToken, nil
@@ -185,23 +238,15 @@ func (s *stateStore) deviceForToken(raw string) (device, bool, error) {
 }
 
 func (s *stateStore) revokeDevice(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, err := s.loadLocked()
-	if err != nil {
-		return err
-	}
-	found := false
-	for i := range current.Devices {
-		if current.Devices[i].ID == id {
-			current.Devices[i].Revoked = true
-			found = true
+	return s.update(func(current *state) error {
+		for i := range current.Devices {
+			if current.Devices[i].ID == id {
+				current.Devices[i].Revoked = true
+				return nil
+			}
 		}
-	}
-	if !found {
 		return errors.New("device not found")
-	}
-	return s.saveLocked(current)
+	})
 }
 
 type wireMessage struct {
@@ -214,6 +259,7 @@ type wireMessage struct {
 	Status     int               `json:"status,omitempty"`
 	Error      string            `json:"error,omitempty"`
 	ShareURL   string            `json:"share_url,omitempty"`
+	ShareID    string            `json:"share_id,omitempty"`
 	DeviceName string            `json:"device_name,omitempty"`
 	Enrollment string            `json:"enrollment_key,omitempty"`
 }
@@ -242,20 +288,25 @@ type agent struct {
 
 type share struct {
 	token    string
+	shareID  string
 	deviceID string
 	agent    *agent
 }
 
 type hub struct {
-	store     *stateStore
-	publicURL string
-	mu        sync.Mutex
-	agents    map[string]*agent
-	shares    map[string]*share
+	store              *stateStore
+	publicURL          string
+	mu                 sync.Mutex
+	agents             map[string]*agent
+	shares             map[string]*share
+	requestIdleTimeout time.Duration
 }
 
 func newHub(store *stateStore, publicURL string) *hub {
-	return &hub{store: store, publicURL: strings.TrimRight(publicURL, "/"), agents: map[string]*agent{}, shares: map[string]*share{}}
+	return &hub{
+		store: store, publicURL: strings.TrimRight(publicURL, "/"), agents: map[string]*agent{},
+		shares: map[string]*share{}, requestIdleTimeout: defaultRelayIdleTimeout,
+	}
 }
 
 func normalizePublicURL(value string) (string, error) {
@@ -327,7 +378,10 @@ func (h *hub) removeAgent(a *agent) {
 	a.failPending()
 }
 
-func (h *hub) startShare(a *agent) (string, error) {
+func (h *hub) startShare(a *agent, shareID string) (string, error) {
+	if shareID == "" {
+		return "", errors.New("share id is required")
+	}
 	token, err := randomToken("share_")
 	if err != nil {
 		return "", err
@@ -338,9 +392,9 @@ func (h *hub) startShare(a *agent) (string, error) {
 			delete(h.shares, oldToken)
 		}
 	}
-	h.shares[token] = &share{token: token, deviceID: a.device.ID, agent: a}
+	h.shares[token] = &share{token: token, shareID: shareID, deviceID: a.device.ID, agent: a}
 	h.mu.Unlock()
-	return h.publicURL + "/share/" + token, nil
+	return h.publicURL + "/share/" + token + "/", nil
 }
 
 func (h *hub) stopShare(a *agent) {
@@ -366,6 +420,14 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := parts[0]
+	if len(parts) == 1 {
+		target := r.URL.EscapedPath() + "/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		return
+	}
 	localPath := "/"
 	if len(parts) == 2 {
 		localPath += parts[1]
@@ -392,9 +454,20 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	messages := item.agent.beginRequest(wireMessage{
 		Type: "request.begin", RequestID: requestID, Method: r.Method, Path: localPath,
-		Headers: forwardedRequestHeaders(r),
+		Headers: forwardedRequestHeaders(r), ShareID: item.shareID,
 	})
 	defer item.agent.finishRequest(requestID)
+	idleTimer := time.NewTimer(h.requestIdleTimeout)
+	defer idleTimer.Stop()
+	resetIdleTimer := func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(h.requestIdleTimeout)
+	}
 	started := false
 	for {
 		select {
@@ -408,6 +481,7 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+			resetIdleTimer()
 			switch message.kind {
 			case "headers":
 				if started {
@@ -447,6 +521,12 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "agent unavailable", http.StatusBadGateway)
 			}
 			return
+		case <-idleTimer.C:
+			item.agent.cancelRequest(requestID)
+			if !started {
+				w.WriteHeader(http.StatusGatewayTimeout)
+			}
+			return
 		}
 	}
 }
@@ -470,7 +550,7 @@ func (a *agent) readLoop(ctx context.Context) {
 		}
 		switch message.Type {
 		case "share.start":
-			shareURL, err := a.hub.startShare(a)
+			shareURL, err := a.hub.startShare(a, message.ShareID)
 			if err != nil {
 				_ = a.send(wireMessage{Type: "error", Error: err.Error()})
 			} else {
@@ -495,7 +575,9 @@ func (a *agent) send(message wireMessage) error {
 	}
 	a.sendMu.Lock()
 	defer a.sendMu.Unlock()
-	return a.conn.Write(context.Background(), websocket.MessageText, data)
+	ctx, cancel := context.WithTimeout(context.Background(), webSocketWriteTimeout)
+	defer cancel()
+	return a.conn.Write(ctx, websocket.MessageText, data)
 }
 
 func (a *agent) close(code websocket.StatusCode, reason string) error {
@@ -706,19 +788,15 @@ func runKey(args []string) error {
 }
 
 func revokeEnrollmentKey(store *stateStore, id string) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	current, err := store.loadLocked()
-	if err != nil {
-		return err
-	}
-	for i := range current.EnrollmentKeys {
-		if current.EnrollmentKeys[i].ID == id {
-			current.EnrollmentKeys[i].Used = true
-			return store.saveLocked(current)
+	return store.update(func(current *state) error {
+		for i := range current.EnrollmentKeys {
+			if current.EnrollmentKeys[i].ID == id {
+				current.EnrollmentKeys[i].Used = true
+				return nil
+			}
 		}
-	}
-	return errors.New("key not found")
+		return errors.New("key not found")
+	})
 }
 
 func runDevice(args []string) error {

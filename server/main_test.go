@@ -8,8 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -106,7 +109,7 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	if err := json.Unmarshal(payload, &hello); err != nil || hello.Type != "hello" {
 		t.Fatalf("invalid hello: %q", payload)
 	}
-	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":1}`)); err != nil {
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":1,"share_id":"local_1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	_, payload, err = conn.Read(ctx)
@@ -150,6 +153,9 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	if err := json.Unmarshal(payload, &request); err != nil || request.Type != "request.begin" {
 		t.Fatalf("invalid request: %q", payload)
 	}
+	if request.ShareID != "local_1" {
+		t.Fatalf("request share id = %q", request.ShareID)
+	}
 	body := bytes.Repeat([]byte("x"), 128<<10)
 	responseBegin, _ := json.Marshal(wireMessage{
 		Type: "response.begin", RequestID: request.RequestID, Status: http.StatusOK,
@@ -173,4 +179,259 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 			t.Fatalf("browser body = %q", got)
 		}
 	}
+}
+
+func TestStateStorePermissionsAndCrossInstanceLock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first, err := newStateStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newStateStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("state dir mode = %v", info.Mode().Perm())
+	}
+
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- first.withFileLock(true, func() error {
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	<-locked
+	secondDone := make(chan error, 1)
+	go func() {
+		_, _, err := second.createEnrollmentKey("second")
+		secondDone <- err
+	}()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second store bypassed file lock: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("state file mode = %v", info.Mode().Perm())
+	}
+}
+
+func TestStartingNewShareInvalidatesOldToken(t *testing.T) {
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(store, "http://example.test")
+	a := &agent{device: device{ID: "device_1"}}
+	oldURL, err := h.startShare(a, "local_old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newURL, err := h.startShare(a, "local_new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldURL == newURL || !strings.HasSuffix(newURL, "/") {
+		t.Fatalf("share URLs = %q, %q", oldURL, newURL)
+	}
+	oldToken := strings.TrimSuffix(strings.TrimPrefix(oldURL, "http://example.test/share/"), "/")
+	h.mu.Lock()
+	old := h.shares[oldToken]
+	var current *share
+	for _, item := range h.shares {
+		current = item
+	}
+	h.mu.Unlock()
+	if old != nil || current == nil || current.shareID != "local_new" {
+		t.Fatalf("old=%v current=%+v", old, current)
+	}
+}
+
+func TestSharePathWithoutSlashRedirectsBeforeRelay(t *testing.T) {
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(store, "http://example.test")
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/share/share_1?raw=1", nil)
+	recorder := httptest.NewRecorder()
+	h.shareHandler(recorder, req)
+	if recorder.Code != http.StatusPermanentRedirect || recorder.Header().Get("Location") != "/share/share_1/?raw=1" {
+		t.Fatalf("redirect = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+}
+
+func TestRelayTimeoutSendsCancel(t *testing.T) {
+	h, server, conn, shareURL := openTestAgent(t)
+	defer server.Close()
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	h.requestIdleTimeout = 30 * time.Millisecond
+
+	status := make(chan int, 1)
+	go func() {
+		response, err := http.Get(shareURL + "slow.txt")
+		if err != nil {
+			status <- 0
+			return
+		}
+		defer response.Body.Close()
+		status <- response.StatusCode
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, payload, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var begin wireMessage
+	if json.Unmarshal(payload, &begin) != nil || begin.Type != "request.begin" {
+		t.Fatalf("begin = %q", payload)
+	}
+	_, payload, err = conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cancelMessage wireMessage
+	if json.Unmarshal(payload, &cancelMessage) != nil || cancelMessage.Type != "request.cancel" || cancelMessage.RequestID != begin.RequestID {
+		t.Fatalf("cancel = %q", payload)
+	}
+	if got := <-status; got != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d", got)
+	}
+}
+
+func TestBrowserCancellationPropagatesToAgent(t *testing.T) {
+	_, server, conn, shareURL := openTestAgent(t)
+	defer server.Close()
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	ctx, cancelBrowser := context.WithCancel(context.Background())
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, shareURL+"cancel.txt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		response, err := http.DefaultClient.Do(request)
+		if response != nil {
+			response.Body.Close()
+		}
+		done <- err
+	}()
+	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
+	defer cancelRead()
+	_, payload, err := conn.Read(readCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var begin wireMessage
+	if json.Unmarshal(payload, &begin) != nil || begin.Type != "request.begin" {
+		t.Fatalf("begin = %q", payload)
+	}
+	cancelBrowser()
+	_, payload, err = conn.Read(readCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cancelMessage wireMessage
+	if json.Unmarshal(payload, &cancelMessage) != nil || cancelMessage.Type != "request.cancel" || cancelMessage.RequestID != begin.RequestID {
+		t.Fatalf("cancel = %q", payload)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("browser request unexpectedly succeeded")
+	}
+}
+
+func TestRevokedDeviceCannotOpenNewWebSocket(t *testing.T) {
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(store, "")
+	server := httptest.NewServer(newHTTPHandler(h))
+	defer server.Close()
+	_, enrollmentKey, err := store.createEnrollmentKey("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID, deviceToken, err := store.enroll(enrollmentKey, "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.revokeDevice(deviceID); err != nil {
+		t.Fatal(err)
+	}
+	conn, response, err := websocket.Dial(context.Background(), server.URL+"/api/v1/agent", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + deviceToken}},
+	})
+	if conn != nil {
+		conn.Close(websocket.StatusNormalClosure, "done")
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("dial err=%v response=%v", err, response)
+	}
+}
+
+func openTestAgent(t *testing.T) (*hub, *httptest.Server, *websocket.Conn, string) {
+	t.Helper()
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(store, "")
+	server := httptest.NewServer(newHTTPHandler(h))
+	h.publicURL = server.URL
+	_, enrollmentKey, err := store.createEnrollmentKey("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, deviceToken, err := store.enroll(enrollmentKey, "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, _, err := websocket.Dial(context.Background(), server.URL+"/api/v1/agent", &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + deviceToken}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, _, err := conn.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":1,"share_id":"local_1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, payload, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ready wireMessage
+	if json.Unmarshal(payload, &ready) != nil || ready.Type != "share.ready" {
+		t.Fatalf("ready = %q", payload)
+	}
+	return h, server, conn, ready.ShareURL
 }

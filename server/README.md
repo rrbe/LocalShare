@@ -171,6 +171,7 @@ localshare-server device revoke --state-dir /var/lib/localshare <device-id>
 ```
 
 Server 只在 `state.json` 中保存 Enrollment Key 和 Device Token 的 SHA-256，不保存明文 token。Enrollment Key、Device Token 和 Share Token 都不应写入公开日志或提交到代码仓库。
+运行中的 Server 与管理 CLI 通过状态目录里的 `.state.lock` 串行化修改，避免创建 Key、配对和撤销并发时丢更新；目录权限会收敛为 `0700`，`state.json` 与锁文件为 `0600`。
 
 ## 六、排查顺序
 

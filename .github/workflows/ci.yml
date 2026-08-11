@@ -24,12 +24,17 @@ jobs:
           go-version: '1.23'
       - name: 测试 LocalShare Server
         working-directory: server
-        run: go test ./...
+        run: |
+          go test -race ./...
+          go vet ./...
 
   smoke:
     runs-on: macos-latest # 与 release 同款 runner，自带 Xcode / Swift 工具链与 Node
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
 
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build
@@ -64,6 +69,15 @@ jobs:
 
       - name: 远程访问只读策略
         run: ./tools/smoke-remote-readonly.sh
+
+      - name: 远程访问完整链路
+        run: ./tools/smoke-remote-e2e.sh
+
+      - name: Release 模式远程访问完整链路
+        run: |
+          swift build -c release
+          BIN=.build/release/LocalShare ./tools/smoke-remote-readonly.sh
+          CLIENT_BIN=.build/release/LocalShare ./tools/smoke-remote-e2e.sh
 
       - name: 传递文本（/ls/text + 转义 + 虚拟根文本行）
         run: ./tools/smoke-text.sh

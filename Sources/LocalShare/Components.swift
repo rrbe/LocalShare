@@ -1,4 +1,19 @@
 import SwiftUI
+
+struct GlobeLineIcon: View {
+    let color: Color
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(color, lineWidth: 1.7)
+            Ellipse().stroke(color, lineWidth: 1.6).frame(width: 7, height: 15)
+            Capsule().fill(color).frame(width: 13, height: 1.6)
+        }
+        .frame(width: 15, height: 15)
+        .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
+    }
+}
 import AppKit
 
 // 票据风 UI 组件库（DESIGN.md §5）。全部接受 `t: Theme` 显式传入（与设计稿 props 结构一一对应），

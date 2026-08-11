@@ -103,7 +103,13 @@ request-id bytes
 file bytes
 ```
 
+`share.start` 同时携带当前本机分享代次 `share_id`；Server 将它绑定到公开 Share Token，
+并在每个 `request.begin` 中原样带回。Client 只接受与当前代次一致的请求，因此换分享期间尚未来得及
+从 Server 删除的旧公开 token 也只能得到 `410`，不能读取新内容。
+
 Server 只转发必要的请求头：`Accept`、`Accept-Language`、`If-Modified-Since`、`If-None-Match`、`Range`、`User-Agent`。响应会移除 `Set-Cookie`、`Connection` 和 `Transfer-Encoding`，并重写站内 `Location` 到 `/share/<share-token>`。
+LocalShare 自己生成的页面使用相对链接和相对心跳地址，使同一份 HTML 同时适用于 LAN 根路径和
+`/share/<share-token>/` 挂载路径；没有尾斜杠的公开分享入口先由 Server 规范化重定向。
 
 ## 4. Server 实现
 
@@ -120,7 +126,9 @@ HTTP 路由：
 
 Server 内存中保存当前连接和分享注册；重启后设备凭据仍从 `state.json` 恢复，但 Client 需要重新连接，旧的 Share Token 失效。
 
-请求必须有超时和取消传播。浏览器断开时，Server 发送 `request.cancel`，Client 取消对应的本机 `URLSessionDataTask`，避免大文件继续占用带宽。
+请求使用 60 秒无数据空闲超时；每收到响应头或数据块都会续期。浏览器断开或超时时，Server 发送
+`request.cancel`，Client 取消对应的本机 `URLSessionDataTask`，避免大文件继续占用带宽。
+控制消息的 WebSocket 写入另有 10 秒超时，避免失活连接卡住 HTTP handler。
 
 ## 5. Client 实现
 
@@ -130,7 +138,8 @@ Server 内存中保存当前连接和分享注册；重启后设备凭据仍从 
 - Device Token 仅从 Keychain 读取；
 - `share.start` 时把本机 FileServer 地址和当前 token 作为内部转发目标；
 - Server 下发请求后，只允许白名单请求头进入本机 FileServer；
-- 从本机响应按块发送数据，不把完整文件读入内存；
+- 从本机响应按块发送数据；每个请求只允许一个尚未确认发送的分块，WebSocket 完成该分块后才恢复
+  `URLSessionDataTask`，形成有界背压，不把完整文件排队进内存；
 - 断线清理所有本地请求，重新连接后重新注册当前分享；
 - 分享内容变化时更新本机目标并重新注册，Server 生成新的 Share Token。
 
@@ -145,6 +154,7 @@ AppState 继续作为唯一状态源：远程状态、公开 URL 和本地只读
 - Server 不信任浏览器传来的代理身份头，也不把设备 token 转发给浏览器；
 - Server 不记录文件内容；默认日志不打印 Enrollment Key、Device Token、Share Token；
 - Share Token 随分享注册变化或停止立即失效；
+- 即使旧 Share Token 的删除消息尚在传输，`share_id` 代次校验也会阻止它读取新分享；
 - WebSocket 是 Client 主动发起的出站长连接，Server 不需要访问 Mac 的监听端口。
 
 ## 7. 交付阶段
@@ -153,7 +163,7 @@ AppState 继续作为唯一状态源：远程状态、公开 URL 和本地只读
 2. 实现同端口 WebSocket Agent 与浏览器 Data Relay，先支持只读 GET/HEAD 和流式数据。
 3. 在 Client 增加 Keychain 配对、Connect/Disconnect、断线重连和远程只读策略。
 4. 增加 Range、取消、旧 token 失效、设备撤销和连接状态测试。
-5. 更新 CI、README、架构文档，并做本地 Server + headless Client 的端到端冒烟测试。
+5. 更新 CI、README、架构文档，并在 debug/release 下运行本地 Server + headless Client 的端到端冒烟测试。
 
 ## 8. 明确放弃的方案
 

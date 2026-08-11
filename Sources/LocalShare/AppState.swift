@@ -88,11 +88,16 @@ final class AppState: ObservableObject {
         remoteSettings = RemoteSettings(serverAddress: UserDefaults.standard.string(forKey: remoteServerKey) ?? "")
         remotePaired = remoteAgent.isPaired(for: remoteSettings.serverURL)
         remoteAgent.onStateChange = { [weak self] status, error in
-            self?.remoteStatus = status
-            self?.remoteError = error
+            guard let self else { return }
+            self.remoteStatus = status
+            self.remoteError = error
             if status == .connected {
-                self?.remotePaired = self?.remoteAgent.isPaired ?? false
-                self?.remoteEnrollmentKey = ""
+                self.remotePaired = self.remoteAgent.isPaired
+                self.remoteEnrollmentKey = ""
+            } else if status == .disconnected, error != nil, self.remoteAccessEnabled {
+                // 首次配对/凭证读取失败是终止态，不应把未连接的 LAN 分享继续锁在远程只读模式。
+                self.remoteAccessEnabled = false
+                self.applyRemotePolicy()
             }
         }
         remoteAgent.onShareURLChange = { [weak self] url in
@@ -193,7 +198,7 @@ final class AppState: ObservableObject {
         selectedInterface = interfaces.first
     }
 
-    var canEnableRemote: Bool { isRunning && !isEmpty && remoteSettings.isValid }
+    var canEnableRemote: Bool { isRunning && !sharedItems.isEmpty && remoteSettings.isValid }
 
     func saveRemoteSettings(_ settings: RemoteSettings, enrollmentKey: String = "") {
         if remoteAccessEnabled { disconnectRemote() }
@@ -208,15 +213,12 @@ final class AppState: ObservableObject {
             remoteError = L.remoteConfigHint(lang)
             return
         }
-        permission.add = false
-        textInboxEnabled = false
-        UserDefaults.standard.set(false, forKey: textInboxKey)
         remoteAccessEnabled = true
         remoteError = nil
         applyRemotePolicy()
         remoteAgent.connect(serverURL: serverURL, enrollmentKey: enrollmentKey,
                             localBaseURL: localShareBaseURL, localToken: token,
-                            deviceName: Host.current().localizedName ?? "Mac")
+                            deviceName: Host.current().localizedName ?? "Mac", lang: lang)
     }
 
     func disconnectRemote() {
@@ -228,9 +230,19 @@ final class AppState: ObservableObject {
     }
 
     func forgetRemoteDevice() {
-        disconnectRemote()
-        remoteAgent.forgetDevice()
-        remotePaired = false
+        remoteAccessEnabled = false
+        remoteShareBaseURL = nil
+        applyRemotePolicy()
+        do {
+            try remoteAgent.forgetDevice()
+            remotePaired = false
+        } catch let failure as RemoteKeychain.Failure {
+            remotePaired = remoteAgent.isPaired
+            remoteError = LStr.remoteKeychainFailed(failure.reason, lang)
+        } catch {
+            remotePaired = remoteAgent.isPaired
+            remoteError = LStr.remoteKeychainFailed(error.localizedDescription, lang)
+        }
     }
 
     private var agentLocalAddress: String {
@@ -245,12 +257,13 @@ final class AppState: ObservableObject {
         server?.remoteAccessEnabled = remoteAccessEnabled
         server?.uploadEnabled = permission.add && canToggleUpload && !remoteAccessEnabled
         server?.textInboxEnabled = textInboxEnabled && !remoteAccessEnabled
+        server?.sharedText = remoteAccessEnabled ? nil : (hasText ? sharedText : nil)
     }
 
     private func startRemoteAgent() {
         guard remoteAccessEnabled, isRunning, let serverURL = remoteSettings.serverURL else { return }
         remoteAgent.connect(serverURL: serverURL, enrollmentKey: "", localBaseURL: localShareBaseURL,
-                            localToken: token, deviceName: Host.current().localizedName ?? "Mac")
+                            localToken: token, deviceName: Host.current().localizedName ?? "Mac", lang: lang)
     }
 
     private func startNetworkMonitoring() {

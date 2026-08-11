@@ -118,6 +118,8 @@ enum L: CaseIterable {
     // 远程访问
     case remoteAccess, remoteAccessDesc, remoteConfigHint
     case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly
+    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected
+    case remoteLocalUnavailable, remoteInvalidRequest, remoteServerError
 
     // 设置 —— 外观
     case appearanceFollow, appearanceLight, appearanceDark
@@ -305,6 +307,15 @@ enum L: CaseIterable {
         case .remoteOnline:       return ("在线", "Online")
         case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
         case .remoteReadOnly:     return ("远程访问为只读。", "Remote access is read-only.")
+        case .remoteEnrollmentRequired: return ("请先填写配对 Key。", "Enter an enrollment key first.")
+        case .remoteInvalidCredentials: return ("Server 地址或设备凭证无效。",
+                                                "The Server address or device credential is invalid.")
+        case .remoteEnrollmentRejected: return ("Server 拒绝了配对请求。",
+                                                "The Server rejected the enrollment request.")
+        case .remoteLocalUnavailable: return ("本机分享未运行。", "The local share is not running.")
+        case .remoteInvalidRequest: return ("远程请求路径无效。", "The remote request path is invalid.")
+        case .remoteServerError: return ("LocalShare Server 无法完成请求。",
+                                        "LocalShare Server could not complete the request.")
 
         case .appearanceFollow: return ("跟随系统", "System")
         case .appearanceLight:  return ("浅色", "Light")
@@ -472,6 +483,14 @@ enum L: CaseIterable {
 
 // 语序、复数、数字位置中英各异，故不入 key→value 表，由函数按 lang 拼装。
 enum LStr {
+    static func remoteKeychainFailed(_ reason: String, _ lang: Lang) -> String {
+        lang == .zh ? "无法保存设备凭证：\(reason)" : "Could not save the device credential: \(reason)"
+    }
+
+    static func remoteRequestFailed(_ reason: String, _ lang: Lang) -> String {
+        lang == .zh ? "读取本机分享失败：\(reason)" : "Could not read the local share: \(reason)"
+    }
+
     // "3 项" / "3 items"（目录元信息、计数、describeShared 共用）
     static func itemCount(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 项" : "\(n) item\(n == 1 ? "" : "s")"

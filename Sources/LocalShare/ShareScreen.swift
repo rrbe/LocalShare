@@ -54,7 +54,7 @@ struct ShareScreen: View {
     private var remoteCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "globe").font(.system(size: 17, weight: .medium)).foregroundStyle(t.accent)
+                GlobeLineIcon(color: t.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L.remoteAccess(state.lang)).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
                     Text(L.remoteAccessDesc(state.lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
@@ -81,9 +81,6 @@ struct ShareScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Circle().fill(remoteStatusColor).frame(width: 7, height: 7)
                     Text(remoteStatusText).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
-                    if state.remoteStatus == .reconnecting {
-                        Text(L.remoteOffline(state.lang)).font(.sans(11)).foregroundStyle(t.inkMute)
-                    }
                 }
                 if let error = state.remoteError, !error.isEmpty {
                     Text(error).font(.sans(11)).foregroundStyle(t.danger).lineLimit(2)

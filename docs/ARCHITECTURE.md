@@ -133,6 +133,16 @@ Remote settings persist the Server address. The first connection also accepts a 
 
 The Server combines the Control Plane and Data Relay on one public port. Browser requests use `/share/<share-token>/...`; the Server sends them over the existing WebSocket to the Client, which calls its local `FileServer` and streams the response back. The Client keeps the existing token and traversal logic as the single source of file-serving truth. Remote mode is read-only and does not restore on cold launch; Connect/Disconnect controls the session while Forget Device removes the Keychain credential.
 
+Generated browser pages use relative links because the same `FileServer` HTML is mounted both at LAN `/` and remote
+`/share/<share-token>/`. `share.start` registers a `share_id` generation and every relayed request echoes it; the Client
+rejects stale generations before touching `FileServer`, closing the old-token/new-content race during share changes.
+Relay requests have a 60-second idle timeout and cancellation propagation. The Client pauses each local data task while
+its current WebSocket data frame is in flight, providing bounded backpressure instead of queueing a whole file.
+
+`state.json` mutations are protected by both an in-process mutex and a `.state.lock` advisory file lock, because the
+running `serve` process and administrator CLI commands access the same state directory. Existing directories are
+normalized to `0700`; state and lock files are `0600`.
+
 ### AppState and Lifecycle
 
 - Single source of truth is `sharedItems: [URL]`: empty, single, or multiple. Derived values include `isMultiple`, `isEmpty`, and convenience `sharedURL`.

@@ -273,6 +273,7 @@ final class FileServer {
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
         let remoteMode = remoteAccessEnabled
+        let sharedText = remoteMode ? nil : self.sharedText
         let clientAddress = req.address
         // 网页语言逐请求决定：按浏览器 Accept-Language，与原生 app 设置无关。往下穿进每个 HTML 生产者。
         let lang = Lang.fromAcceptLanguage(req.headers["accept-language"])
@@ -350,7 +351,8 @@ final class FileServer {
                         crumbs = DirectoryListing.breadcrumb(requestPath: "/" + L.webText(lang),
                                                              rootName: Self.multipleRootName(lang))
                     }
-                    return htmlResponse(200, "OK", TextViewer.html(text: text, crumbs: crumbs, canUpload: false, canReceiveText: recvOn, lang: lang), extra: extra)
+                    return htmlResponse(200, "OK", TextViewer.html(text: text, requestPath: "/ls/text", crumbs: crumbs,
+                                                                    canUpload: false, canReceiveText: recvOn, lang: lang), extra: extra)
                 }
                 return plainTextResponse(text, extra: extra)
             }
@@ -386,7 +388,8 @@ final class FileServer {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
             }
-            return contentResponse(fileURL, viewer: wantsViewer, crumbs: nil, canUpload: false, canReceiveText: recvOn,
+            return contentResponse(fileURL, requestPath: decodedPath, viewer: wantsViewer, crumbs: nil,
+                                   canUpload: false, canReceiveText: recvOn,
                                    lang: lang, extra: extra, range: rangeHeader)
         }
 
@@ -413,7 +416,8 @@ final class FileServer {
                     return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
                 }
                 let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-                return contentResponse(item.url, viewer: wantsViewer, crumbs: crumbs, canUpload: false, canReceiveText: recvOn,
+                return contentResponse(item.url, requestPath: decodedPath, viewer: wantsViewer, crumbs: crumbs,
+                                       canUpload: false, canReceiveText: recvOn,
                                        lang: lang, extra: extra, range: rangeHeader)
             }
             return serveTree(rootURL: item.url, relPath: rest, encodedPath: req.path,
@@ -432,24 +436,29 @@ final class FileServer {
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
     // 其余发文件本体。新增预览类型只需在此登记，壳页骨架见 PreviewPage。
-    private func contentResponse(_ url: URL, viewer: Bool, crumbs: String?,
+    private func contentResponse(_ url: URL, requestPath: String, viewer: Bool, crumbs: String?,
                                  canUpload: Bool, canReceiveText: Bool, lang: Lang, extra: [String: String],
                                  range: String? = nil) -> HttpResponse {
-        if viewer, let html = Self.previewHTML(url, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang) {
+        if viewer, let html = Self.previewHTML(url, requestPath: requestPath, crumbs: crumbs,
+                                               canUpload: canUpload, canReceiveText: canReceiveText, lang: lang) {
             return htmlResponse(200, "OK", html, extra: extra)
         }
         return fileResponse(url, lang: lang, extra: extra, range: range)
     }
 
-    private static func previewHTML(_ url: URL, crumbs: String?, canUpload: Bool, canReceiveText: Bool, lang: Lang) -> String? {
+    private static func previewHTML(_ url: URL, requestPath: String, crumbs: String?,
+                                    canUpload: Bool, canReceiveText: Bool, lang: Lang) -> String? {
         let name = url.lastPathComponent
         switch url.pathExtension.lowercased() {
         case "md", "markdown":
-            return MarkdownViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
+            return MarkdownViewer.html(fileName: name, requestPath: requestPath, crumbs: crumbs,
+                                       canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         case "json", "geojson":
-            return JsonViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
+            return JsonViewer.html(fileName: name, requestPath: requestPath, crumbs: crumbs,
+                                   canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         case "csv", "tsv":
-            return CsvViewer.html(fileName: name, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
+            return CsvViewer.html(fileName: name, requestPath: requestPath, crumbs: crumbs,
+                                  canUpload: canUpload, canReceiveText: canReceiveText, lang: lang)
         default:
             return nil
         }
@@ -506,7 +515,8 @@ final class FileServer {
         }
 
         let crumbs = DirectoryListing.breadcrumb(requestPath: decodedPath, rootName: rootName)
-        return contentResponse(target, viewer: viewer, crumbs: crumbs, canUpload: canUpload, canReceiveText: canReceiveText,
+        return contentResponse(target, requestPath: decodedPath, viewer: viewer, crumbs: crumbs,
+                               canUpload: canUpload, canReceiveText: canReceiveText,
                                lang: lang, extra: extra, range: range)
     }
 
