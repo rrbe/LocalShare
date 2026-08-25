@@ -46,6 +46,8 @@ final class AppState: ObservableObject {
     @Published var textInboxEnabled = false         // 「允许收文本」闸门（默认关，持久化；不限分享形态）
     @Published var persistReceivedText = false      // 「记住收到的文本」（默认关，持久化）
     @Published var accessCodeEnabled = false        // 电脑间手输入口：网址 + 短码（默认关，持久化）
+    @Published var tailscaleAccessEnabled = false   // Tailscale 入站闸门（默认关，持久化）
+    @Published private(set) var tailscaleStatus: TailscaleStatus?
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
@@ -57,6 +59,7 @@ final class AppState: ObservableObject {
     @Published private(set) var accessCode = AccessCode.generate()
     private var server: FileServer?
     private var viewerTimer: Timer?
+    private var networkRefreshID = UUID()
 
     private let portKey = "configuredPort"
     private let bindSelectedOnlyKey = "bindSelectedOnly"
@@ -70,6 +73,7 @@ final class AppState: ObservableObject {
     private let persistReceivedKey = "persistReceivedText"  // 是否记住收到的文本（默认关）
     private let receivedTextsKey = "receivedTexts"      // 收件箱内容（仅 persistReceivedText 开时写入）
     private let accessCodeEnabledKey = "accessCodeEnabled"
+    private let tailscaleAccessEnabledKey = "tailscaleAccessEnabled"
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
@@ -78,6 +82,11 @@ final class AppState: ObservableObject {
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
         accessCodeEnabled = UserDefaults.standard.bool(forKey: accessCodeEnabledKey)
+        tailscaleAccessEnabled = UserDefaults.standard.bool(forKey: tailscaleAccessEnabledKey)
+        if bindSelectedOnly, tailscaleAccessEnabled {
+            bindSelectedOnly = false
+            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
+        }
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
         Lang.current = Lang.resolve(langPref)   // 同步快照，供菜单/命令构造处读取
@@ -144,16 +153,20 @@ final class AppState: ObservableObject {
         return "http://\(host):\(port)/\(q)"
     }
 
+    private var primaryHost: String? {
+        selectedInterface?.ip ?? (tailscaleAccessEnabled ? tailscaleStatus?.ipv4 : nil)
+    }
+
     var primaryURL: String? {
-        guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
-        return makeURL(host: ip)
+        guard isRunning, port != 0, let host = primaryHost else { return nil }
+        return makeURL(host: host)
     }
 
     // 票据上的手输入口：默认仍显示/复制完整 token URL；访问码模式只给 origin，浏览器再经 /ls/join
     // 输入短码。二维码始终使用 primaryURL，不因展示模式降低安全性或增加扫码步骤。
     var presentedURL: String? {
-        guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
-        return accessCodeEnabled ? "http://\(ip):\(port)" : makeURL(host: ip)
+        guard isRunning, port != 0, let host = primaryHost else { return nil }
+        return makePresentedURL(host: host)
     }
 
     var presentedAccessCode: String? {
@@ -165,14 +178,54 @@ final class AppState: ObservableObject {
         return QRCode.image(for: primaryURL)
     }
 
-    var hasNetwork: Bool { !interfaces.isEmpty }
+    // 主地址之外的入口统一收在折叠区。访问码模式下它们只显示 origin，与主地址共用一枚短码；
+    // 普通模式则保留当前分享路径和 token。Tailscale 两项只在用户显式开放且检测到时出现。
+    var otherAddresses: [ShareAddress] {
+        guard isRunning, port != 0 else { return [] }
+        var result: [ShareAddress] = []
+        if selectedInterface != nil, let hostname = NetworkInfo.localHostName(), hostname != primaryHost {
+            result.append(ShareAddress(kind: .localHostname, scope: .localNetwork,
+                                       url: makePresentedURL(host: hostname)))
+        }
+        if tailscaleAccessEnabled, let status = tailscaleStatus {
+            if let dnsName = status.dnsName, dnsName != primaryHost {
+                result.append(ShareAddress(kind: .tailscaleMagicDNS, scope: .tailscale,
+                                           url: makePresentedURL(host: dnsName)))
+            }
+            if status.ipv4 != primaryHost {
+                result.append(ShareAddress(kind: .tailscaleIP, scope: .tailscale,
+                                           url: makePresentedURL(host: status.ipv4)))
+            }
+        }
+        return result
+    }
+
+    private func makePresentedURL(host: String) -> String {
+        accessCodeEnabled ? "http://\(host):\(port)" : makeURL(host: host)
+    }
+
+    var hasNetwork: Bool { !interfaces.isEmpty || (tailscaleAccessEnabled && tailscaleStatus != nil) }
 
     // MARK: - 网络
 
     func refreshNetwork() {
         interfaces = NetworkInfo.privateIPv4Interfaces()
-        if let sel = selectedInterface, interfaces.contains(sel) { return }
-        selectedInterface = interfaces.first
+        if selectedInterface.map({ !interfaces.contains($0) }) ?? true {
+            selectedInterface = interfaces.first
+        }
+
+        // 网卡枚举先同步给出 IP；MagicDNS 需调用可选 CLI，放后台且用 refresh id 丢弃过期结果。
+        let fallbackIPv4 = NetworkInfo.tailscaleIPv4Address()
+        tailscaleStatus = fallbackIPv4.map { TailscaleStatus(ipv4: $0, dnsName: nil) }
+        let refreshID = UUID()
+        networkRefreshID = refreshID
+        Task.detached(priority: .utility) { [fallbackIPv4] in
+            let status = TailscaleInfo.currentStatus(fallbackIPv4: fallbackIPv4)
+            await MainActor.run { [weak self] in
+                guard let self, self.networkRefreshID == refreshID else { return }
+                self.tailscaleStatus = status
+            }
+        }
     }
 
     // MARK: - 选择分享对象
@@ -212,6 +265,7 @@ final class AppState: ObservableObject {
     // setShared（换钥匙）与 setSharedText（不换钥匙，仅会话内更新文本）共用此推送，故恒按此序写。
     private func pushToServer() {
         server?.setCredentials(token: token, accessCode: accessCodeEnabled ? accessCode : nil)
+        server?.tailscaleAccessEnabled = tailscaleAccessEnabled
         server?.sharedText = hasText ? sharedText : nil
         server?.textInboxEnabled = textInboxEnabled
         server?.share = currentShare
@@ -399,6 +453,7 @@ final class AppState: ObservableObject {
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
         fs.accessCode = accessCodeEnabled ? accessCode : nil
+        fs.tailscaleAccessEnabled = tailscaleAccessEnabled
         fs.sharedText = hasText ? sharedText : nil
         fs.uploadEnabled = permission.add && canToggleUpload
         fs.textInboxEnabled = textInboxEnabled
@@ -455,6 +510,12 @@ final class AppState: ObservableObject {
 
     func setBindSelectedOnly(_ on: Bool) {
         guard on != bindSelectedOnly else { return }
+        guard !on || selectedInterface != nil else { return }
+        if on, tailscaleAccessEnabled {
+            tailscaleAccessEnabled = false
+            UserDefaults.standard.set(false, forKey: tailscaleAccessEnabledKey)
+            server?.tailscaleAccessEnabled = false
+        }
         bindSelectedOnly = on
         UserDefaults.standard.set(on, forKey: bindSelectedOnlyKey)
         if isRunning { rebindServer() }   // 立即重绑：开=收窄到选中网卡，关=放开到全接口
@@ -526,6 +587,22 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(on, forKey: accessCodeEnabledKey)
         rotateCredentials()
         if isRunning { pushToServer() }
+    }
+
+    // Tailscale 是另一块网络；开启时自动退出“仅当前网络可见”，让 socket 回到全接口监听，再由
+    // FileServer 的 100.64/10 入站闸门决定是否放行。关闭则即时拒绝，不必重启或轮换分享凭证。
+    func setTailscaleAccessEnabled(_ on: Bool) {
+        guard on != tailscaleAccessEnabled else { return }
+        let needsRebind = on && bindSelectedOnly
+        tailscaleAccessEnabled = on
+        UserDefaults.standard.set(on, forKey: tailscaleAccessEnabledKey)
+        if needsRebind {
+            bindSelectedOnly = false
+            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
+        }
+        if isRunning, needsRebind { rebindServer() }
+        else { server?.tailscaleAccessEnabled = on }
+        if on { refreshNetwork() }
     }
 
     private func rotateCredentials() {

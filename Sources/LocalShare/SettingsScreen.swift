@@ -17,6 +17,8 @@ struct SettingsScreen: View {
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
         let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
         let ps = permSummary(state.permission, lang)
+        let tailscaleDesc = !state.tailscaleAccessEnabled ? L.tailscaleDescOff(lang)
+            : (state.tailscaleStatus == nil ? L.tailscaleDescMissing(lang) : L.tailscaleDescOn(lang))
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
@@ -101,7 +103,14 @@ struct SettingsScreen: View {
                                desc: state.interfaces.count > 1
                                     ? L.bindOnlyDescMulti(lang)
                                     : L.bindOnlyDescSingle(lang)) {
-                        ToggleSwitch(t: t, isOn: state.bindSelectedOnly) { state.setBindSelectedOnly(!state.bindSelectedOnly) }
+                        ToggleSwitch(t: t, isOn: state.bindSelectedOnly, locked: state.selectedInterface == nil) {
+                            state.setBindSelectedOnly(!state.bindSelectedOnly)
+                        }
+                    }
+                    settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDesc) {
+                        ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
+                            state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                        }
                     }
                 }
 

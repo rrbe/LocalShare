@@ -419,6 +419,102 @@ struct AccessCodePill: View {
     }
 }
 
+// 主票据只保留一个首选入口，其它解析方式按需展开，避免长 hostname / MagicDNS 抢走二维码的视觉层级。
+struct OtherAddressesDisclosure: View {
+    let t: Theme
+    var lang: Lang
+    var addresses: [ShareAddress]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network").font(.system(size: 12, weight: .semibold))
+                    Text(L.otherAddresses(lang)).font(.sans(12, .semibold))
+                    Spacer(minLength: 8)
+                    Text("\(addresses.count)").font(.mono(10.5, .bold)).foregroundStyle(t.inkFaint)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .foregroundStyle(t.inkMute)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).frame(height: 40)
+
+            if expanded {
+                Divider().overlay(t.line)
+                VStack(spacing: 0) {
+                    ForEach(Array(addresses.enumerated()), id: \.element.id) { index, address in
+                        AlternateAddressRow(t: t, lang: lang, address: address)
+                        if index < addresses.count - 1 { Divider().overlay(t.line).padding(.leading, 12) }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(t.surfaceAlt))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+}
+
+private struct AlternateAddressRow: View {
+    let t: Theme
+    var lang: Lang
+    var address: ShareAddress
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(title).font(.sans(11.5, .semibold)).foregroundStyle(t.ink)
+                Text(scope).font(.sans(10.5)).foregroundStyle(t.inkFaint).lineLimit(1)
+                Spacer(minLength: 4)
+            }
+            HStack(spacing: 2) {
+                Text(address.url).font(.mono(11.5)).foregroundStyle(t.inkMute)
+                    .lineLimit(1).truncationMode(.middle).help(address.url)
+                Spacer(minLength: 4)
+                HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
+                          color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
+                HoverIcon(t: t, systemImage: "arrow.up.forward.square",
+                          color: t.inkMute, help: L.openInBrowser(lang)) { open() }
+            }
+        }
+        .padding(.leading, 12).padding(.trailing, 5).padding(.vertical, 8)
+    }
+
+    private var title: String {
+        switch address.kind {
+        case .localHostname: return L.localHostnameAddress(lang)
+        case .tailscaleMagicDNS: return L.tailscaleMagicDNSAddress(lang)
+        case .tailscaleIP: return L.tailscaleIPAddress(lang)
+        case .publicRelay: return L.publicRelayAddress(lang)
+        }
+    }
+
+    private var scope: String {
+        switch address.scope {
+        case .localNetwork: return L.localNetworkOnly(lang)
+        case .tailscale: return L.tailscaleNetworkOnly(lang)
+        case .publicInternet: return L.publicInternet(lang)
+        }
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(address.url, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+    }
+
+    private func open() {
+        guard let url = URL(string: address.url) else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
 // MARK: - 二维码卡
 
 // 真实二维码（CoreImage 生成的 NSImage）渲染在白底圆角卡上，保留 padding 作静区。

@@ -12,6 +12,7 @@ import Foundation
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
 //   LS_ACCESS_CODE 短访问码（选填）；设置后无 token 的浏览器导航显示 /ls/join 加入页
+//   LS_TAILSCALE 置 1 放行来自 Tailscale 100.64/10 的请求（默认拒绝）
 enum HeadlessServer {
     static func run() {
         let env = ProcessInfo.processInfo.environment
@@ -35,6 +36,7 @@ enum HeadlessServer {
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let server = FileServer(share: makeShare(urls, hasText: text != nil), token: token)
         server.accessCode = env["LS_ACCESS_CODE"].flatMap { $0.isEmpty ? nil : $0 }
+        server.tailscaleAccessEnabled = env["LS_TAILSCALE"] == "1"
         server.uploadEnabled = env["LS_UPLOAD"] == "1"
         server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         server.sharedText = text

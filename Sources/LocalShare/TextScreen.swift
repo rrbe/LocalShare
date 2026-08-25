@@ -217,6 +217,10 @@ struct TextScreen: View {
             if let code = state.presentedAccessCode {
                 AccessCodePill(t: t, lang: lang, value: code).padding(.top, 7)
             }
+            if !state.otherAddresses.isEmpty {
+                OtherAddressesDisclosure(t: t, lang: lang, addresses: state.otherAddresses)
+                    .padding(.top, 7)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)

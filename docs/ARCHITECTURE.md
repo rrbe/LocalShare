@@ -21,13 +21,13 @@ The typical crash this project avoids is an arm64 binary that **misses a dynamic
 | Area | Decision |
 |---|---|
 | Platform | macOS only, native `.app`, Apple Silicon first |
-| Network | Same Wi-Fi / LAN only; no tunnel, public endpoint, or account |
+| Network | Same Wi-Fi / LAN by default; optional user-enabled Tailscale access; no public endpoint or account |
 | Stack | Swift / SwiftUI, system frameworks only, no external package dylib risk |
 | HTTP server | Swifter from SPM source, primarily read-only static serving |
 | Share model | Three shapes: single folder -> mobile-friendly directory listing, serving `index.html` directly when present; single file -> scan opens the file and sibling files are not exposed; multiple files/folders -> synthetic virtual root listing selected items, with the first path segment mapped to a real URL. All shapes block directory traversal, each item using its own root |
 | Auth | Every share action creates a random token embedded in the QR URL as `?t=...`; first visit validates it and sets a session cookie; later resources are allowed by cookie. An optional short access code can exchange for that cookie at `/ls/join`, with per-client rate limiting. Changing, stopping, or switching access-code mode rotates credentials immediately |
 | Protocol | Plain HTTP. Threat model: block people who only guess the address; do not protect against same-network sniffing or forwarded links. Token rotation limits forwarded-link lifetime to the current share. Self-signed TLS would turn scan-to-use into certificate warnings, so it is intentionally not used |
-| QR code | Raw LAN IP selected from network candidates; generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. The copyable URL can expand to show the full address |
+| QR code | Raw selected LAN IP (or Tailscale IP when it is the only enabled network); generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. The ticket can fold out hostname and enabled Tailscale alternatives |
 | GUI | Single window: functional home screen with drag/drop and picker, Text Transfer entry, and Recent Shares; file ticket, Text Transfer, Settings, and History are secondary pages with back navigation |
 | Lifecycle | Cold launch does **not** replay the last share. The app starts on the home screen; the last share remains in Recent Shares for one-click restart. Closing the window does not quit; process and server continue running, and menu bar activation restores the previous screen. Ports are selected automatically; service stops on app quit |
 | Distribution | Xcode ad-hoc signing. The first Gatekeeper approval is handled manually and then remembered by macOS |
@@ -68,6 +68,8 @@ LocalShare/
     MarkedJS.swift         # Vendored marked compiled as a Swift string constant
     SendTextPage / TextViewer  # Text Transfer: phone -> Mac send page and text preview shell
     NetworkInfo.swift      # getifaddrs -> private IPv4 candidates
+    TailscaleInfo.swift    # optional CLI status probe -> Tailscale IPv4 + MagicDNS name
+    ShareAddress.swift     # complete alternate URL + network scope; includes a future opaque public-relay kind
     QRCode.swift           # CoreImage QR -> NSImage, plus terminal ANSI output
     Token.swift / Mime.swift   # Random token and extension -> MIME mapping with charset=utf-8 for text
     Lang.swift             # i18n string tables compiled into the binary: L / LStr / i18nJSON
@@ -94,13 +96,14 @@ LocalShare/
 
 ### FileServer Request Flow
 
-1. **Access-code exchange**: when enabled, an unauthenticated browser navigation receives the built-in join page. `POST /ls/join` accepts the short code in the request body, rate-limits failures per client, and returns the normal `ls_token` Cookie plus a 302 to the current share entry. The code never appears in a URL or log. Non-browser requests and all other unauthenticated POSTs still receive 403.
-2. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token once so rotation cannot mix states. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
-3. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
-4. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
-5. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
+1. **Network gate**: requests sourced from Tailscale's `100.64.0.0/10` range are rejected unless the persisted Tailscale setting is enabled. This check precedes every credential path, so disabling it immediately revokes tailnet access even for a valid token or Cookie.
+2. **Access-code exchange**: when enabled, an unauthenticated browser navigation receives the built-in join page. `POST /ls/join` accepts the short code in the request body, rate-limits failures per client, and returns the normal `ls_token` Cookie plus a 302 to the current share entry. The code never appears in a URL or log. Non-browser requests and all other unauthenticated POSTs still receive 403.
+3. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token once so rotation cannot mix states. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
+4. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
+5. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
+6. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
 
-Single-folder serving extracts steps 2-4 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
+Single-folder serving extracts steps 4-6 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
 
 ### Web XSS Hardening
 
@@ -123,6 +126,12 @@ After auth, requests record `lastSeen` by client IP. A 45-second window counts a
 ### Current-Network-Only Binding
 
 When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address through `listenAddressIPv4`. `AppState.bindSelectedOnly` drives it. Changing interface or switch state rebinds without rotating the token. If the selected IP disappears, the app falls back to all interfaces. Invalid `inet_pton` input throws instead of silently binding all interfaces. Default `nil` means `0.0.0.0`.
+
+### Optional Tailscale Access and Alternate Addresses
+
+Tailscale access is persisted but defaults off. `NetworkInfo` detects its IPv4 by the documented `100.64.0.0/10` range rather than an interface-name assumption. When an installed Tailscale CLI is available, `TailscaleInfo` runs `status --json --peers=false` off the main actor with a two-second timeout and extracts `Self.DNSName`; failure degrades to the detected IP only. Enabling Tailscale turns off the mutually exclusive single-interface bind, while the request gate permits tailnet clients. Disabling it keeps the all-interface listener but rejects `100.64/10` clients before auth.
+
+The ticket keeps one primary address and folds Bonjour hostname, Tailscale MagicDNS, and Tailscale IP into `otherAddresses`. In access-code mode each is an origin paired with the shared short code; otherwise each preserves the current path and token. `ShareAddress` stores a complete URL so a future public relay may supply an opaque server URL instead of being forced into the LAN host/query-token shape. No public relay address is created or shown today.
 
 ### AppState and Lifecycle
 
@@ -190,7 +199,7 @@ LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debu
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # Should return a directory listing or index.html
 ```
 
-Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
+Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, allow Tailscale clients with `LS_TAILSCALE=1`, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
 
 **Sharing with a coworker**: copy `dist/*.app`; for the first launch, help them pass Gatekeeper once by opening the app, then System Settings -> Privacy & Security -> Open Anyway. macOS remembers this approval.
 
@@ -202,10 +211,11 @@ Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable uplo
 
 - Apple notarization, which requires a paid developer account.
 - HTTPS with a self-signed certificate, which would replace scan-to-use with certificate warnings.
-- Cross-network tunneling such as cloudflared, ngrok, or Tailscale.
+- Automatic third-party or public tunneling such as cloudflared and ngrok.
 - **Online edit/delete in the browser**. This is intentionally not supported: mobile browser editing is poor, overwrite/delete risks are high, and guest upload already covers the primary phone -> Mac need. `Permission.edit` and `Permission.del` remain `false`.
 
 **Potential future work:**
 
 - **Chunked upload**: bypass Swifter's whole-body-in-memory limitation by slicing on the frontend, appending chunks server-side, and atomically renaming on the final chunk. This would allow arbitrary size with constant memory and remove the 500 MB cap.
+- **Public relay**: an app-owned outbound tunnel and forwarding server may later return an opaque public URL. The address model can represent it, but no relay connection, server, setting, or UI placeholder is implemented yet.
 - **Better device-name lookup**: current lookup is best-effort `getnameinfo`; iPhones often do not resolve and fall back to IP. More accurate mDNS PTR lookup via `DNSServiceQueryRecord` is possible but more complex and still not guaranteed.

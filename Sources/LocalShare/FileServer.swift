@@ -57,6 +57,14 @@ final class FileServer {
     // （GUI「仅当前网络可见」开关，opt-in）。Swifter 原生支持，无须 fork（见 start）。
     var listenAddress: String?
 
+    // 默认拒绝从 Tailscale 100.64/10 地址来的请求；用户在设置中显式开放后才放行。监听仍可保持
+    // 0.0.0.0，因而能同时服务普通 LAN 与 Tailscale，不需要第二套 server 或端口。
+    private var _tailscaleAccessEnabled = false
+    var tailscaleAccessEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _tailscaleAccessEnabled }
+        set { lock.lock(); _tailscaleAccessEnabled = newValue; lock.unlock() }
+    }
+
     // share 与 token 都可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
     private let lock = NSLock()
     private var _share: Share
@@ -291,6 +299,11 @@ final class FileServer {
     // MARK: - 请求处理
 
     private func handle(_ req: HttpRequest) -> HttpResponse {
+        // Tailscale 开关是网络边界，必须先于访问码和 token 鉴权；即使拿着有效链接，关闭后也立即拒绝。
+        guard Self.allowsClient(address: req.address, tailscaleAccessEnabled: tailscaleAccessEnabled) else {
+            return htmlResponse(403, "Forbidden", Self.forbiddenPage(
+                Lang.fromAcceptLanguage(req.headers["accept-language"])))
+        }
         // 1. 鉴权：query ?t= 或 cookie 任一匹配当前分享的 token（每请求取一次快照，
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
@@ -458,6 +471,11 @@ final class FileServer {
         return serveTree(rootURL: rootURL, relPath: rel, encodedPath: req.path,
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
                          canUpload: uploadEnabled, canReceiveText: recvOn, viewer: wantsViewer, lang: lang, extra: extra)
+    }
+
+    static func allowsClient(address: String?, tailscaleAccessEnabled: Bool) -> Bool {
+        guard let address, NetworkInfo.isTailscaleIPv4(address) else { return true }
+        return tailscaleAccessEnabled
     }
 
     private enum JoinResult { case accepted(token: String), invalid, limited }
