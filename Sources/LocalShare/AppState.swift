@@ -45,6 +45,7 @@ final class AppState: ObservableObject {
     @Published var persistText = false              // 「记住分享的文本」开关（默认关，持久化）
     @Published var textInboxEnabled = false         // 「允许收文本」闸门（默认关，持久化；不限分享形态）
     @Published var persistReceivedText = false      // 「记住收到的文本」（默认关，持久化）
+    @Published var accessCodeEnabled = false        // 电脑间手输入口：网址 + 短码（默认关，持久化）
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
@@ -53,6 +54,7 @@ final class AppState: ObservableObject {
     // 分享访问令牌：随每次「分享」动作轮换（setShared / stop），不随 app 进程长存——
     // 换分享或停止即作废旧链接、旧 cookie 与拍走的旧二维码，权限不跨分享延续。
     @Published private(set) var token = Token.generate()
+    @Published private(set) var accessCode = AccessCode.generate()
     private var server: FileServer?
     private var viewerTimer: Timer?
 
@@ -67,6 +69,7 @@ final class AppState: ObservableObject {
     private let textInboxKey = "textInboxEnabled"       // 收件箱闸门（默认关）
     private let persistReceivedKey = "persistReceivedText"  // 是否记住收到的文本（默认关）
     private let receivedTextsKey = "receivedTexts"      // 收件箱内容（仅 persistReceivedText 开时写入）
+    private let accessCodeEnabledKey = "accessCodeEnabled"
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
@@ -74,6 +77,7 @@ final class AppState: ObservableObject {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
+        accessCodeEnabled = UserDefaults.standard.bool(forKey: accessCodeEnabledKey)
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
         Lang.current = Lang.resolve(langPref)   // 同步快照，供菜单/命令构造处读取
@@ -145,6 +149,17 @@ final class AppState: ObservableObject {
         return makeURL(host: ip)
     }
 
+    // 票据上的手输入口：默认仍显示/复制完整 token URL；访问码模式只给 origin，浏览器再经 /ls/join
+    // 输入短码。二维码始终使用 primaryURL，不因展示模式降低安全性或增加扫码步骤。
+    var presentedURL: String? {
+        guard isRunning, port != 0, let ip = selectedInterface?.ip else { return nil }
+        return accessCodeEnabled ? "http://\(ip):\(port)" : makeURL(host: ip)
+    }
+
+    var presentedAccessCode: String? {
+        isRunning && accessCodeEnabled ? accessCode : nil
+    }
+
     var qrImage: NSImage? {
         guard let primaryURL else { return nil }
         return QRCode.image(for: primaryURL)
@@ -181,7 +196,7 @@ final class AppState: ObservableObject {
 
     func setShared(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        token = Token.generate()   // 换分享即换钥匙：上一次分享的链接/cookie/二维码全部作废
+        rotateCredentials()   // 换分享即换钥匙：上一次分享的链接/cookie/二维码全部作废
         sharedItems = urls
         updateSharedIsFile()
         describeShared()
@@ -196,7 +211,7 @@ final class AppState: ObservableObject {
     // ——换分享(setShared)时新钥匙必须先于新内容落地，杜绝旧 token 读到新分享的瞬间窗口（见 CLAUDE.md 线程模型）。
     // setShared（换钥匙）与 setSharedText（不换钥匙，仅会话内更新文本）共用此推送，故恒按此序写。
     private func pushToServer() {
-        server?.token = token
+        server?.setCredentials(token: token, accessCode: accessCodeEnabled ? accessCode : nil)
         server?.sharedText = hasText ? sharedText : nil
         server?.textInboxEnabled = textInboxEnabled
         server?.share = currentShare
@@ -383,6 +398,7 @@ final class AppState: ObservableObject {
         guard isServing else { return }
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
+        fs.accessCode = accessCodeEnabled ? accessCode : nil
         fs.sharedText = hasText ? sharedText : nil
         fs.uploadEnabled = permission.add && canToggleUpload
         fs.textInboxEnabled = textInboxEnabled
@@ -453,7 +469,7 @@ final class AppState: ObservableObject {
         server = nil
         isRunning = false
         port = 0
-        token = Token.generate()   // 停止即撕毁已发出的链接；「重新广播」发的是新钥匙
+        rotateCredentials()   // 停止即撕毁已发出的链接；「重新广播」发的是新钥匙
     }
 
     // 轮询活跃访客数（activeViewers 锁内取快照，保持 server → state → view 的单向数据流）。
@@ -483,7 +499,7 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: sharedTextKey)   // 不在磁盘上残留文本（同「撤下即清」）
         screen = .share
         if isServing {
-            token = Token.generate()   // 旧分享链接/cookie/二维码作废
+            rotateCredentials()   // 旧分享链接/cookie/二维码作废
             if isRunning { pushToServer() } else { start() }
         } else {
             stop()
@@ -500,6 +516,21 @@ final class AppState: ObservableObject {
         if isRunning && port != p {
             lastError = LStr.portFallback(requested: p, actual: port, lang)
         }
+    }
+
+    // 访问码是一个凭证呈现模式，不改变分享内容。切换时轮换整套凭证，让关闭开关立即作废通过短码
+    // 换到的旧 Cookie，也避免打开后仍有上一模式分发的链接继续存活。
+    func setAccessCodeEnabled(_ on: Bool) {
+        guard on != accessCodeEnabled else { return }
+        accessCodeEnabled = on
+        UserDefaults.standard.set(on, forKey: accessCodeEnabledKey)
+        rotateCredentials()
+        if isRunning { pushToServer() }
+    }
+
+    private func rotateCredentials() {
+        token = Token.generate()
+        accessCode = AccessCode.generate()
     }
 
     // MARK: - 最近分享 / 历史

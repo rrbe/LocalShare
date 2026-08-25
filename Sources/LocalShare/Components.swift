@@ -391,6 +391,34 @@ struct CopyPill: View {
     }
 }
 
+// 访问码模式在地址条下只露一枚紧凑凭证；多个网络地址共用它，故不把短码重复塞进每一行。
+struct AccessCodePill: View {
+    let t: Theme
+    var lang: Lang
+    var value: String
+    @State private var copied = false
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(L.accessCodeLabel(lang)).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
+            Text(value).font(.mono(15, .bold)).tracking(1.2).foregroundStyle(t.ink)
+            Spacer(minLength: 8)
+            HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
+                      color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
+        }
+        .frame(height: 40)
+        .padding(.leading, 12).padding(.trailing, 5)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(t.accentSoft))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+    }
+}
+
 // MARK: - 二维码卡
 
 // 真实二维码（CoreImage 生成的 NSImage）渲染在白底圆角卡上，保留 padding 作静区。

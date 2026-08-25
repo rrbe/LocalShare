@@ -213,7 +213,10 @@ struct TextScreen: View {
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
             Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, lang: lang, value: state.primaryURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
+            CopyPill(t: t, lang: lang, value: state.presentedURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
+            if let code = state.presentedAccessCode {
+                AccessCodePill(t: t, lang: lang, value: code).padding(.top, 7)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)
@@ -254,7 +257,7 @@ struct TextScreen: View {
     }
 
     private func openInBrowser() {
-        guard let s = state.primaryURL, let url = URL(string: s) else { return }
+        guard let s = state.presentedURL, let url = URL(string: s) else { return }
         NSWorkspace.shared.open(url)
     }
 }
