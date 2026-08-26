@@ -319,8 +319,10 @@ struct HoverIcon: View {
     var help: String = ""
     var size: CGFloat = 34
     var iconSize: CGFloat = 14
+    var onFocusChange: (Bool) -> Void = { _ in }
     var action: () -> Void
     @State private var hover = false
+    @FocusState private var focused: Bool
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage).font(.system(size: iconSize, weight: .medium))
@@ -329,7 +331,12 @@ struct HoverIcon: View {
                 .background(RoundedRectangle(cornerRadius: min(9, size / 3), style: .continuous)
                     .fill(hover ? t.surfaceAlt : .clear))
         }
-        .buttonStyle(.plain).onHover { hover = $0 }.help(help)
+        .buttonStyle(.plain)
+        .focused($focused)
+        .onHover { hover = $0 }
+        .onChange(of: focused) { onFocusChange($0) }
+        .help(help)
+        .accessibilityLabel(Text(help))
     }
 }
 
@@ -353,6 +360,8 @@ private struct ExpandableAddressLine: View {
     @State private var expanded = false
     @State private var hovered = false
     @State private var copied = false
+    @State private var expandFocused = false
+    @State private var copyFocused = false
 
     var body: some View {
         row.onHover { hovered = $0 }
@@ -377,10 +386,11 @@ private struct ExpandableAddressLine: View {
             }
         }
         .overlay(alignment: .trailing) {
-            if hovered {
-                hoverActions
-                    .padding(.trailing, withOpen ? actionSize + actionSpacing : 0)
-            }
+            hoverActions
+                .padding(.trailing, withOpen ? actionSize + actionSpacing : 0)
+                .opacity(actionsVisible ? 1 : 0)
+                // 视觉隐藏不移出焦点或辅助功能树；Tab / VoiceOver 聚焦时会立即显现。
+                .accessibilityHidden(false)
         }
         .padding(.vertical, expanded ? expandedVerticalPadding : 0)
     }
@@ -391,10 +401,12 @@ private struct ExpandableAddressLine: View {
                       systemImage: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                       color: t.inkMute,
                       help: expanded ? L.collapseAddress(lang) : L.expandAddress(lang),
-                      size: actionSize, iconSize: actionIconSize) { expanded.toggle() }
+                      size: actionSize, iconSize: actionIconSize,
+                      onFocusChange: { expandFocused = $0 }) { expanded.toggle() }
             HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
                       color: copied ? t.ok : t.inkMute, help: L.copy(lang),
-                      size: actionSize, iconSize: actionIconSize) { copy() }
+                      size: actionSize, iconSize: actionIconSize,
+                      onFocusChange: { copyFocused = $0 }) { copy() }
         }
         .padding(.leading, 18)
         .background {
@@ -408,6 +420,10 @@ private struct ExpandableAddressLine: View {
                 .init(color: .black, location: 0.28)
             ], startPoint: .leading, endPoint: .trailing))
         }
+    }
+
+    private var actionsVisible: Bool {
+        hovered || expandFocused || copyFocused
     }
 
     private func copy() {

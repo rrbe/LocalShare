@@ -563,6 +563,12 @@ enum LStr {
         lang == .zh ? "启动服务失败：\(reason)" : "Failed to start server: \(reason)"
     }
 
+    // 旧版单网卡隔离偏好的升级用户：宁可拒绝启动，也不能在目标网卡不可用时静默放宽监听范围。
+    static func ifaceUnavailable(_ lang: Lang) -> String {
+        lang == .zh ? "选定网络暂不可用，服务未启动。"
+                    : "The selected network is unavailable; the server was not started."
+    }
+
     // 端口占用自动回退："端口 9000 不可用，已自动改用 8000。"
     static func portFallback(requested: in_port_t, actual: in_port_t, _ lang: Lang) -> String {
         lang == .zh ? "端口 \(requested) 不可用，已自动改用 \(actual)。"

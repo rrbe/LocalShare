@@ -59,8 +59,12 @@ final class AppState: ObservableObject {
     private var server: FileServer?
     private var viewerTimer: Timer?
     private var networkRefreshID = UUID()
+    // 已移除的“仅当前网络可见”开关不再面向新用户，但升级时必须继续兑现既有的隔离选择，
+    // 不能把原先的单网卡监听静默放宽到 0.0.0.0。
+    private var legacyBindSelectedOnly = false
 
     private let portKey = "configuredPort"
+    private let bindSelectedOnlyKey = "bindSelectedOnly"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
     private let langPrefKey = "languagePref"
@@ -80,6 +84,12 @@ final class AppState: ObservableObject {
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         accessCodeEnabled = UserDefaults.standard.bool(forKey: accessCodeEnabledKey)
         tailscaleAccessEnabled = UserDefaults.standard.bool(forKey: tailscaleAccessEnabledKey)
+        legacyBindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)
+        // 旧版中两项互斥；若偏好因异常状态同时为真，沿用旧版启动时的迁移结果。
+        if legacyBindSelectedOnly, tailscaleAccessEnabled {
+            legacyBindSelectedOnly = false
+            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
+        }
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
         Lang.current = Lang.resolve(langPref)   // 同步快照，供菜单/命令构造处读取
@@ -457,6 +467,14 @@ final class AppState: ObservableObject {
             Task { @MainActor [weak self] in self?.recordReceivedText(rt) }
         }
         let prefer = [configuredPort] + fallbackPorts.filter { $0 != configuredPort }
+        if legacyBindSelectedOnly {
+            guard let bindIP = selectedInterface?.ip else {
+                lastError = LStr.ifaceUnavailable(lang)
+                isRunning = false
+                return
+            }
+            fs.listenAddress = bindIP
+        }
         do {
             port = try fs.start(preferredPorts: prefer)
             server = fs
@@ -469,10 +487,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    // 切换信号源只改变票据上展示的首选局域网地址；服务始终监听全部接口，无需重启。
+    // 新用户切换信号源只改变票据上的首选地址。升级用户若保留旧版的单网卡隔离偏好，
+    // 则继续随选中网卡重绑；重绑不轮换 token，已分发链接仍有效。
     func selectInterface(_ iface: NetworkInterface) {
         guard iface != selectedInterface else { return }
         selectedInterface = iface
+        if isRunning, legacyBindSelectedOnly { rebindServer() }
+    }
+
+    private func rebindServer() {
+        guard isRunning else { return }
+        viewerTimer?.invalidate()
+        viewerTimer = nil
+        server?.stop()
+        server = nil
+        start()
     }
 
     func stop() {
@@ -543,13 +572,19 @@ final class AppState: ObservableObject {
         if isRunning { pushToServer() }
     }
 
-    // Tailscale 是另一块网络；服务保持全接口监听，由 FileServer 的 100.64/10 入站闸门决定是否
-    // 放行。关闭会即时拒绝，不必重启或轮换分享凭证。
+    // Tailscale 是另一块网络，由 FileServer 的 100.64/10 入站闸门决定是否放行。旧版的单网卡
+    // 隔离与它互斥；用户显式开启 Tailscale 时完成迁移并恢复全接口监听。
     func setTailscaleAccessEnabled(_ on: Bool) {
         guard on != tailscaleAccessEnabled else { return }
+        let needsRebind = on && legacyBindSelectedOnly
         tailscaleAccessEnabled = on
         UserDefaults.standard.set(on, forKey: tailscaleAccessEnabledKey)
-        server?.tailscaleAccessEnabled = on
+        if needsRebind {
+            legacyBindSelectedOnly = false
+            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
+        }
+        if isRunning, needsRebind { rebindServer() }
+        else { server?.tailscaleAccessEnabled = on }
         if on { refreshNetwork() }
     }
 

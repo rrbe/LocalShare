@@ -125,7 +125,7 @@ After auth, requests record `lastSeen` by client IP. A 45-second window counts a
 
 ### Headless Interface Binding
 
-The GUI always listens on `0.0.0.0`; selecting a network source only changes the primary address printed on the share ticket. Headless mode may set `FileServer.listenAddress` through `LS_BIND` to bind one IPv4 via Swifter's `listenAddressIPv4`. Invalid `inet_pton` input throws instead of silently binding all interfaces.
+The GUI no longer exposes a current-network-only toggle and new installations listen on `0.0.0.0`; selecting a network source normally changes only the primary address printed on the share ticket. Upgrades preserve a previously enabled `bindSelectedOnly` preference and continue binding the selected IPv4 rather than silently widening access. If that interface is unavailable, startup fails closed. Explicitly enabling Tailscale retires the legacy preference, matching the former mutual-exclusion behavior. Headless mode may set `FileServer.listenAddress` through `LS_BIND` to bind one IPv4 via Swifter's `listenAddressIPv4`. Invalid `inet_pton` input throws instead of silently binding all interfaces.
 
 ### Optional Tailscale Access and Alternate Addresses
 
