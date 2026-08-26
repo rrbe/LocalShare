@@ -18,7 +18,7 @@ jobs:
   smoke:
     runs-on: macos-latest # 与 release 同款 runner，自带 Xcode / Swift 工具链与 Node
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build
