@@ -7,6 +7,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to publish"
+        required: true
+        type: string
 
 permissions:
   contents: write # 创建 Release、上传资产需要写权限
@@ -14,11 +20,20 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest # Apple Silicon runner，自带 Xcode / Swift 工具链
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7 # 浅克隆即可：changelog 要的 tag 注释由组装正文步骤单独 fetch
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: 解析版本号（去掉前缀 v）
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::发布标签必须符合 vX.Y.Z，实际为 $RELEASE_TAG"
+            exit 1
+          }
+          echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
 
       - name: 写入版本号到 Info.plist
         run: |
@@ -73,10 +88,10 @@ jobs:
           # 标题行（git tag 默认 cleanup=strip 会把 # 行当注释剥掉，标题统一由这里加）。
           # 注意 actions/checkout 会把触发构建的 tag 重建成指向提交的轻量 tag（actions/checkout#290），
           # 直接读 %(contents) 拿到的是提交信息——先按远端原样恢复 tag 对象，并确认确为 annotated tag。
-          git fetch origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" --force
+          git fetch origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" --force
           CHANGELOG=""
-          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = "tag" ]; then
-            CHANGELOG="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          if [ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = "tag" ]; then
+            CHANGELOG="$(git tag -l --format='%(contents)' "$RELEASE_TAG")"
           fi
           printf '**LocalShare %s** · 局域网文件 / 文件夹只读分享，扫码即看。\nUniversal（Apple Silicon + Intel），要求 macOS 13+。\n' "$VERSION" > release_body.md
           if [ -n "$CHANGELOG" ]; then
@@ -98,6 +113,7 @@ jobs:
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           name: LocalShare ${{ env.VERSION }}
           files: LocalShare-${{ env.VERSION }}.dmg
           body_path: release_body.md
@@ -125,7 +141,7 @@ jobs:
           rm -f /tmp/sparkle_ed_key
           echo "签名结果: $SIG_ATTRS"
 
-          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/LocalShare-$VERSION.dmg"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/LocalShare-$VERSION.dmg"
           PUBDATE="$(date "+%a, %d %b %Y %H:%M:%S %z")"
 
           # appcast 不进 git：写完直接作为资产挂到本次 Release 上（覆盖 checkout 里的同名旧文件，
@@ -149,4 +165,4 @@ jobs:
           EOF
 
           # --clobber：重跑 job 时覆盖已存在的同名资产。
-          gh release upload "$GITHUB_REF_NAME" appcast.xml --clobber
+          gh release upload "$RELEASE_TAG" appcast.xml --clobber
