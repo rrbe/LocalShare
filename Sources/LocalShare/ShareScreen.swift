@@ -211,6 +211,10 @@ struct ShareScreen: View {
                 OtherAddressesDisclosure(t: t, lang: state.lang, addresses: state.otherAddresses)
                     .padding(.top, 7)
             }
+            AccessModeButton(t: t, lang: state.lang, usingAccessCode: state.accessCodeEnabled) {
+                state.setAccessCodeEnabled(!state.accessCodeEnabled)
+            }
+            .padding(.top, 6)
             // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
             // 0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {

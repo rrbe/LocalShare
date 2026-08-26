@@ -86,7 +86,7 @@ enum L: CaseIterable {
 
     // 分享屏
     case shareFileTitle   // 文件票据二级页标题（与「传递文本」并列）
-    case received, changePerm, broadcastStopped, selectSource
+    case received, changePerm, useAccessCode, useFullURL, broadcastStopped, selectSource
     case sharingKicker, sharingFolderKicker
     case scanCaptionMultiple, scanCaptionFile, scanCaptionFolder
     case revealShareItems, revealInFinder, viewing
@@ -228,6 +228,8 @@ enum L: CaseIterable {
         case .shareFileTitle:  return ("分享文件", "Share Files")
         case .received:        return ("新收到", "Received")
         case .changePerm:      return ("改权限 ›", "Permissions ›")
+        case .useAccessCode:   return ("改用访问码", "Use Access Code")
+        case .useFullURL:      return ("改用完整网址", "Use Full URL")
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
         case .selectSource:    return ("选择信号源", "Choose source")
         case .sharingKicker:       return ("正在分享", "Sharing")

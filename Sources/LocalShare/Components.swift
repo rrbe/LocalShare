@@ -515,6 +515,29 @@ private struct AlternateAddressRow: View {
     }
 }
 
+// 分享票据上的凭证呈现模式切换；与「改权限」同属轻量就地入口，不抢主操作层级。
+struct AccessModeButton: View {
+    let t: Theme
+    var lang: Lang
+    var usingAccessCode: Bool
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(usingAccessCode ? L.useFullURL(lang) : L.useAccessCode(lang))
+                    .font(.sans(11.5, .semibold))
+                Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(hover ? t.ink : t.accent)
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(Capsule().fill(hover ? t.accentSoft : .clear))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
 // MARK: - 二维码卡
 
 // 真实二维码（CoreImage 生成的 NSImage）渲染在白底圆角卡上，保留 padding 作静区。

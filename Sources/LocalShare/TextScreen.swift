@@ -221,6 +221,10 @@ struct TextScreen: View {
                 OtherAddressesDisclosure(t: t, lang: lang, addresses: state.otherAddresses)
                     .padding(.top, 7)
             }
+            AccessModeButton(t: t, lang: lang, usingAccessCode: state.accessCodeEnabled) {
+                state.setAccessCodeEnabled(!state.accessCodeEnabled)
+            }
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)
