@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.0] - 2026-08-27
+
+- Added optional short access codes for manually joining a share, with rate limiting and automatic credential rotation
+- Added alternate hostname and opt-in Tailscale addresses while keeping one primary QR link and folding additional routes into a compact disclosure
+- Refined address controls with hover-revealed expand and copy actions that remain accessible from the keyboard and VoiceOver
+
 ## [0.11.0] - 2026-08-12
 
 - Added adaptive wide layouts for the native file picker and custom browser previews, while keeping the existing compact layout as the default
