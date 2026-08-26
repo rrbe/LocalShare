@@ -202,8 +202,15 @@ struct ShareScreen: View {
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
             Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, lang: state.lang, value: state.primaryURL ?? "—",
+            CopyPill(t: t, lang: state.lang, value: state.presentedURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)
+            if let code = state.presentedAccessCode {
+                AccessCodePill(t: t, lang: state.lang, value: code).padding(.top, 7)
+            }
+            AccessModeButton(t: t, lang: state.lang, usingAccessCode: state.accessCodeEnabled) {
+                state.setAccessCodeEnabled(!state.accessCodeEnabled)
+            }
+            .padding(.top, 6)
             // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
             // 0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {
@@ -273,7 +280,7 @@ struct ShareScreen: View {
     }
 
     private func openInBrowser() {
-        guard let s = state.primaryURL, let url = URL(string: s) else { return }
+        guard let s = state.presentedURL, let url = URL(string: s) else { return }
         NSWorkspace.shared.open(url)
     }
 }

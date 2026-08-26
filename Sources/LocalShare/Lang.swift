@@ -86,7 +86,7 @@ enum L: CaseIterable {
 
     // 分享屏
     case shareFileTitle   // 文件票据二级页标题（与「传递文本」并列）
-    case received, changePerm, broadcastStopped, selectSource
+    case received, changePerm, useAccessCode, useFullURL, broadcastStopped, selectSource
     case sharingKicker, sharingFolderKicker
     case scanCaptionMultiple, scanCaptionFile, scanCaptionFolder
     case revealShareItems, revealInFinder, viewing
@@ -109,6 +109,7 @@ enum L: CaseIterable {
     // 设置 —— 访问权限
     case permReadName, permReadDesc, permUploadName
     case permUploadDescOn, permUploadDescOff
+    case accessCodeTitle, accessCodeDesc, accessCodeLabel
     case permInfoWritable, permInfoReadonly, plaintextWarning
 
     // 设置 —— 外观
@@ -167,6 +168,8 @@ enum L: CaseIterable {
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
     case webText, webTextHint, webCopy, webViewRawText
     case webSendTitle, webSendEyebrow, webSendSub, webSendHead, webSendPlaceholder, webSendButton
+    case webAccessCodeTitle, webAccessCodeEyebrow, webAccessCodeSub
+    case webAccessCodePlaceholder, webAccessCodeSubmit, webAccessCodeInvalid, webAccessCodeLimited
 
     // —— 网页错误页 / 上传 JSON ——
     case webForbiddenTitle, webForbiddenBody, webFileNotFound, webReadFailed
@@ -222,6 +225,8 @@ enum L: CaseIterable {
         case .shareFileTitle:  return ("分享文件", "Share Files")
         case .received:        return ("新收到", "Received")
         case .changePerm:      return ("改权限 ›", "Permissions ›")
+        case .useAccessCode:   return ("改用访问码", "Use Access Code")
+        case .useFullURL:      return ("改用完整网址", "Use Full URL")
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
         case .selectSource:    return ("选择信号源", "Choose source")
         case .sharingKicker:       return ("正在分享", "Sharing")
@@ -271,6 +276,10 @@ enum L: CaseIterable {
         case .permUploadName:  return ("允许上传", "Allow Upload")
         case .permUploadDescOn:  return ("访客可把文件传进这个文件夹", "Visitors can upload files into this folder")
         case .permUploadDescOff: return ("仅分享单个文件夹时可用", "Only available when sharing a single folder")
+        case .accessCodeTitle: return ("使用访问码", "Use Access Code")
+        case .accessCodeDesc: return ("在另一台电脑输入网址和短码；二维码仍可直接打开",
+                                      "Enter an address and short code on another computer; QR links still open directly")
+        case .accessCodeLabel: return ("访问码", "Access code")
         case .permInfoWritable:  return ("已开启上传 · 访客可向这个文件夹写入文件，请只把二维码交给信任的人。",
                                          "Upload on · visitors can write to this folder. Only share the QR code with people you trust.")
         case .permInfoReadonly:  return ("当前为只读分享 · 访客只能查看和下载。",
@@ -397,6 +406,13 @@ enum L: CaseIterable {
         case .webSendHead:     return ("发文本给电脑", "Send text to the computer")
         case .webSendPlaceholder: return ("在此输入要发送到电脑的文本…", "Type text to send to the computer…")
         case .webSendButton:   return ("发送", "Send")
+        case .webAccessCodeTitle: return ("输入访问码", "Enter Access Code")
+        case .webAccessCodeEyebrow: return ("LocalShare · 电脑访问", "LocalShare · computer access")
+        case .webAccessCodeSub: return ("输入分享者电脑上显示的短码。", "Enter the short code shown on the sharing computer.")
+        case .webAccessCodePlaceholder: return ("例如 K7M-PQ2", "For example K7M-PQ2")
+        case .webAccessCodeSubmit: return ("进入分享", "Open Share")
+        case .webAccessCodeInvalid: return ("访问码不正确，请重新输入。", "That access code is incorrect. Try again.")
+        case .webAccessCodeLimited: return ("尝试次数过多，请稍后再试。", "Too many attempts. Try again later.")
 
         case .webForbiddenTitle: return ("无法访问", "No access")
         case .webForbiddenBody:  return ("请通过电脑上显示的二维码扫码进入。", "Scan the QR code shown on the computer to enter.")

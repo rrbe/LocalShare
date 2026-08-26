@@ -30,6 +30,9 @@ jobs:
       - name: token 鉴权与 302 清洗
         run: ./tools/smoke-token-302.sh
 
+      - name: 短访问码加入与限流
+        run: ./tools/smoke-access-code.sh
+
       - name: 访客上传去势 + 全站 nosniff
         run: ./tools/smoke-upload-defang.sh
 

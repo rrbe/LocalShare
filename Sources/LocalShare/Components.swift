@@ -391,6 +391,57 @@ struct CopyPill: View {
     }
 }
 
+// 访问码模式在地址条下只露一枚紧凑凭证；多个网络地址共用它，故不把短码重复塞进每一行。
+struct AccessCodePill: View {
+    let t: Theme
+    var lang: Lang
+    var value: String
+    @State private var copied = false
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(L.accessCodeLabel(lang)).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
+            Text(value).font(.mono(15, .bold)).tracking(1.2).foregroundStyle(t.ink)
+            Spacer(minLength: 8)
+            HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
+                      color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
+        }
+        .frame(height: 40)
+        .padding(.leading, 12).padding(.trailing, 5)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(t.accentSoft))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+    }
+}
+
+// 分享票据上的凭证呈现模式切换；与「改权限」同属轻量就地入口，不抢主操作层级。
+struct AccessModeButton: View {
+    let t: Theme
+    var lang: Lang
+    var usingAccessCode: Bool
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(usingAccessCode ? L.useFullURL(lang) : L.useAccessCode(lang))
+                    .font(.sans(11.5, .semibold))
+                Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(hover ? t.ink : t.accent)
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(Capsule().fill(hover ? t.accentSoft : .clear))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
 // MARK: - 二维码卡
 
 // 真实二维码（CoreImage 生成的 NSImage）渲染在白底圆角卡上，保留 padding 作静区。

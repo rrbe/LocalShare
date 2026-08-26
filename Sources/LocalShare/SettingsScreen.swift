@@ -119,6 +119,10 @@ struct SettingsScreen: View {
 
                 groupBox {
                     permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
+                    permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
+                            locked: false, on: state.accessCodeEnabled, top: true) {
+                        state.setAccessCodeEnabled(!state.accessCodeEnabled)
+                    }
                     permRow(name: L.permUploadName(lang),
                             desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
                             locked: !state.canToggleUpload,
