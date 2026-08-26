@@ -35,7 +35,6 @@ final class AppState: ObservableObject {
 
     @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
-    @Published var bindSelectedOnly = false         // 仅绑选中网卡（默认关=绑全部接口，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（默认落功能主页）
     @Published var wideLayout = false               // 当前窗口是否使用宽屏内容布局（仅会话内）
@@ -62,7 +61,6 @@ final class AppState: ObservableObject {
     private var networkRefreshID = UUID()
 
     private let portKey = "configuredPort"
-    private let bindSelectedOnlyKey = "bindSelectedOnly"
     private let recentsKey = "recentShares"
     private let appearanceKey = "appearancePref"
     private let langPrefKey = "languagePref"
@@ -80,13 +78,8 @@ final class AppState: ObservableObject {
     init() {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
-        bindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)   // 未写入默认 false
         accessCodeEnabled = UserDefaults.standard.bool(forKey: accessCodeEnabledKey)
         tailscaleAccessEnabled = UserDefaults.standard.bool(forKey: tailscaleAccessEnabledKey)
-        if bindSelectedOnly, tailscaleAccessEnabled {
-            bindSelectedOnly = false
-            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
-        }
         if let a = UserDefaults.standard.string(forKey: appearanceKey).flatMap(AppearancePref.init) { appearance = a }
         if let l = UserDefaults.standard.string(forKey: langPrefKey).flatMap(LangPref.init) { langPref = l }
         Lang.current = Lang.resolve(langPref)   // 同步快照，供菜单/命令构造处读取
@@ -464,9 +457,6 @@ final class AppState: ObservableObject {
             Task { @MainActor [weak self] in self?.recordReceivedText(rt) }
         }
         let prefer = [configuredPort] + fallbackPorts.filter { $0 != configuredPort }
-        // 「仅当前网络可见」开 → 只绑选中网卡；无选中网卡（无网）时退回全接口，避免直接挂掉。
-        let bindIP = bindSelectedOnly ? selectedInterface?.ip : nil
-        fs.listenAddress = bindIP
         do {
             port = try fs.start(preferredPorts: prefer)
             server = fs
@@ -474,51 +464,15 @@ final class AppState: ObservableObject {
             lastError = nil
             startViewerPolling()
         } catch {
-            // 绑定指定网卡失败（IP 刚因 DHCP/切网消失）：退回全接口重试一次，给提示但不让分享中断。
-            if bindIP != nil {
-                fs.listenAddress = nil
-                if let p = try? fs.start(preferredPorts: prefer) {
-                    port = p
-                    server = fs
-                    isRunning = true
-                    lastError = LStr.ifaceUnavailable(lang)
-                    startViewerPolling()
-                    return
-                }
-            }
             lastError = LStr.startFailed(error.localizedDescription, lang)
             isRunning = false
         }
     }
 
-    // 在不轮换 token 的前提下重绑监听地址（切网卡 / 切「仅当前网络可见」用）：stop() 会换钥匙、
-    // 作废已发链接，这里只想换 socket 绑定，故单独走——保留 self.token，已分发的二维码继续有效。
-    private func rebindServer() {
-        guard isRunning else { return }
-        viewerTimer?.invalidate(); viewerTimer = nil
-        server?.stop()
-        server = nil
-        start()   // 复用 self.token，仅监听地址/端口随当前选择重算
-    }
-
-    // 切换信号源：默认（绑全接口）下纯展示用途，沿用旧行为不重启；开了「仅当前网络可见」才需重绑到新网卡。
+    // 切换信号源只改变票据上展示的首选局域网地址；服务始终监听全部接口，无需重启。
     func selectInterface(_ iface: NetworkInterface) {
         guard iface != selectedInterface else { return }
         selectedInterface = iface
-        if isRunning && bindSelectedOnly { rebindServer() }
-    }
-
-    func setBindSelectedOnly(_ on: Bool) {
-        guard on != bindSelectedOnly else { return }
-        guard !on || selectedInterface != nil else { return }
-        if on, tailscaleAccessEnabled {
-            tailscaleAccessEnabled = false
-            UserDefaults.standard.set(false, forKey: tailscaleAccessEnabledKey)
-            server?.tailscaleAccessEnabled = false
-        }
-        bindSelectedOnly = on
-        UserDefaults.standard.set(on, forKey: bindSelectedOnlyKey)
-        if isRunning { rebindServer() }   // 立即重绑：开=收窄到选中网卡，关=放开到全接口
     }
 
     func stop() {
@@ -589,19 +543,13 @@ final class AppState: ObservableObject {
         if isRunning { pushToServer() }
     }
 
-    // Tailscale 是另一块网络；开启时自动退出“仅当前网络可见”，让 socket 回到全接口监听，再由
-    // FileServer 的 100.64/10 入站闸门决定是否放行。关闭则即时拒绝，不必重启或轮换分享凭证。
+    // Tailscale 是另一块网络；服务保持全接口监听，由 FileServer 的 100.64/10 入站闸门决定是否
+    // 放行。关闭会即时拒绝，不必重启或轮换分享凭证。
     func setTailscaleAccessEnabled(_ on: Bool) {
         guard on != tailscaleAccessEnabled else { return }
-        let needsRebind = on && bindSelectedOnly
         tailscaleAccessEnabled = on
         UserDefaults.standard.set(on, forKey: tailscaleAccessEnabledKey)
-        if needsRebind {
-            bindSelectedOnly = false
-            UserDefaults.standard.set(false, forKey: bindSelectedOnlyKey)
-        }
-        if isRunning, needsRebind { rebindServer() }
-        else { server?.tailscaleAccessEnabled = on }
+        server?.tailscaleAccessEnabled = on
         if on { refreshNetwork() }
     }
 

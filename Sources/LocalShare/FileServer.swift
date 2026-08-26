@@ -54,7 +54,7 @@ final class FileServer {
 
     // 监听地址：nil = 绑定全部接口（0.0.0.0，默认）——回环可达、对网络切换鲁棒，headless/CLI 与冒烟
     // 测试都走这条。设为某块网卡的私网 IPv4 时，socket 只绑那一个地址，分享便仅在该网络可见
-    // （GUI「仅当前网络可见」开关，opt-in）。Swifter 原生支持，无须 fork（见 start）。
+    // （headless 的 LS_BIND）。Swifter 原生支持，无须 fork（见 start）。
     var listenAddress: String?
 
     // 默认拒绝从 Tailscale 100.64/10 地址来的请求；用户在设置中显式开放后才放行。监听仍可保持
@@ -269,9 +269,7 @@ final class FileServer {
     @discardableResult
     func start(preferredPorts: [in_port_t]) throws -> in_port_t {
         // 监听地址若非合法 IPv4：Swifter 的 inet_pton 会静默失败、sin_addr 保持 0 即 INADDR_ANY——
-        // 「仅当前网络可见」会无声地对所有网络开放，与承诺相反。提前抛错，把这条隐性失败显式化：
-        // GUI 侧让上层「回退全接口并提示」的安全网接住（而非依赖 bind() 失败），headless 侧直接启动失败。
-        // GUI 的地址恒来自 getifaddrs、本不会触发；这是给 LS_BIND / 日后误用的兜底。
+        // 非法 LS_BIND 会静默退化为 INADDR_ANY，与调用者意图相反，因此提前抛错。
         if let addr = listenAddress {
             var probe = in_addr()
             guard inet_pton(AF_INET, addr, &probe) == 1 else {

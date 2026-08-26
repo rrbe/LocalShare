@@ -7,7 +7,7 @@ import Foundation
 //   LS_TOKEN    访问令牌（选填，默认 testtoken）
 //   LS_PORT     端口（选填，默认 8080）
 //   LS_UPLOAD   置 1 开启访客上传（仅单文件夹分享生效）
-//   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）——对应 GUI「仅当前网络可见」，供冒烟验证
+//   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验

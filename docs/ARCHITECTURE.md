@@ -123,13 +123,13 @@ Related hardening: token 302 cleanup; uploaded files receive `com.apple.quaranti
 
 After auth, requests record `lastSeen` by client IP. A 45-second window counts as "N people browsing". Device-name reverse lookup runs best-effort in the background through `getnameinfo`, with `nameCache` and `nameLookupInFlight` protected by the server lock and cleared on token rotation. `/ls/ping` is a reserved heartbeat path handled before share content; listing pages call it every 15 seconds and it returns only counts, not device names. The GUI polls every 2 seconds through `AppState`, uses a named lead visitor when known, falls back to "N people browsing", hides IPs from the summary, and shows details in a popover.
 
-### Current-Network-Only Binding
+### Headless Interface Binding
 
-When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address through `listenAddressIPv4`. `AppState.bindSelectedOnly` drives it. Changing interface or switch state rebinds without rotating the token. If the selected IP disappears, the app falls back to all interfaces. Invalid `inet_pton` input throws instead of silently binding all interfaces. Default `nil` means `0.0.0.0`.
+The GUI always listens on `0.0.0.0`; selecting a network source only changes the primary address printed on the share ticket. Headless mode may set `FileServer.listenAddress` through `LS_BIND` to bind one IPv4 via Swifter's `listenAddressIPv4`. Invalid `inet_pton` input throws instead of silently binding all interfaces.
 
 ### Optional Tailscale Access and Alternate Addresses
 
-Tailscale access is persisted but defaults off. `NetworkInfo` detects its IPv4 by the documented `100.64.0.0/10` range rather than an interface-name assumption. When an installed Tailscale CLI is available, `TailscaleInfo` runs `status --json --peers=false` off the main actor with a two-second timeout and extracts `Self.DNSName`; failure degrades to the detected IP only. Enabling Tailscale turns off the mutually exclusive single-interface bind, while the request gate permits tailnet clients. Disabling it keeps the all-interface listener but rejects `100.64/10` clients before auth.
+Tailscale access is persisted but defaults off. `NetworkInfo` detects its IPv4 by the documented `100.64.0.0/10` range rather than an interface-name assumption. When an installed Tailscale CLI is available, `TailscaleInfo` runs `status --json --peers=false` off the main actor with a two-second timeout and extracts `Self.DNSName`; failure degrades to the detected IP only. Enabling Tailscale permits tailnet clients through the request gate. Disabling it keeps the all-interface listener but rejects `100.64/10` clients before auth.
 
 The ticket keeps one primary address and folds Bonjour hostname, Tailscale MagicDNS, and Tailscale IP into `otherAddresses`. In access-code mode each is an origin paired with the shared short code; otherwise each preserves the current path and token. `ShareAddress` stores a complete URL so a future public relay may supply an opaque server URL instead of being forced into the LAN host/query-token shape. No public relay address is created or shown today.
 

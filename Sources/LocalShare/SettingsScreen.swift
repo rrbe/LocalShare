@@ -97,16 +97,6 @@ struct SettingsScreen: View {
                     }
                     .padding(.vertical, 12)
 
-                    // 仅当前网络可见：同属网络设置，紧随端口、以分隔线归组。只有同时连了多个网络时才有意义，
-                    // 故描述按是否多网卡分两种措辞，避免单网卡时给出空泛的“其它网络”字样。
-                    settingRow(top: true, title: L.bindOnlyTitle(lang),
-                               desc: state.interfaces.count > 1
-                                    ? L.bindOnlyDescMulti(lang)
-                                    : L.bindOnlyDescSingle(lang)) {
-                        ToggleSwitch(t: t, isOn: state.bindSelectedOnly, locked: state.selectedInterface == nil) {
-                            state.setBindSelectedOnly(!state.bindSelectedOnly)
-                        }
-                    }
                     settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDesc) {
                         ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
                             state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
