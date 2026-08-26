@@ -19,6 +19,31 @@ struct NetworkInterface: Identifiable, Hashable {
 // 关键：过滤掉 VPN(utun)、bridge、回环等手机连不上的地址——这是“扫码却打不开”的常见坑。
 enum NetworkInfo {
     static func privateIPv4Interfaces() -> [NetworkInterface] {
+        allIPv4Interfaces().filter { isPrivateIPv4($0.ip) }.sorted(by: rank)
+    }
+
+    // Tailscale 为节点分配 100.64.0.0/10 内的稳定 IPv4。它不进入普通局域网信号源列表，只有用户
+    // 显式开启 Tailscale 访问后才用于额外地址；按 CIDR 而非 utun 名称识别，兼容不同安装形态。
+    static func tailscaleIPv4Address() -> String? {
+        allIPv4Interfaces().first { isTailscaleIPv4($0.ip) }?.ip
+    }
+
+    static func isTailscaleIPv4(_ ip: String) -> Bool {
+        let parts = ip.split(separator: ".")
+        guard parts.count == 4,
+              let first = Int(parts[0]), let second = Int(parts[1]),
+              parts[2...].allSatisfy({ Int($0).map { (0...255).contains($0) } ?? false }) else { return false }
+        return first == 100 && (64...127).contains(second)
+    }
+
+    // Bonjour 主机名只在确有 .local 名称时展示；不自行拼接后缀，避免生成一条无法解析的地址。
+    static func localHostName() -> String? {
+        let name = ProcessInfo.processInfo.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.lowercased().hasSuffix(".local"), !name.contains(":") else { return nil }
+        return name
+    }
+
+    private static func allIPv4Interfaces() -> [NetworkInterface] {
         var result: [NetworkInterface] = []
         var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddrPtr) == 0 else { return [] }
@@ -38,11 +63,10 @@ enum NetworkInfo {
             guard r == 0 else { continue }
 
             let ip = String(cString: host)
-            guard isPrivateIPv4(ip) else { continue }
             let iface = NetworkInterface(name: String(cString: ifa.ifa_name), ip: ip)
             if !result.contains(iface) { result.append(iface) }
         }
-        return result.sorted(by: rank)
+        return result
     }
 
     private static func isPrivateIPv4(_ ip: String) -> Bool {

@@ -90,6 +90,8 @@ enum L: CaseIterable {
     case sharingKicker, sharingFolderKicker
     case scanCaptionMultiple, scanCaptionFile, scanCaptionFolder
     case revealShareItems, revealInFinder, viewing
+    case otherAddresses, tailscaleMagicDNSAddress, tailscaleIPAddress, publicRelayAddress
+    case tailscaleNetworkOnly, publicInternet
 
     // 未接入网络
     case noNetwork, noNetworkHint
@@ -101,7 +103,7 @@ enum L: CaseIterable {
 
     // 设置 —— 网络
     case thisMachine, portOk, portOccupied, portInvalid, portOkHint
-    case bindOnlyTitle, bindOnlyDescMulti, bindOnlyDescSingle
+    case tailscaleTitle, tailscaleDescOff, tailscaleDescOn, tailscaleDescMissing
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
@@ -237,6 +239,12 @@ enum L: CaseIterable {
         case .revealShareItems: return ("在 Finder 中显示分享项", "Show shared items in Finder")
         case .revealInFinder:  return ("在 Finder 中显示", "Show in Finder")
         case .viewing:         return ("正在浏览", "Viewing")
+        case .otherAddresses:  return ("其他可用地址", "Other Available Addresses")
+        case .tailscaleMagicDNSAddress: return ("Tailscale MagicDNS", "Tailscale MagicDNS")
+        case .tailscaleIPAddress: return ("Tailscale IP", "Tailscale IP")
+        case .publicRelayAddress: return ("公网中继", "Public Relay")
+        case .tailscaleNetworkOnly: return ("仅 Tailscale 网络内设备可用", "Tailscale network only")
+        case .publicInternet: return ("可通过公网访问", "Available over the internet")
 
         case .noNetwork:       return ("未接入局域网", "Not on a network")
         case .noNetworkHint:   return ("先把这台 Mac 接入与目标设备相同的\nWi-Fi / 有线网络，再点下方刷新。",
@@ -260,11 +268,13 @@ enum L: CaseIterable {
         case .portInvalid:     return ("无效", "Invalid")
         case .portOkHint:      return ("端口可用 · 修改后会重启服务，已分发的链接需更新。",
                                        "Port available · changing it restarts the server; shared links must be updated.")
-        case .bindOnlyTitle:   return ("仅当前网络可见", "Current network only")
-        case .bindOnlyDescMulti:  return ("只在选中的信号源上开放，电脑连着的其它网络访问不到",
-                                          "Open only on the selected source; other connected networks can't reach it")
-        case .bindOnlyDescSingle: return ("只在当前网络开放，日后接入别的网络时也访问不到",
-                                          "Open only on the current network; future networks won't reach it either")
+        case .tailscaleTitle: return ("允许 Tailscale 访问", "Allow Tailscale Access")
+        case .tailscaleDescOff: return ("开启后允许 Tailscale 网络内的设备访问",
+                                        "Enable access from devices on your Tailscale network")
+        case .tailscaleDescOn: return ("已开放给 Tailscale 网络；分享票据会显示专用地址",
+                                       "Open to your Tailscale network; dedicated addresses appear on the share ticket")
+        case .tailscaleDescMissing: return ("已开启；未检测到正在运行的 Tailscale",
+                                            "Enabled; no running Tailscale connection detected")
 
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
@@ -553,10 +563,10 @@ enum LStr {
         lang == .zh ? "启动服务失败：\(reason)" : "Failed to start server: \(reason)"
     }
 
-    // 网卡不可用回退提示。
+    // 旧版单网卡隔离偏好的升级用户：宁可拒绝启动，也不能在目标网卡不可用时静默放宽监听范围。
     static func ifaceUnavailable(_ lang: Lang) -> String {
-        lang == .zh ? "选定网卡暂不可用，已临时对全部网络开放。"
-                    : "The selected interface is unavailable; temporarily opened to all networks."
+        lang == .zh ? "选定网络暂不可用，服务未启动。"
+                    : "The selected network is unavailable; the server was not started."
     }
 
     // 端口占用自动回退："端口 9000 不可用，已自动改用 8000。"

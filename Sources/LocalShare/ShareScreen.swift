@@ -207,6 +207,10 @@ struct ShareScreen: View {
             if let code = state.presentedAccessCode {
                 AccessCodePill(t: t, lang: state.lang, value: code).padding(.top, 7)
             }
+            if !state.otherAddresses.isEmpty {
+                OtherAddressesDisclosure(t: t, lang: state.lang, addresses: state.otherAddresses)
+                    .padding(.top, 7)
+            }
             AccessModeButton(t: t, lang: state.lang, usingAccessCode: state.accessCodeEnabled) {
                 state.setAccessCodeEnabled(!state.accessCodeEnabled)
             }

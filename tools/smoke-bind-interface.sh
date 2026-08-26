@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# 防回归冒烟测：#6「仅当前网络可见」网卡绑定。LS_BIND 设为某私网 IPv4 时 socket 只绑该地址——
+# 防回归冒烟测：headless 的 LS_BIND 网卡绑定。LS_BIND 设为某私网 IPv4 时 socket 只绑该地址——
 # 该地址可达、电脑上的其它接口一律拒连；不设 LS_BIND 则绑全部接口（默认：回环 + 局域网都可达）。
-# 对应 GUI 设置页「仅当前网络可见」开关（AppState.bindSelectedOnly → FileServer.listenAddress）。
 # 用法：./tools/smoke-bind-interface.sh   退出码 0=全过（探测不到私网 IPv4 时跳过并退 0）。
 set -u
 BIN="${BIN:-.build/debug/LocalShare}"

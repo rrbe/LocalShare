@@ -317,16 +317,120 @@ struct HoverIcon: View {
     var systemImage: String
     var color: Color
     var help: String = ""
+    var size: CGFloat = 34
+    var iconSize: CGFloat = 14
+    var onFocusChange: (Bool) -> Void = { _ in }
     var action: () -> Void
     @State private var hover = false
+    @FocusState private var focused: Bool
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage).font(.system(size: 14, weight: .medium))
+            Image(systemName: systemImage).font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(hover ? t.ink : color)
-                .frame(width: 34, height: 34)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hover ? t.surfaceAlt : .clear))
+                .frame(width: size, height: size)
+                .background(RoundedRectangle(cornerRadius: min(9, size / 3), style: .continuous)
+                    .fill(hover ? t.surfaceAlt : .clear))
         }
-        .buttonStyle(.plain).onHover { hover = $0 }.help(help)
+        .buttonStyle(.plain)
+        .focused($focused)
+        .onHover { hover = $0 }
+        .onChange(of: focused) { onFocusChange($0) }
+        .help(help)
+        .accessibilityLabel(Text(help))
+    }
+}
+
+// 地址行默认只保留“打开”。整行 hover 时以覆盖层统一显示展开和复制按钮。
+// 覆盖层不参与布局，避免按钮出现时挤动文本；渐变材质模糊压住其下的长地址，保证图标清楚可点。
+private struct ExpandableAddressLine: View {
+    let t: Theme
+    var lang: Lang
+    var value: String
+    var font: Font
+    var color: Color
+    var hoverBackdrop: Color
+    var leadingPadding: CGFloat = 0
+    var spacing: CGFloat = 4
+    var actionSpacing: CGFloat = 0
+    var actionSize: CGFloat = 24
+    var actionIconSize: CGFloat = 12
+    var expandedVerticalPadding: CGFloat = 0
+    var withOpen = true
+    var onOpen: (() -> Void)?
+    @State private var expanded = false
+    @State private var hovered = false
+    @State private var copied = false
+    @State private var expandFocused = false
+    @State private var copyFocused = false
+
+    var body: some View {
+        row.onHover { hovered = $0 }
+    }
+
+    private func address(expanded: Bool) -> some View {
+        Text(value).font(font).foregroundStyle(color)
+            .lineLimit(expanded ? nil : 1).truncationMode(.middle)
+            .padding(.leading, leadingPadding)
+            .help(value)
+    }
+
+    private var row: some View {
+        HStack(alignment: expanded ? .top : .center, spacing: spacing) {
+            address(expanded: expanded)
+                .fixedSize(horizontal: false, vertical: expanded)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if withOpen {
+                HoverIcon(t: t, systemImage: "arrow.up.forward",
+                          color: t.inkMute, help: L.openInBrowser(lang),
+                          size: actionSize, iconSize: actionIconSize + 1) { onOpen?() }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            hoverActions
+                .padding(.trailing, withOpen ? actionSize + actionSpacing : 0)
+                .opacity(actionsVisible ? 1 : 0)
+                // 视觉隐藏不移出焦点或辅助功能树；Tab / VoiceOver 聚焦时会立即显现。
+                .accessibilityHidden(false)
+        }
+        .padding(.vertical, expanded ? expandedVerticalPadding : 0)
+    }
+
+    private var hoverActions: some View {
+        HStack(spacing: actionSpacing) {
+            HoverIcon(t: t,
+                      systemImage: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                      color: t.inkMute,
+                      help: expanded ? L.collapseAddress(lang) : L.expandAddress(lang),
+                      size: actionSize, iconSize: actionIconSize,
+                      onFocusChange: { expandFocused = $0 }) { expanded.toggle() }
+            HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
+                      color: copied ? t.ok : t.inkMute, help: L.copy(lang),
+                      size: actionSize, iconSize: actionIconSize,
+                      onFocusChange: { copyFocused = $0 }) { copy() }
+        }
+        .padding(.leading, 18)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Rectangle().fill(hoverBackdrop.opacity(0.90))
+            }
+            .mask(LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.88), location: 0.14),
+                .init(color: .black, location: 0.28)
+            ], startPoint: .leading, endPoint: .trailing))
+        }
+    }
+
+    private var actionsVisible: Bool {
+        hovered || expandFocused || copyFocused
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
     }
 }
 
@@ -339,55 +443,15 @@ struct CopyPill: View {
     var withOpen = true
     var compact = false
     var onOpen: (() -> Void)? = nil
-    @State private var copied = false
-    @State private var expanded = false
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
-                address.lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 0)
-                trailingActions
-            }
-            HStack(alignment: expanded ? .top : .center, spacing: 4) {
-                address
-                    .lineLimit(expanded ? nil : 1).truncationMode(.middle)
-                    .fixedSize(horizontal: false, vertical: expanded)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HoverIcon(t: t,
-                          systemImage: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                          color: t.inkMute,
-                          help: expanded ? L.collapseAddress(lang) : L.expandAddress(lang)) { expanded.toggle() }
-                trailingActions
-            }
-            .padding(.vertical, expanded ? 7 : 0)
-        }
+        ExpandableAddressLine(t: t, lang: lang, value: value, font: .mono(13), color: t.ink,
+                              hoverBackdrop: t.field, leadingPadding: 12, expandedVerticalPadding: 7,
+                              withOpen: withOpen, onOpen: onOpen)
         .frame(maxWidth: .infinity)
         .frame(minHeight: compact ? 42 : 48)
         .padding(.trailing, 6)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(t.field))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(t.line, lineWidth: 1))
-    }
-
-    private var address: some View {
-        Text(value).font(.mono(13)).foregroundStyle(t.ink)
-            .padding(.leading, 12)
-            .help(value)
-    }
-
-    @ViewBuilder private var trailingActions: some View {
-        HoverIcon(t: t, systemImage: copied ? "checkmark" : "doc.on.doc",
-                  color: copied ? t.ok : t.inkMute, help: L.copy(lang)) { copy() }
-        if withOpen {
-            HoverIcon(t: t, systemImage: "arrow.up.forward.square",
-                      color: t.inkMute, help: L.openInBrowser(lang)) { onOpen?() }
-        }
-    }
-
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
     }
 }
 
@@ -416,6 +480,93 @@ struct AccessCodePill: View {
         NSPasteboard.general.setString(value, forType: .string)
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { copied = false }
+    }
+}
+
+private struct DisclosureButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
+}
+
+// 主票据只保留一个首选入口，其它解析方式按需展开，避免长 hostname / MagicDNS 抢走二维码的视觉层级。
+struct OtherAddressesDisclosure: View {
+    let t: Theme
+    var lang: Lang
+    var addresses: [ShareAddress]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network").font(.system(size: 12, weight: .semibold))
+                    Text(L.otherAddresses(lang)).font(.sans(12, .semibold))
+                    Spacer(minLength: 8)
+                    Text("\(addresses.count)").font(.mono(10.5, .bold)).foregroundStyle(t.inkFaint)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .foregroundStyle(t.inkMute)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(DisclosureButtonStyle())
+            .padding(.horizontal, 12).frame(height: 40)
+
+            if expanded {
+                Divider().overlay(t.line)
+                VStack(spacing: 0) {
+                    ForEach(Array(addresses.enumerated()), id: \.element.id) { index, address in
+                        AlternateAddressRow(t: t, lang: lang, address: address)
+                        if index < addresses.count - 1 { Divider().overlay(t.line).padding(.leading, 12) }
+                    }
+                }
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(t.surfaceAlt))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+}
+
+private struct AlternateAddressRow: View {
+    let t: Theme
+    var lang: Lang
+    var address: ShareAddress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(title).font(.sans(11.5, .semibold)).foregroundStyle(t.ink)
+                if let scope {
+                    Text(scope).font(.sans(10.5)).foregroundStyle(t.inkFaint).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            ExpandableAddressLine(t: t, lang: lang, value: address.url,
+                                  font: .mono(11.5), color: t.inkMute,
+                                  hoverBackdrop: t.surfaceAlt, spacing: 2, onOpen: open)
+        }
+        .padding(.leading, 12).padding(.trailing, 5).padding(.vertical, 8)
+    }
+
+    private var title: String {
+        switch address.kind {
+        case .localHostname: return "Hostname"
+        case .tailscaleMagicDNS: return L.tailscaleMagicDNSAddress(lang)
+        case .tailscaleIP: return L.tailscaleIPAddress(lang)
+        case .publicRelay: return L.publicRelayAddress(lang)
+        }
+    }
+
+    private var scope: String? {
+        switch address.scope {
+        case .localNetwork: return nil
+        case .tailscale: return L.tailscaleNetworkOnly(lang)
+        case .publicInternet: return L.publicInternet(lang)
+        }
+    }
+
+    private func open() {
+        guard let url = URL(string: address.url) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
