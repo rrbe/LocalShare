@@ -22,6 +22,13 @@ final class AccessCodeTests: XCTestCase {
         XCTAssertEqual(AccessCode.format("k7mpq2"), "K7M-PQ2")
     }
 
+    func testShareTicketModeActionsAreLocalized() {
+        XCTAssertEqual(L.useAccessCode(.zh), "改用访问码")
+        XCTAssertEqual(L.useFullURL(.zh), "改用完整网址")
+        XCTAssertEqual(L.useAccessCode(.en), "Use Access Code")
+        XCTAssertEqual(L.useFullURL(.en), "Use Full URL")
+    }
+
     func testJoinPageIsLocalizedAndKeepsCodeOutOfURL() {
         let zh = AccessCodePage.html(lang: .zh, error: .invalid)
         XCTAssertTrue(zh.contains("输入访问码"))

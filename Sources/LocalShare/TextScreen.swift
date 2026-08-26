@@ -217,6 +217,10 @@ struct TextScreen: View {
             if let code = state.presentedAccessCode {
                 AccessCodePill(t: t, lang: lang, value: code).padding(.top, 7)
             }
+            AccessModeButton(t: t, lang: lang, usingAccessCode: state.accessCodeEnabled) {
+                state.setAccessCodeEnabled(!state.accessCodeEnabled)
+            }
+            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)
