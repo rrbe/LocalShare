@@ -19,6 +19,8 @@ struct SettingsScreen: View {
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
         let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
         let ps = permSummary(state.permission, lang)
+        let tailscaleDesc = !state.tailscaleAccessEnabled ? L.tailscaleDescOff(lang)
+            : (state.tailscaleStatus == nil ? L.tailscaleDescMissing(lang) : L.tailscaleDescOn(lang))
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
@@ -97,13 +99,10 @@ struct SettingsScreen: View {
                     }
                     .padding(.vertical, 12)
 
-                    // 仅当前网络可见：同属网络设置，紧随端口、以分隔线归组。只有同时连了多个网络时才有意义，
-                    // 故描述按是否多网卡分两种措辞，避免单网卡时给出空泛的“其它网络”字样。
-                    settingRow(top: true, title: L.bindOnlyTitle(lang),
-                               desc: state.interfaces.count > 1
-                                    ? L.bindOnlyDescMulti(lang)
-                                    : L.bindOnlyDescSingle(lang)) {
-                        ToggleSwitch(t: t, isOn: state.bindSelectedOnly) { state.setBindSelectedOnly(!state.bindSelectedOnly) }
+                    settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDesc) {
+                        ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
+                            state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                        }
                     }
                 }
 
@@ -150,6 +149,10 @@ struct SettingsScreen: View {
 
                 groupBox {
                     permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
+                    permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
+                            locked: false, on: state.accessCodeEnabled, top: true) {
+                        state.setAccessCodeEnabled(!state.accessCodeEnabled)
+                    }
                     permRow(name: L.permUploadName(lang),
                             desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang)
                                                              : (state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang)),

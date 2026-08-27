@@ -21,13 +21,13 @@ The typical crash this project avoids is an arm64 binary that **misses a dynamic
 | Area | Decision |
 |---|---|
 | Platform | macOS only, native `.app`, Apple Silicon first |
-| Network | Same Wi-Fi / LAN by default; optional self-hosted LocalShare Server with one outbound WebSocket; no receiver app or VPN |
-| Stack | Swift / SwiftUI, system frameworks only, no external package dylib risk |
-| HTTP server | Swifter from SPM source, primarily read-only static serving |
+| Network | Same Wi-Fi / LAN by default; optional user-enabled Tailscale access or self-hosted LocalShare Server with one outbound WebSocket; no receiver app is required |
+| Stack | Swift / SwiftUI Client plus a separate Go Server; the app uses system frameworks and has no package-external runtime dylibs |
+| HTTP server | Swifter from SPM source for local serving; the self-hosted Go Server provides the remote control plane and data relay |
 | Share model | Three shapes: single folder -> mobile-friendly directory listing, serving `index.html` directly when present; single file -> scan opens the file and sibling files are not exposed; multiple files/folders -> synthetic virtual root listing selected items, with the first path segment mapped to a real URL. All shapes block directory traversal, each item using its own root |
-| Auth | Every share action creates a random token embedded in the QR URL as `?t=...`; first visit validates it and sets a session cookie; later resources are allowed by cookie. Changing or stopping a share rotates the token immediately, invalidating old links, cookies, and QR codes. Anyone guessing `IP:port` receives 403 |
-| Protocol | LAN uses the existing HTTP FileServer; remote mode uses the Server's HTTP/WebSocket relay. Device and share tokens are high-entropy and rotate at share boundaries. The self-hosted Server can terminate TLS when configured with a certificate and key |
-| QR code | Uses the public origin while remote mode is active, otherwise the selected LAN IP; generated with CoreImage `CIQRCodeGenerator`; no third-party QR dependency. Window keeps the LAN `.local` fallback |
+| Auth | Every share action creates a random token embedded in the LAN QR URL as `?t=...`; first visit validates it and sets a session cookie. An optional short access code can exchange for that cookie at `/ls/join`, with per-client rate limiting. Remote mode uses separate high-entropy device and share tokens. Changing, stopping, or switching access-code mode rotates the applicable share credentials immediately |
+| Protocol | LAN and Tailscale use plain HTTP. Remote mode uses the Server's HTTP/WebSocket relay, and the self-hosted Server can terminate TLS when configured with a certificate and key |
+| QR code | Uses the public origin while remote mode is active; otherwise uses the selected LAN IP or Tailscale IP when it is the only enabled network. It is generated with CoreImage `CIQRCodeGenerator`; the ticket can fold out the Bonjour hostname and enabled Tailscale alternatives |
 | GUI | Single window: functional home screen with drag/drop and picker, Text Transfer entry, and Recent Shares; file ticket, Text Transfer, Settings, and History are secondary pages with back navigation |
 | Lifecycle | Cold launch does **not** replay the last share or remote switch. The app starts on the home screen; the last share remains in Recent Shares for one-click restart. Closing the window does not quit; process and server continue running, and menu bar activation restores the previous screen. Ports are selected automatically; an enabled remote agent stops on app quit |
 | Distribution | Xcode ad-hoc signing. The first Gatekeeper approval is handled manually and then remembered by macOS |
@@ -69,7 +69,9 @@ LocalShare/
     MarkedJS.swift         # Vendored marked compiled as a Swift string constant
     SendTextPage / TextViewer  # Text Transfer: phone -> Mac send page and text preview shell
     RemoteAgent.swift      # Server pairing, Keychain device token, WebSocket relay, reconnect
-    NetworkInfo.swift      # getifaddrs -> private IPv4 candidates and .local hostname
+    NetworkInfo.swift      # getifaddrs -> private IPv4 candidates, Tailscale IP, and .local hostname
+    TailscaleInfo.swift    # optional CLI status probe -> Tailscale IPv4 + MagicDNS name
+    ShareAddress.swift     # complete alternate URL + network scope; includes a future opaque public-relay kind
     QRCode.swift           # CoreImage QR -> NSImage, plus terminal ANSI output
     Token.swift / Mime.swift   # Random token and extension -> MIME mapping with charset=utf-8 for text
     Lang.swift             # i18n string tables compiled into the binary: L / LStr / i18nJSON
@@ -97,13 +99,15 @@ LocalShare/
 
 ### FileServer Request Flow
 
-1. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token once so rotation cannot mix states. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
-2. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
-3. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
-4. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
-5. **Remote policy**: while remote mode is enabled, only `GET` and `HEAD` are accepted, and upload and text-receive routes disappear. The Server authenticates its own Share Token and never forwards browser credentials to the Mac.
+1. **Network gate**: requests sourced from Tailscale's `100.64.0.0/10` range are rejected unless the persisted Tailscale setting is enabled. This check precedes every credential path, so disabling it immediately revokes tailnet access even for a valid token or Cookie.
+2. **Access-code exchange**: when enabled, an unauthenticated browser navigation receives the built-in join page. `POST /ls/join` accepts the short code in the request body, rate-limits failures per client, and returns the normal `ls_token` Cookie plus a 302 to the current share entry. The code never appears in a URL or log. Non-browser requests and all other unauthenticated POSTs still receive 403.
+3. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token once so rotation cannot mix states. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
+4. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
+5. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
+6. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
+7. **Remote policy**: while remote mode is enabled, only `GET` and `HEAD` are accepted, and upload and text-receive routes disappear. The Server authenticates its own Share Token and never forwards browser credentials to the Mac.
 
-Single-folder serving extracts steps 2-4 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
+Single-folder serving extracts steps 4-6 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
 
 ### Web XSS Hardening
 
@@ -123,9 +127,15 @@ Related hardening: token 302 cleanup; uploaded files receive `com.apple.quaranti
 
 After auth, requests record `lastSeen` by client IP. A 45-second window counts as "N people browsing". Device-name reverse lookup runs best-effort in the background through `getnameinfo`, with `nameCache` and `nameLookupInFlight` protected by the server lock and cleared on token rotation. `/ls/ping` is a reserved heartbeat path handled before share content; listing pages call it every 15 seconds and it returns only counts, not device names. The GUI polls every 2 seconds through `AppState`, uses a named lead visitor when known, falls back to "N people browsing", hides IPs from the summary, and shows details in a popover.
 
-### Current-Network-Only Binding
+### Headless Interface Binding
 
-When `FileServer.listenAddress` is non-nil, Swifter binds only that IPv4 address through `listenAddressIPv4`. `AppState.bindSelectedOnly` drives it. Changing interface or switch state rebinds without rotating the token. If the selected IP disappears, the app falls back to all interfaces. Invalid `inet_pton` input throws instead of silently binding all interfaces. Default `nil` means `0.0.0.0`.
+The GUI no longer exposes a current-network-only toggle and new installations listen on `0.0.0.0`; selecting a network source normally changes only the primary address printed on the share ticket. Upgrades preserve a previously enabled `bindSelectedOnly` preference and continue binding the selected IPv4 rather than silently widening access. If that interface is unavailable, startup fails closed. Explicitly enabling Tailscale retires the legacy preference, matching the former mutual-exclusion behavior. Headless mode may set `FileServer.listenAddress` through `LS_BIND` to bind one IPv4 via Swifter's `listenAddressIPv4`. Invalid `inet_pton` input throws instead of silently binding all interfaces.
+
+### Optional Tailscale Access and Alternate Addresses
+
+Tailscale access is persisted but defaults off. `NetworkInfo` detects its IPv4 by the documented `100.64.0.0/10` range rather than an interface-name assumption. When an installed Tailscale CLI is available, `TailscaleInfo` runs `status --json --peers=false` off the main actor with a two-second timeout and extracts `Self.DNSName`; failure degrades to the detected IP only. Enabling Tailscale permits tailnet clients through the request gate. Disabling it keeps the all-interface listener but rejects `100.64/10` clients before auth.
+
+The ticket keeps one primary address and folds Bonjour hostname, Tailscale MagicDNS, and Tailscale IP into `otherAddresses`. In access-code mode each is an origin paired with the shared short code; otherwise each preserves the current path and token. `ShareAddress` stores a complete URL so opaque relay URLs can be represented without being forced into the LAN host/query-token shape. The current remote URL is shown as the primary ticket URL rather than an alternate address.
 
 ### Remote Sharing
 
@@ -213,7 +223,7 @@ LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debu
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # Should return a directory listing or index.html
 ```
 
-Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, simulate remote read-only policy with `LS_REMOTE=1`, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
+Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, allow Tailscale clients with `LS_TAILSCALE=1`, simulate remote read-only policy with `LS_REMOTE=1`, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
 
 **Sharing with a coworker**: copy `dist/*.app`; for the first launch, help them pass Gatekeeper once by opening the app, then System Settings -> Privacy & Security -> Open Anyway. macOS remembers this approval.
 
@@ -225,10 +235,11 @@ Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable uplo
 
 - Apple notarization, which requires a paid developer account.
 - HTTPS with a self-signed certificate, which would replace scan-to-use with certificate warnings.
-- SSH/frp/Nginx/Tailscale/Cloudflare tunnel integration; the remote path is the self-contained LocalShare Server. These remain possible transport or deployment references, not Client runtime dependencies.
+- Automatic third-party or public tunneling such as SSH/frp, cloudflared, and ngrok. The remote path uses the self-contained LocalShare Server; optional Tailscale access remains a user-managed network path.
 - **Online edit/delete in the browser**. This is intentionally not supported: mobile browser editing is poor, overwrite/delete risks are high, and guest upload already covers the primary phone -> Mac need. `Permission.edit` and `Permission.del` remain `false`.
 
 **Potential future work:**
 
 - **Chunked upload**: bypass Swifter's whole-body-in-memory limitation by slicing on the frontend, appending chunks server-side, and atomically renaming on the final chunk. This would allow arbitrary size with constant memory and remove the 500 MB cap.
+- **Managed relay hosting**: the relay is currently self-hosted. A future managed service could reuse the existing opaque public URL model without changing LAN or Tailscale address handling.
 - **Better device-name lookup**: current lookup is best-effort `getnameinfo`; iPhones often do not resolve and fall back to IP. More accurate mDNS PTR lookup via `DNSServiceQueryRecord` is possible but more complex and still not guaranteed.

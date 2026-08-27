@@ -7,12 +7,14 @@ import Foundation
 //   LS_TOKEN    访问令牌（选填，默认 testtoken）
 //   LS_PORT     端口（选填，默认 8080）
 //   LS_UPLOAD   置 1 开启访客上传（仅单文件夹分享生效）
-//   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）——对应 GUI「仅当前网络可见」，供冒烟验证
+//   LS_BIND     仅绑该 IPv4 地址（选填；默认绑全部接口）
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
 //   LS_REMOTE   置 1 启用远程只读策略；默认不启动远程 Agent
 //   LS_REMOTE_SERVER / LS_REMOTE_KEY 与 LS_REMOTE 一起使用，连接真实 Server（端到端冒烟专用，凭证只存内存）
+//   LS_ACCESS_CODE 短访问码（选填）；设置后无 token 的浏览器导航显示 /ls/join 加入页
+//   LS_TAILSCALE 置 1 放行来自 Tailscale 100.64/10 的请求（默认拒绝）
 enum HeadlessServer {
     @MainActor private static var smokeRemoteAgent: RemoteAgent?
 
@@ -39,6 +41,8 @@ enum HeadlessServer {
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let server = FileServer(share: makeShare(urls, hasText: text != nil), token: token)
         server.remoteAccessEnabled = remoteOn
+        server.accessCode = env["LS_ACCESS_CODE"].flatMap { $0.isEmpty ? nil : $0 }
+        server.tailscaleAccessEnabled = env["LS_TAILSCALE"] == "1"
         server.uploadEnabled = env["LS_UPLOAD"] == "1" && !remoteOn
         server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         server.sharedText = text

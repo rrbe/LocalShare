@@ -54,8 +54,16 @@ final class FileServer {
 
     // 监听地址：nil = 绑定全部接口（0.0.0.0，默认）——回环可达、对网络切换鲁棒，headless/CLI 与冒烟
     // 测试都走这条。设为某块网卡的私网 IPv4 时，socket 只绑那一个地址，分享便仅在该网络可见
-    // （GUI「仅当前网络可见」开关，opt-in）。Swifter 原生支持，无须 fork（见 start）。
+    // （headless 的 LS_BIND）。Swifter 原生支持，无须 fork（见 start）。
     var listenAddress: String?
+
+    // 默认拒绝从 Tailscale 100.64/10 地址来的请求；用户在设置中显式开放后才放行。监听仍可保持
+    // 0.0.0.0，因而能同时服务普通 LAN 与 Tailscale，不需要第二套 server 或端口。
+    private var _tailscaleAccessEnabled = false
+    var tailscaleAccessEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _tailscaleAccessEnabled }
+        set { lock.lock(); _tailscaleAccessEnabled = newValue; lock.unlock() }
+    }
 
     // share 与 token 都可能在运行中被“更换”修改，故加锁；请求处理在后台 socket 线程读取。
     private let lock = NSLock()
@@ -70,7 +78,31 @@ final class FileServer {
     private var _token: String
     var token: String {
         get { lock.lock(); defer { lock.unlock() }; return _token }
-        set { lock.lock(); _token = newValue; lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []; lock.unlock() }
+        set {
+            lock.lock()
+            _token = newValue
+            lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []
+            joinAttempts = [:]
+            lock.unlock()
+        }
+    }
+
+    // 可选的短访问码：只允许 POST /ls/join 换取当前 token 的会话 Cookie，不替代二维码里的高熵 token。
+    // nil 即保持原有行为：无 token 一律 403。AppState 在开关/分享边界轮换它。
+    private var _accessCode: String? = nil
+    var accessCode: String? {
+        get { lock.lock(); defer { lock.unlock() }; return _accessCode }
+        set { lock.lock(); _accessCode = newValue; joinAttempts = [:]; lock.unlock() }
+    }
+
+    // 运行中切模式/换分享时必须原子替换两枚凭证：否则极窄窗口里可能用旧短码换到新 token，或反之。
+    func setCredentials(token: String, accessCode: String?) {
+        lock.lock()
+        _token = token
+        _accessCode = accessCode
+        lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []
+        joinAttempts = [:]
+        lock.unlock()
     }
 
     // MARK: - 访客上传（Permission.add，v1 仅单文件夹分享）
@@ -147,6 +179,12 @@ final class FileServer {
     // 设备名反查缓存（同 lock）：ip → 友好设备名；空串=查过但无名（回退 IP 尾号）；缺键=尚未查。
     private var nameCache: [String: String] = [:]
     private var nameLookupInFlight: Set<String> = []   // 正在后台反查的 ip，去重避免重复发起
+
+    // 短码只有约 30 bits，必须把在线猜测压到很低。每个来源一分钟最多失败 5 次；成功或凭证轮换即清零。
+    private struct JoinAttempts { var startedAt: Date; var failures: Int }
+    private var joinAttempts: [String: JoinAttempts] = [:]
+    private static let joinAttemptWindow: TimeInterval = 60
+    private static let joinAttemptLimit = 5
 
     private func touchPresence(_ ip: String?) {
         guard let ip, !ip.isEmpty else { return }
@@ -239,9 +277,7 @@ final class FileServer {
     @discardableResult
     func start(preferredPorts: [in_port_t]) throws -> in_port_t {
         // 监听地址若非合法 IPv4：Swifter 的 inet_pton 会静默失败、sin_addr 保持 0 即 INADDR_ANY——
-        // 「仅当前网络可见」会无声地对所有网络开放，与承诺相反。提前抛错，把这条隐性失败显式化：
-        // GUI 侧让上层「回退全接口并提示」的安全网接住（而非依赖 bind() 失败），headless 侧直接启动失败。
-        // GUI 的地址恒来自 getifaddrs、本不会触发；这是给 LS_BIND / 日后误用的兜底。
+        // 非法 LS_BIND 会静默退化为 INADDR_ANY，与调用者意图相反，因此提前抛错。
         if let addr = listenAddress {
             var probe = in_addr()
             guard inet_pton(AF_INET, addr, &probe) == 1 else {
@@ -269,6 +305,11 @@ final class FileServer {
     // MARK: - 请求处理
 
     private func handle(_ req: HttpRequest) -> HttpResponse {
+        // Tailscale 开关是网络边界，必须先于访问码和 token 鉴权；即使拿着有效链接，关闭后也立即拒绝。
+        guard Self.allowsClient(address: req.address, tailscaleAccessEnabled: tailscaleAccessEnabled) else {
+            return htmlResponse(403, "Forbidden", Self.forbiddenPage(
+                Lang.fromAcceptLanguage(req.headers["accept-language"])))
+        }
         // 1. 鉴权：query ?t= 或 cookie 任一匹配当前分享的 token（每请求取一次快照，
         //    保证鉴权判断与下面 Set-Cookie 写的是同一把钥匙，轮换瞬间也不串）
         let token = self.token
@@ -281,7 +322,20 @@ final class FileServer {
         let recvOn = textInboxEnabled && !remoteMode
         let viaQuery = req.queryParams.first { $0.0 == "t" }?.1 == token
         let viaCookie = cookieValue("ls_token", in: req.headers["cookie"]) == token
+
+        // 访问码入口必须先于 token guard：它的职责就是在没有 token 时换取 Cookie。只开放一个固定 POST，
+        // 其它未鉴权 POST 仍保持 403；正确码不出现在 Location、Cookie 或日志里。
+        if req.method == "POST", req.path == "/ls/join", accessCode != nil {
+            return handleJoin(req: req, lang: lang)
+        }
         guard viaQuery || viaCookie else {
+            // 手输网址是浏览器导航；访问码开启时给加入页。curl/资源请求仍返回 403，避免把错误响应
+            // 从明确的鉴权失败悄悄改成 HTML 200。
+            if accessCode != nil, req.method == "GET",
+               (req.headers["accept"] ?? "").contains("text/html") {
+                return htmlResponse(200, "OK", AccessCodePage.html(lang: lang),
+                                    extra: ["Cache-Control": "no-store"])
+            }
             return htmlResponse(403, "Forbidden", Self.forbiddenPage(lang))
         }
         if remoteMode && req.method != "GET" && req.method != "HEAD" {
@@ -296,6 +350,11 @@ final class FileServer {
 
         // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。
         touchPresence(clientAddress)
+
+        // 已经有有效 Cookie 却打开 /ls/join 时直接回当前分享入口，不再重复要求输入短码。
+        if req.method == "GET", req.path == "/ls/join" {
+            return .raw(302, "Found", ["Location": entryPath(), "Cache-Control": "no-store"], nil)
+        }
 
         // 心跳/在线数端点（保留路径，优先于分享内容命中；分享里恰好有 ls/ping 的概率可忽略）。
         // req.path 不含 query（Swifter 用 URLComponents.path），精确比较即可。
@@ -432,6 +491,81 @@ final class FileServer {
                          decodedPath: decodedPath, rootName: rootURL.lastPathComponent,
                          canUpload: uploadEnabled && !remoteMode, canReceiveText: recvOn,
                          viewer: wantsViewer, lang: lang, extra: extra, range: rangeHeader)
+    }
+
+    static func allowsClient(address: String?, tailscaleAccessEnabled: Bool) -> Bool {
+        guard let address, NetworkInfo.isTailscaleIPv4(address) else { return true }
+        return tailscaleAccessEnabled
+    }
+
+    private enum JoinResult { case accepted(token: String), invalid, limited }
+
+    private func handleJoin(req: HttpRequest, lang: Lang) -> HttpResponse {
+        guard req.body.count <= 64,
+              let raw = Self.formValue("code", in: req.body) else {
+            return htmlResponse(401, "Unauthorized", AccessCodePage.html(lang: lang, error: .invalid),
+                                extra: ["Cache-Control": "no-store"])
+        }
+        switch checkAccessCode(raw, address: req.address) {
+        case .accepted(let token):
+            return .raw(302, "Found", [
+                "Set-Cookie": "ls_token=\(token); Path=/; SameSite=Lax; HttpOnly",
+                "Location": entryPath(),
+                "Cache-Control": "no-store"
+            ], nil)
+        case .invalid:
+            return htmlResponse(401, "Unauthorized", AccessCodePage.html(lang: lang, error: .invalid),
+                                extra: ["Cache-Control": "no-store"])
+        case .limited:
+            return htmlResponse(429, "Too Many Requests", AccessCodePage.html(lang: lang, error: .limited),
+                                extra: ["Cache-Control": "no-store", "Retry-After": "60"])
+        }
+    }
+
+    private func checkAccessCode(_ candidate: String, address: String?) -> JoinResult {
+        let key = address ?? "unknown"
+        let now = Date()
+        lock.lock()
+        defer { lock.unlock() }
+        guard let expected = _accessCode else { return .invalid }
+        var attempts = joinAttempts[key] ?? JoinAttempts(startedAt: now, failures: 0)
+        if now.timeIntervalSince(attempts.startedAt) >= Self.joinAttemptWindow {
+            attempts = JoinAttempts(startedAt: now, failures: 0)
+        }
+        guard attempts.failures < Self.joinAttemptLimit else { return .limited }
+        if AccessCode.normalize(candidate) == AccessCode.normalize(expected) {
+            joinAttempts.removeValue(forKey: key)
+            return .accepted(token: _token)
+        }
+        attempts.failures += 1
+        joinAttempts[key] = attempts
+        return .invalid
+    }
+
+    // 手输入口永远落到当前分享的规范页面；这样显示网址不必包含文件名或 /ls/text。
+    private func entryPath() -> String {
+        if case .multiple(let items) = share, items.isEmpty,
+           !(sharedText?.isEmpty ?? true) || textInboxEnabled {
+            return "/ls/text"
+        }
+        if case .file(let fileURL) = share,
+           let encoded = fileURL.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+            return "/\(encoded)"
+        }
+        return "/"
+    }
+
+    private static func formValue(_ key: String, in body: [UInt8]) -> String? {
+        let raw = String(decoding: body, as: UTF8.self)
+        for pair in raw.split(separator: "&", omittingEmptySubsequences: false) {
+            let fields = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard fields.count == 2 else { continue }
+            let name = String(fields[0]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding
+            if name == key {
+                return String(fields[1]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding
+            }
+        }
+        return nil
     }
 
     // 可预览类型（md/json/csv）且浏览器导航 → 预览壳页（与文件同 URL，相对引用天然成立）；
