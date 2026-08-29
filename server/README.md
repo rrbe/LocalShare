@@ -2,9 +2,17 @@
 
 LocalShare Server 是远程分享的控制面和数据中继。它只转发请求与文件流，不保存 Mac 上的分享内容。Server 使用一个端口，要求 Go 1.23+。
 
-## 一、编译
+## 一、下载或编译
 
-在仓库根目录执行：
+GitHub Release 提供 Linux amd64 / arm64 单文件二进制和 SHA-256 校验文件。下载与服务器架构匹配的
+`LocalShare-Server-<version>-linux-<arch>` 后安装：
+
+```bash
+chmod +x LocalShare-Server-*-linux-*
+sudo install -m 0755 LocalShare-Server-*-linux-* /usr/local/bin/localshare-server
+```
+
+也可以在仓库根目录从源码编译：
 
 ```bash
 cd server
