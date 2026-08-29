@@ -97,7 +97,7 @@ enum L: CaseIterable {
     case noNetwork, noNetworkHint
 
     // 设置 —— 小节标题
-    case sectionNetwork, sectionPermission, sectionAppearance, sectionLanguage, sectionMain
+    case sectionNetwork, sectionPermission, sectionAppearance, sectionLanguage, sectionAppearanceLanguage, sectionMain
     case sectionUpdate, sectionCLI, sectionRecent
     case shareSettings, shareHistory, currentColon
 
@@ -254,6 +254,7 @@ enum L: CaseIterable {
         case .sectionPermission: return ("访问权限", "Access")
         case .sectionAppearance: return ("外观", "Appearance")
         case .sectionLanguage:   return ("语言", "Language")
+        case .sectionAppearanceLanguage: return ("外观与语言", "Appearance & Language")
         case .sectionMain:       return ("主界面", "Main Screen")
         case .sectionUpdate:     return ("更新", "Updates")
         case .sectionCLI:        return ("命令行工具", "Command Line")
