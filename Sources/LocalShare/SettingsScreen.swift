@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - 设置（网络 / 访问权限 / 外观 / 主界面 / 命令行工具）
+// MARK: - 设置（左侧分类导航 / 右侧分类内容）
 
 struct SettingsScreen: View {
     let t: Theme
@@ -24,239 +24,307 @@ struct SettingsScreen: View {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
                 Text(L.shareSettings(lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
                 Spacer()
-                WideLayoutButton(t: t)
             }
         } content: {
-            VStack(alignment: .leading, spacing: 0) {
-                // MARK: 网络（监听端口 + 可见范围）
-                eyebrow(L.sectionNetwork(lang), first: true)
-                groupBox {
-                    // 端口编辑单元：IP 前缀 + 端口框 + 实时校验 +（改动时）放弃/应用，整体作卡内首格。
-                    // 不再单独套一层 surface 卡（外层 groupBox 已提供卡面）；校验态由输入框边框 + 下方提示色承载。
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 10) {
-                            Text("\(state.selectedInterface?.ip ?? L.thisMachine(lang)) :").font(.mono(14)).foregroundStyle(t.inkMute)
-                            TextField("", text: $portText)
-                                .textFieldStyle(.plain)
-                                .font(.mono(15, .bold)).foregroundStyle(t.ink)
-                                .frame(width: 72)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(t.field))
-                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(pv.state == .ok ? t.lineStrong : pColor, lineWidth: 1.5))
-                                .onChange(of: portText) { portText = String($0.filter(\.isNumber).prefix(5)) }
-                                .onSubmit { apply(pv, changed: changed) }
-                            Spacer()
-                            HStack(spacing: 5) {
-                                Image(systemName: pv.state == .ok ? "checkmark" : "questionmark.circle")
-                                    .font(.system(size: 13, weight: .bold))
-                                Text(pv.state == .ok ? L.portOk(lang) : (pv.state == .occupied ? L.portOccupied(lang) : L.portInvalid(lang)))
-                                    .font(.sans(11.5, .bold))
-                            }
-                            .foregroundStyle(pColor)
-                        }
-
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(pv.state == .ok ? L.portOkHint(lang) : pv.message)
-                                .font(.sans(11.5, pv.state == .ok ? .regular : .semibold))
-                                .foregroundStyle(pv.state == .ok ? t.inkMute : pColor)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            if let s = pv.suggest {
-                                Button { portText = String(s) } label: {
-                                    Text(LStr.changeToPort(s, lang)).font(.sans(11.5, .bold)).foregroundStyle(t.accent)
-                                        .padding(.horizontal, 10).frame(height: 24)
-                                        .background(Capsule().fill(t.accentSoft))
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.top, 8)
-
-                        // 改了才出现这排操作：放弃（还原成当前生效端口，无效输入也可退回）+ 应用。
-                        // 用纯色文字而非实心全宽块——重启服务不是破坏性动作，不必视觉吓人。
-                        if changed {
-                            HStack(spacing: 18) {
-                                Spacer()
-                                Button { portText = String(state.configuredPort) } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
-                                        Text(L.discardChanges(lang)).font(.sans(13, .semibold))
-                                    }
-                                    .foregroundStyle(t.inkMute)
-                                }
-                                .buttonStyle(.plain)
-                                if pv.state != .invalid {
-                                    Button { apply(pv, changed: changed) } label: {
-                                        Text(L.applyRestart(lang)).font(.sans(13, .semibold)).foregroundStyle(t.accent)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.top, 12)
-                        }
-                    }
-                    .padding(.vertical, 12)
-
-                    settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDesc) {
-                        ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
-                            state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
-                        }
-                    }
-                }
-
-                // MARK: 访问权限（眼标右侧挂「当前权限」胶囊）
-                HStack(spacing: 8) {
-                    SectionLabel(t: t, text: L.sectionPermission(lang))
-                    Spacer(minLength: 8)
-                    Text("\(L.currentColon(lang))\(ps.tag)").font(.sans(11, .bold))
-                        .foregroundStyle(ps.writable ? t.accent : t.inkMute)
-                        .padding(.horizontal, 9).padding(.vertical, 2)
-                        .background(Capsule().fill(ps.writable ? t.accentSoft : .clear))
-                        .overlay(Capsule().strokeBorder(ps.writable ? .clear : t.line, lineWidth: 1))
-                }
-                .padding(.top, 22).padding(.bottom, 7).padding(.horizontal, 2)
-
-                groupBox {
-                    permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
-                    permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
-                            locked: false, on: state.accessCodeEnabled, top: true) {
-                        state.setAccessCodeEnabled(!state.accessCodeEnabled)
-                    }
-                    permRow(name: L.permUploadName(lang),
-                            desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
-                            locked: !state.canToggleUpload,
-                            on: state.permission.add, top: true) {
-                        state.setUploadAllowed(!state.permission.add)
-                    }
-                    // 收文本：独立闸门，不限分享形态（甚至什么都没分享也能开），故不随 share 置灰。
-                    permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
-                            locked: false, on: state.textInboxEnabled, top: true) {
-                        state.setTextInboxEnabled(!state.textInboxEnabled)
-                    }
-                }
-
-                // 权限级别说明 + 明文传输提示：作小节脚注列在卡片下方（非卡内行），与 macOS 分组表的页脚同姿态。
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
-                    Text(ps.writable ? L.permInfoWritable(lang) : L.permInfoReadonly(lang))
-                        .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
-                    Spacer(minLength: 0)
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
-                .padding(.top, 12)
-
-                // 明文传输提示：纯 LAN 不加密，公共网络下同网的人能看到内容。用克制的灰字、不进彩底警告框。
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "lock.open").font(.system(size: 13)).foregroundStyle(t.inkMute).padding(.top, 1)
-                    Text(L.plaintextWarning(lang))
-                        .font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 12)
-
-                // MARK: 外观
-                // 分段选择器本身即成组控件，自带分组感——不再套 groupBox（盒中盒），眼标下直接放分段条。
-                eyebrow(L.sectionAppearance(lang))
-                HStack(spacing: 8) {
-                    appearanceSeg(L.appearanceFollow(lang), .system)
-                    appearanceSeg(L.appearanceLight(lang), .light)
-                    appearanceSeg(L.appearanceDark(lang), .dark)
-                }
-
-                // MARK: 语言
-                eyebrow(L.sectionLanguage(lang))
-                HStack(spacing: 8) {
-                    langSeg(L.langFollow(lang), .system)
-                    langSeg("中文", .zh)        // 语言名用本族文字，不翻译
-                    langSeg("English", .en)
-                }
-
-                // MARK: 主界面（最近分享展示 + 窗口尺寸）
-                eyebrow(L.sectionMain(lang))
-                groupBox {
-                    settingRow(title: L.showRecentsTitle(lang), desc: L.showRecentsDesc(lang)) {
-                        ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
-                    }
-                    settingRow(top: true, title: L.rememberTextTitle(lang), desc: L.rememberTextDesc(lang)) {
-                        ToggleSwitch(t: t, isOn: state.persistText) { state.setPersistText(!state.persistText) }
-                    }
-                    settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
-                        ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
-                    }
-                    settingRow(top: true, title: L.resetWindowTitle(lang), desc: L.resetWindowDesc(lang)) {
-                        GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
-                            state.resetWindowSize()
-                        }
-                    }
-                }
-
-                // MARK: 更新
-                // 始终展示这一组：开关留在设置里，用户才能确认「自动更新」这个功能确实存在。
-                // dev / 未签名构建里 updater 未启动（占位 EdDSA 公钥），此时只把开关置灰、并改说明文案
-                // 点明原因——是「此构建未启用」而非把整段藏掉。isActive 只决定可用态，不决定是否渲染。
-                eyebrow(L.sectionUpdate(lang))
-                groupBox {
-                    settingRow(title: L.autoUpdate(lang),
-                               desc: updater.isActive
-                                    ? L.autoUpdateDescOn(lang)
-                                    : L.autoUpdateDescOff(lang)) {
-                        ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
-                            updater.setAutomaticChecks(!updater.automaticChecks)
-                        }
-                    }
-                    settingRow(top: true,
-                               title: L.manualUpdate(lang),
-                               desc: updater.isActive
-                                    ? L.manualUpdateDescOn(lang)
-                                    : L.manualUpdateDescOff(lang)) {
-                        GhostButton(t: t, title: L.checkForUpdates(lang), systemImage: "arrow.clockwise") {
-                            updater.checkForUpdates()
-                        }
-                        .disabled(!updater.canCheckForUpdates)
-                        .opacity(updater.canCheckForUpdates ? 1 : 0.5)
-                    }
-                }
-
-                // MARK: 命令行工具
-                // 裸二进制（swift run）没有 .app 可指：不给安装按钮，状态/卸载照常。
-                eyebrow(L.sectionCLI(lang))
-                groupBox {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("localshare").font(.mono(13.5, .bold)).foregroundStyle(t.ink)
-                            Text(cliHint).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                                .lineLimit(1).truncationMode(.middle)
-                        }
-                        Spacer(minLength: 8)
-                        if state.cliStatus != .notInstalled {
-                            Button { state.uninstallCLI() } label: {
-                                Text(L.uninstall(lang)).font(.sans(13, .semibold)).foregroundStyle(t.inkMute)
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, 4)
-                        }
-                        if state.cliStatus == .installed {
-                            HStack(spacing: 5) {
-                                Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
-                                Text(L.installed(lang)).font(.sans(11.5, .bold))
-                            }
-                            .foregroundStyle(t.ok)
-                        } else if CLIInstaller.binaryPath() != nil {
-                            GhostButton(t: t,
-                                        title: state.cliStatus == .notInstalled ? L.install(lang) : L.reinstall(lang),
-                                        systemImage: "terminal") {
-                                state.installCLI()
-                            }
-                        }
-                    }
-                    .padding(.vertical, 12)
-                }
+            HStack(alignment: .top, spacing: 20) {
+                settingsSidebar(lang)
+                settingsDetail(lang: lang, portCheck: pv, portColor: pColor,
+                               portChanged: changed, permissionSummary: ps,
+                               tailscaleDescription: tailscaleDesc)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .onAppear {
             portText = String(state.configuredPort)
             state.refreshCLIStatus()
+        }
+        .onDisappear { state.endSettingsLayout() }
+    }
+
+    // MARK: - 经典设置侧栏
+
+    private func settingsSidebar(_ lang: Lang) -> some View {
+        VStack(spacing: 4) {
+            ForEach(AppState.SettingsCategory.allCases, id: \.self) { category in
+                let selected = state.selectedSettingsCategory == category
+                Button { state.selectedSettingsCategory = category } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: categoryIcon(category))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(selected ? t.accent : t.inkMute)
+                            .frame(width: 18)
+                        Text(categoryTitle(category, lang))
+                            .font(.sans(13, selected ? .semibold : .medium))
+                            .foregroundStyle(t.ink)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 11)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .contentShape(Rectangle())
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(selected ? t.accentSoft : .clear))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(7)
+        .frame(width: 184)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+    }
+
+    private func categoryTitle(_ category: AppState.SettingsCategory, _ lang: Lang) -> String {
+        switch category {
+        case .network: return L.sectionNetwork(lang)
+        case .permission: return L.sectionPermission(lang)
+        case .appearanceLanguage: return L.sectionAppearanceLanguage(lang)
+        case .main: return L.sectionMain(lang)
+        case .update: return L.sectionUpdate(lang)
+        case .cli: return L.sectionCLI(lang)
+        }
+    }
+
+    private func categoryIcon(_ category: AppState.SettingsCategory) -> String {
+        switch category {
+        case .network: return "network"
+        case .permission: return "lock.shield"
+        case .appearanceLanguage: return "paintbrush"
+        case .main: return "macwindow"
+        case .update: return "arrow.triangle.2.circlepath"
+        case .cli: return "terminal"
+        }
+    }
+
+    @ViewBuilder private func settingsDetail(lang: Lang, portCheck: PortCheck, portColor: Color,
+                                              portChanged: Bool, permissionSummary: PermSummary,
+                                              tailscaleDescription: String) -> some View {
+        switch state.selectedSettingsCategory {
+        case .network:
+            networkSettings(lang: lang, portCheck: portCheck, portColor: portColor,
+                            portChanged: portChanged, tailscaleDescription: tailscaleDescription)
+        case .permission:
+            permissionSettings(lang: lang, summary: permissionSummary)
+        case .appearanceLanguage:
+            appearanceLanguageSettings(lang)
+        case .main:
+            mainSettings(lang)
+        case .update:
+            updateSettings(lang)
+        case .cli:
+            cliSettings(lang)
+        }
+    }
+
+    private func networkSettings(lang: Lang, portCheck: PortCheck, portColor: Color,
+                                 portChanged: Bool, tailscaleDescription: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Text("\(state.selectedInterface?.ip ?? L.thisMachine(lang)) :")
+                            .font(.mono(14)).foregroundStyle(t.inkMute)
+                        TextField("", text: $portText)
+                            .textFieldStyle(.plain)
+                            .font(.mono(15, .bold)).foregroundStyle(t.ink)
+                            .frame(width: 72)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(t.field))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(portCheck.state == .ok ? t.lineStrong : portColor, lineWidth: 1.5))
+                            .onChange(of: portText) { portText = String($0.filter(\.isNumber).prefix(5)) }
+                            .onSubmit { apply(portCheck, changed: portChanged) }
+                        Spacer()
+                        HStack(spacing: 5) {
+                            Image(systemName: portCheck.state == .ok ? "checkmark" : "questionmark.circle")
+                                .font(.system(size: 13, weight: .bold))
+                            Text(portCheck.state == .ok ? L.portOk(lang)
+                                 : (portCheck.state == .occupied ? L.portOccupied(lang) : L.portInvalid(lang)))
+                                .font(.sans(11.5, .bold))
+                        }
+                        .foregroundStyle(portColor)
+                    }
+
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(portCheck.state == .ok ? L.portOkHint(lang) : portCheck.message)
+                            .font(.sans(11.5, portCheck.state == .ok ? .regular : .semibold))
+                            .foregroundStyle(portCheck.state == .ok ? t.inkMute : portColor)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        if let suggestion = portCheck.suggest {
+                            Button { portText = String(suggestion) } label: {
+                                Text(LStr.changeToPort(suggestion, lang)).font(.sans(11.5, .bold)).foregroundStyle(t.accent)
+                                    .padding(.horizontal, 10).frame(height: 24)
+                                    .background(Capsule().fill(t.accentSoft))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.top, 8)
+
+                    if portChanged {
+                        HStack(spacing: 18) {
+                            Spacer()
+                            Button { portText = String(state.configuredPort) } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
+                                    Text(L.discardChanges(lang)).font(.sans(13, .semibold))
+                                }
+                                .foregroundStyle(t.inkMute)
+                            }
+                            .buttonStyle(.plain)
+                            if portCheck.state != .invalid {
+                                Button { apply(portCheck, changed: portChanged) } label: {
+                                    Text(L.applyRestart(lang)).font(.sans(13, .semibold)).foregroundStyle(t.accent)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 12)
+                    }
+                }
+                .padding(.vertical, 12)
+
+                settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDescription) {
+                    ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
+                        state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                    }
+                }
+            }
+        }
+    }
+
+    private func permissionSettings(lang: Lang, summary: PermSummary) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
+                permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
+                        locked: false, on: state.accessCodeEnabled, top: true) {
+                    state.setAccessCodeEnabled(!state.accessCodeEnabled)
+                }
+                permRow(name: L.permUploadName(lang),
+                        desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
+                        locked: !state.canToggleUpload, on: state.permission.add, top: true) {
+                    state.setUploadAllowed(!state.permission.add)
+                }
+                permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
+                        locked: false, on: state.textInboxEnabled, top: true) {
+                    state.setTextInboxEnabled(!state.textInboxEnabled)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
+                Text(summary.writable ? L.permInfoWritable(lang) : L.permInfoReadonly(lang))
+                    .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
+            .padding(.top, 12)
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lock.open").font(.system(size: 13)).foregroundStyle(t.inkMute).padding(.top, 1)
+                Text(L.plaintextWarning(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute).lineSpacing(2)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 12)
+        }
+    }
+
+    private func appearanceLanguageSettings(_ lang: Lang) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            eyebrow(L.sectionAppearance(lang), first: true)
+            HStack(spacing: 8) {
+                appearanceSeg(L.appearanceFollow(lang), .system)
+                appearanceSeg(L.appearanceLight(lang), .light)
+                appearanceSeg(L.appearanceDark(lang), .dark)
+            }
+            eyebrow(L.sectionLanguage(lang))
+            HStack(spacing: 8) {
+                langSeg(L.langFollow(lang), .system)
+                langSeg("中文", .zh)
+                langSeg("English", .en)
+            }
+        }
+    }
+
+    private func mainSettings(_ lang: Lang) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                settingRow(title: L.showRecentsTitle(lang), desc: L.showRecentsDesc(lang)) {
+                    ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
+                }
+                settingRow(top: true, title: L.rememberTextTitle(lang), desc: L.rememberTextDesc(lang)) {
+                    ToggleSwitch(t: t, isOn: state.persistText) { state.setPersistText(!state.persistText) }
+                }
+                settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
+                    ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
+                }
+                settingRow(top: true, title: L.resetWindowTitle(lang), desc: L.resetWindowDesc(lang)) {
+                    GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
+                        state.resetWindowSize()
+                    }
+                }
+            }
+        }
+    }
+
+    private func updateSettings(_ lang: Lang) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                settingRow(title: L.autoUpdate(lang),
+                           desc: updater.isActive ? L.autoUpdateDescOn(lang) : L.autoUpdateDescOff(lang)) {
+                    ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
+                        updater.setAutomaticChecks(!updater.automaticChecks)
+                    }
+                }
+                settingRow(top: true, title: L.manualUpdate(lang),
+                           desc: updater.isActive ? L.manualUpdateDescOn(lang) : L.manualUpdateDescOff(lang)) {
+                    GhostButton(t: t, title: L.checkForUpdates(lang), systemImage: "arrow.clockwise") {
+                        updater.checkForUpdates()
+                    }
+                    .disabled(!updater.canCheckForUpdates)
+                    .opacity(updater.canCheckForUpdates ? 1 : 0.5)
+                }
+            }
+        }
+    }
+
+    private func cliSettings(_ lang: Lang) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("localshare").font(.mono(13.5, .bold)).foregroundStyle(t.ink)
+                        Text(cliHint).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    if state.cliStatus != .notInstalled {
+                        Button { state.uninstallCLI() } label: {
+                            Text(L.uninstall(lang)).font(.sans(13, .semibold)).foregroundStyle(t.inkMute)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 4)
+                    }
+                    if state.cliStatus == .installed {
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
+                            Text(L.installed(lang)).font(.sans(11.5, .bold))
+                        }
+                        .foregroundStyle(t.ok)
+                    } else if CLIInstaller.binaryPath() != nil {
+                        GhostButton(t: t,
+                                    title: state.cliStatus == .notInstalled ? L.install(lang) : L.reinstall(lang),
+                                    systemImage: "terminal") {
+                            state.installCLI()
+                        }
+                    }
+                }
+                .padding(.vertical, 12)
+            }
         }
     }
 
@@ -273,8 +341,8 @@ struct SettingsScreen: View {
         }
     }
 
-    // 分组卡：surface 底 + line 描边的圆角容器，把同一小节的行包成一张卡。分组切分由卡片边界承担，
-    // 眼标（SectionLabel）只负责命名——这样安静的小标签不必再独力分隔七个组，「组标题比组内项小」的倒挂观感随之消除。
+    // 分组卡：surface 底 + line 描边的圆角容器，把当前分类中的相关设置行包成一张卡。
+    // 右侧仅在一个分类内仍有多个小节时使用 SectionLabel，左侧导航负责标出六个顶层分类。
     // 组内多行靠 settingRow / permRow 自带的内缩顶分隔线区隔（行宽 = 卡内宽，分隔线天然内缩，不触卡缘）。
     @ViewBuilder private func groupBox<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
