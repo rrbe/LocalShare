@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitepress'
 
+const pagesBase = process.env.DOCS_BASE
+
 export default defineConfig({
+  base: pagesBase ? `${pagesBase}/` : '/',
   lang: 'zh-CN',
   title: 'LocalShare 文档',
   description: 'LocalShare Client 与 Server 的使用和部署文档',
