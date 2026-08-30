@@ -11,12 +11,16 @@ final class AppState: ObservableObject {
     // .file = 文件二维码票据（二级页，带返回）。文本/设置/历史各为带返回的二级页。
     enum Screen { case share, file, text, settings, history }
     enum AppearancePref: String { case system, light, dark }
+    enum SettingsCategory: CaseIterable {
+        case network, remote, permission, appearanceLanguage, main, update, cli
+    }
 
     // 设计默认窗口尺寸（票据风竖窗，设计稿 400×720）。供 App 的 .defaultSize 与
     // 「恢复默认尺寸」共用同一处真相，避免两边各写一份数字漂移。
     static let defaultWindowWidth: CGFloat = 450
     static let defaultWindowHeight: CGFloat = 720
     static let wideWindowWidth: CGFloat = 900
+    static let settingsWindowWidth: CGFloat = 780
 
     @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
     @Published var sharedIsFile = false   // 仅单项有意义：true=单个文件，false=单个文件夹
@@ -39,6 +43,7 @@ final class AppState: ObservableObject {
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
     @Published var screen: Screen = .share          // 屏幕路由（默认落功能主页）
     @Published var wideLayout = false               // 当前窗口是否使用宽屏内容布局（仅会话内）
+    @Published var selectedSettingsCategory: SettingsCategory = .network // 设置页分类（仅会话内）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
     @Published var langPref: LangPref = .system     // 语言：跟随系统 / 中文 / English（持久化）
     @Published var showRecents = true               // 主界面是否展示「最近分享」模块（持久化）
@@ -70,6 +75,7 @@ final class AppState: ObservableObject {
     private var networkMonitor: NWPathMonitor?
     private var networkPathStatus: NWPath.Status?
     private var networkRefreshID = UUID()
+    private var wideLayoutBeforeSettings: Bool?
     // 已移除的“仅当前网络可见”开关不再面向新用户，但升级时必须继续兑现既有的隔离选择，
     // 不能把原先的单网卡监听静默放宽到 0.0.0.0。
     private var legacyBindSelectedOnly = false
@@ -819,9 +825,17 @@ final class AppState: ObservableObject {
 
     // MARK: - 路由
 
-    func openSettings() { screen = .settings }
+    func openSettings() {
+        guard screen != .settings else { return }
+        screen = .settings
+        beginSettingsLayout()
+    }
     func openHistory()  { screen = .history }
-    func goShare()      { screen = .share }   // 回功能主页（launchpad）
+    func goShare() {
+        let leavingSettings = screen == .settings
+        screen = .share
+        if leavingSettings { endSettingsLayout() }
+    }
     func enterFile()    { screen = .file }    // 进文件票据二级页（二维码 + 操作）
     func openText()     { screen = .text }   // 进传递文本二级页（收/发合一）
 
@@ -895,25 +909,58 @@ final class AppState: ObservableObject {
     // 把主窗口恢复到设计默认尺寸：锚定左上角不动（macOS 原点在左下，故顶随高变），带动画回弹。
     // 用 canBecomeMain 过滤掉弹层/面板（popover、NSPanel 均为 false），单窗口 app 只会命中主窗。
     func resetWindowSize() {
-        wideLayout = false
+        // 设置页需要双栏宽度；在这里点「恢复默认」时先记下离开设置后应回到窄屏，
+        // 当前页面仍保持宽屏，避免侧栏与内容被压回 450pt。
+        let keepSettingsWide = wideLayoutBeforeSettings != nil
+        if keepSettingsWide { wideLayoutBeforeSettings = false }
+        wideLayout = keepSettingsWide
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { return }
-        let target = NSSize(width: AppState.defaultWindowWidth, height: AppState.defaultWindowHeight)
+        let visibleWidth = window.screen.map { max(Self.defaultWindowWidth, $0.visibleFrame.width - 24) }
+            ?? Self.settingsWindowWidth
+        let targetWidth = keepSettingsWide ? min(Self.settingsWindowWidth, visibleWidth) : Self.defaultWindowWidth
+        let target = NSSize(width: targetWidth, height: AppState.defaultWindowHeight)
         var frame = window.frame
         frame.origin.y = frame.maxY - target.height
         frame.size = target
-        window.setFrame(frame, display: true, animate: true)
+        animate(window, to: frame)
     }
 
     func toggleWideLayout() {
-        wideLayout.toggle()
-        guard let window = NSApp.keyWindow,
+        setWideLayout(!wideLayout)
+    }
+
+    func beginSettingsLayout() {
+        if wideLayoutBeforeSettings == nil { wideLayoutBeforeSettings = wideLayout }
+        setWideLayout(true, preferredWidth: Self.settingsWindowWidth)
+    }
+
+    func endSettingsLayout() {
+        guard let previous = wideLayoutBeforeSettings else { return }
+        wideLayoutBeforeSettings = nil
+        setWideLayout(previous)
+    }
+
+    private func setWideLayout(_ enabled: Bool, preferredWidth: CGFloat? = nil) {
+        wideLayout = enabled
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }),
               let visible = window.screen?.visibleFrame else { return }
         let maxWidth = max(Self.defaultWindowWidth, visible.width - 24)
-        let width = wideLayout ? min(max(window.frame.width, Self.wideWindowWidth), maxWidth) : Self.defaultWindowWidth
+        let wideWidth = preferredWidth ?? max(window.frame.width, Self.wideWindowWidth)
+        let width = enabled ? min(wideWidth, maxWidth) : Self.defaultWindowWidth
         var frame = window.frame
         frame.origin.x += (frame.width - width) / 2
         frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - width))
         frame.size.width = width
-        window.setFrame(frame, display: true, animate: true)
+        animate(window, to: frame)
+    }
+
+    // NSWindow 的 animate 参数会同步占用主线程；通过 animator proxy 把窗口缩放交给
+    // AppKit 动画上下文异步执行，让 SwiftUI 页面切换与窗口尺寸变化在同一拍开始。
+    private func animate(_ window: NSWindow, to frame: NSRect) {
+        guard window.frame != frame else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = window.animationResizeTime(frame)
+            window.animator().setFrame(frame, display: true)
+        }
     }
 }
