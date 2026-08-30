@@ -9,9 +9,10 @@ import Foundation
 //  · 自动链接只认 http(s)，由正则保证 scheme，不会引入 javascript: 之类。
 enum TextViewer {
     // text：要展示/复制的原文；crumbs：与文件共存于虚拟根时显示「分享内容 / 文本」，纯文本分享传 nil。
-    static func html(text: String, crumbs: String?, canUpload: Bool, canReceiveText: Bool = false, lang: Lang) -> String {
+    static func html(text: String, requestPath: String = "/ls/text", crumbs: String?, canUpload: Bool,
+                     canReceiveText: Bool = false, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: L.webText(lang), crumbs: crumbs, canUpload: canUpload, lang: lang,
+            fileName: L.webText(lang), requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
             <article class="card txt">
               <pre id="txtbody" class="txtbody"></pre>

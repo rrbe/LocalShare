@@ -109,6 +109,9 @@ Release flow:
 - **Threading model**: Swifter callbacks run on socket threads, while `AppState` is `@MainActor`. Shared mutable server state is protected by one `NSLock`: `share`, `token`, `uploadEnabled`, `lastSeen`, `nameCache`, and `nameLookupInFlight`.
 - **Share changes do not restart the server** when the port is unchanged, but they rotate tokens immediately. Change the key before changing content.
 - **`.raw` has no keep-alive and unknown body length**, so file responses must write `Content-Length`.
+- **Remote mount prefix**: generated HTML must use relative navigation/heartbeat endpoints so it works under both `/`
+  and `/share/<token>/`; remote requests must carry the registered `share_id`, and the Client must reject stale IDs
+  before forwarding to `FileServer`.
 
 ## Design Constraint
 

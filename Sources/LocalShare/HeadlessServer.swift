@@ -11,15 +11,20 @@ import Foundation
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
+//   LS_REMOTE   置 1 启用远程只读策略；默认不启动远程 Agent
+//   LS_REMOTE_SERVER / LS_REMOTE_KEY 与 LS_REMOTE 一起使用，连接真实 Server（端到端冒烟专用，凭证只存内存）
 //   LS_ACCESS_CODE 短访问码（选填）；设置后无 token 的浏览器导航显示 /ls/join 加入页
 //   LS_TAILSCALE 置 1 放行来自 Tailscale 100.64/10 的请求（默认拒绝）
 enum HeadlessServer {
+    @MainActor private static var smokeRemoteAgent: RemoteAgent?
+
     static func run() {
         let env = ProcessInfo.processInfo.environment
         let token = env["LS_TOKEN"] ?? "testtoken"
         let port = in_port_t(env["LS_PORT"].flatMap { Int($0) } ?? 8080)
         let text = env["LS_TEXT"].flatMap { $0.isEmpty ? nil : $0 }
         let recvOn = env["LS_RECV"] == "1"
+        let remoteOn = env["LS_REMOTE"] == "1"
 
         let paths: [String]
         if let multi = env["LS_FOLDERS"] {
@@ -35,12 +40,13 @@ enum HeadlessServer {
 
         let urls = paths.map { URL(fileURLWithPath: $0) }
         let server = FileServer(share: makeShare(urls, hasText: text != nil), token: token)
+        server.remoteAccessEnabled = remoteOn
         server.accessCode = env["LS_ACCESS_CODE"].flatMap { $0.isEmpty ? nil : $0 }
         server.tailscaleAccessEnabled = env["LS_TAILSCALE"] == "1"
-        server.uploadEnabled = env["LS_UPLOAD"] == "1"
+        server.uploadEnabled = env["LS_UPLOAD"] == "1" && !remoteOn
         server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         server.sharedText = text
-        server.textInboxEnabled = recvOn
+        server.textInboxEnabled = recvOn && !remoteOn
         if let logPath = env["LS_RECV_LOG"] {
             server.onReceiveText = { rt in   // socket 线程：把原文追加进日志文件，供冒烟测回读
                 let chunk = Data((rt.text + "\u{1}").utf8)
@@ -58,6 +64,25 @@ enum HeadlessServer {
             if urls.isEmpty, text != nil || recvOn { path = "/ls/text" }
             else { path = "/" }
             print("LS_URL http://127.0.0.1:\(bound)\(path)?t=\(token)")
+            if remoteOn,
+               let address = env["LS_REMOTE_SERVER"], let serverURL = URL(string: address),
+               let enrollmentKey = env["LS_REMOTE_KEY"], !enrollmentKey.isEmpty {
+                Task { @MainActor in
+                    let agent = RemoteAgent()
+                    smokeRemoteAgent = agent
+                    agent.onStateChange = { status, error in
+                        if let error { print("LS_REMOTE_ERROR \(error)"); fflush(stdout) }
+                        if status == .connected { print("LS_REMOTE_CONNECTED"); fflush(stdout) }
+                    }
+                    agent.onShareURLChange = { url in
+                        if let url { print("LS_REMOTE_URL \(url)"); fflush(stdout) }
+                    }
+                    agent.connect(serverURL: serverURL, enrollmentKey: enrollmentKey,
+                                  localBaseURL: URL(string: "http://127.0.0.1:\(bound)")!,
+                                  localToken: token, deviceName: "Headless Smoke",
+                                  lang: Lang.systemDefault, persistCredential: false)
+                }
+            }
             fflush(stdout)
         } catch {
             FileHandle.standardError.write(Data((LStr.hsStartFailed("\(error)", Lang.systemDefault) + "\n").utf8))

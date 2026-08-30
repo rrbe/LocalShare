@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Network
 
 // 全局状态：当前分享对象（文件夹或单个文件）、服务运行态、网络接口候选、二维码 URL、
 // 监听端口配置、最近分享历史、屏幕路由、权限（读取常开，上传可切换）。
@@ -53,6 +54,13 @@ final class AppState: ObservableObject {
     @Published var tailscaleAccessEnabled = false   // Tailscale 入站闸门（默认关，持久化）
     @Published private(set) var tailscaleStatus: TailscaleStatus?
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
+    @Published var remoteSettings = RemoteSettings()
+    @Published var remoteEnrollmentKey = ""   // 仅用于首次配对；成功后不落盘
+    @Published private(set) var remoteAccessEnabled = false
+    @Published private(set) var remoteStatus: RemoteAgent.Status = .disconnected
+    @Published private(set) var remotePaired = false
+    @Published private(set) var remoteShareBaseURL: String?
+    @Published private(set) var remoteError: String?
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
     static private(set) var shared: AppState?
@@ -63,6 +71,9 @@ final class AppState: ObservableObject {
     @Published private(set) var accessCode = AccessCode.generate()
     private var server: FileServer?
     private var viewerTimer: Timer?
+    private let remoteAgent = RemoteAgent()
+    private var networkMonitor: NWPathMonitor?
+    private var networkPathStatus: NWPath.Status?
     private var networkRefreshID = UUID()
     private var wideLayoutBeforeSettings: Bool?
     // 已移除的“仅当前网络可见”开关不再面向新用户，但升级时必须继续兑现既有的隔离选择，
@@ -80,6 +91,7 @@ final class AppState: ObservableObject {
     private let textInboxKey = "textInboxEnabled"       // 收件箱闸门（默认关）
     private let persistReceivedKey = "persistReceivedText"  // 是否记住收到的文本（默认关）
     private let receivedTextsKey = "receivedTexts"      // 收件箱内容（仅 persistReceivedText 开时写入）
+    private let remoteServerKey = "remoteServerAddress"
     private let accessCodeEnabledKey = "accessCodeEnabled"
     private let tailscaleAccessEnabledKey = "tailscaleAccessEnabled"
     // 配置端口优先，其余作回退（8080 列入回退以防配置端口占用）。
@@ -88,6 +100,24 @@ final class AppState: ObservableObject {
     init() {
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
+        remoteSettings = RemoteSettings(serverAddress: UserDefaults.standard.string(forKey: remoteServerKey) ?? "")
+        remotePaired = remoteAgent.isPaired(for: remoteSettings.serverURL)
+        remoteAgent.onStateChange = { [weak self] status, error in
+            guard let self else { return }
+            self.remoteStatus = status
+            self.remoteError = error
+            if status == .connected {
+                self.remotePaired = self.remoteAgent.isPaired
+                self.remoteEnrollmentKey = ""
+            } else if status == .disconnected, error != nil, self.remoteAccessEnabled {
+                // 首次配对/凭证读取失败是终止态，不应把未连接的 LAN 分享继续锁在远程只读模式。
+                self.remoteAccessEnabled = false
+                self.applyRemotePolicy()
+            }
+        }
+        remoteAgent.onShareURLChange = { [weak self] url in
+            self?.remoteShareBaseURL = url
+        }
         accessCodeEnabled = UserDefaults.standard.bool(forKey: accessCodeEnabledKey)
         tailscaleAccessEnabled = UserDefaults.standard.bool(forKey: tailscaleAccessEnabledKey)
         legacyBindSelectedOnly = UserDefaults.standard.bool(forKey: bindSelectedOnlyKey)
@@ -130,6 +160,7 @@ final class AppState: ObservableObject {
             AppDelegate.pendingOpenURLs = []
             setShared(urls)
         }
+        startNetworkMonitoring()
     }
 
     // MARK: - 选择态派生
@@ -149,17 +180,23 @@ final class AppState: ObservableObject {
     // MARK: - 派生 URL / 二维码
 
     // 文件夹/多选模式 → 根地址；单文件模式 → 直链该文件（路径仅供浏览器显示文件名/扩展名）。
-    private func makeURL(host: String) -> String {
-        let q = "?t=\(token)"
+    private func makeURL(base: String, authenticated: Bool = true) -> String {
+        let q = authenticated ? "?t=\(token)" : ""
+        let root = base.hasSuffix("/") ? String(base.dropLast()) : base
         // 传递文本（收/发合一）：二维码恒指 /ls/text——这一页既显示电脑共享的文本（可读可复制），
         // 又在「允许手机发回来」开着时挂出发送框；只收文本时它退化成纯发送页。扫一次，双向都在这。
-        if isTextOnly || isReceiveOnly { return "http://\(host):\(port)/ls/text\(q)" }
+        if isTextOnly || isReceiveOnly { return "\(root)/ls/text\(q)" }
         // 单文件直链该文件（文本与文件共存时走虚拟根，不直链，故附带 !hasText）。
         if sharedIsFile, !hasText, let name = sharedItems.first?.lastPathComponent,
            let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
-            return "http://\(host):\(port)/\(enc)\(q)"
+            return "\(root)/\(enc)\(q)"
         }
-        return "http://\(host):\(port)/\(q)"
+        return "\(root)/\(q)"
+    }
+
+    var remoteURL: String? {
+        guard remoteAccessEnabled, isRunning, let base = remoteShareBaseURL else { return nil }
+        return makeURL(base: base, authenticated: false)
     }
 
     private var primaryHost: String? {
@@ -167,6 +204,7 @@ final class AppState: ObservableObject {
     }
 
     var primaryURL: String? {
+        if let remoteURL { return remoteURL }
         guard isRunning, port != 0, let host = primaryHost else { return nil }
         return makeURL(host: host)
     }
@@ -174,12 +212,13 @@ final class AppState: ObservableObject {
     // 票据上的手输入口：默认仍显示/复制完整 token URL；访问码模式只给 origin，浏览器再经 /ls/join
     // 输入短码。二维码始终使用 primaryURL，不因展示模式降低安全性或增加扫码步骤。
     var presentedURL: String? {
+        if let remoteURL { return remoteURL }
         guard isRunning, port != 0, let host = primaryHost else { return nil }
         return makePresentedURL(host: host)
     }
 
     var presentedAccessCode: String? {
-        isRunning && accessCodeEnabled ? accessCode : nil
+        isRunning && remoteURL == nil && accessCodeEnabled ? accessCode : nil
     }
 
     var qrImage: NSImage? {
@@ -190,7 +229,7 @@ final class AppState: ObservableObject {
     // 主地址之外的入口统一收在折叠区。访问码模式下它们只显示 origin，与主地址共用一枚短码；
     // 普通模式则保留当前分享路径和 token。Tailscale 两项只在用户显式开放且检测到时出现。
     var otherAddresses: [ShareAddress] {
-        guard isRunning, port != 0 else { return [] }
+        guard isRunning, port != 0, remoteURL == nil else { return [] }
         var result: [ShareAddress] = []
         if selectedInterface != nil, let hostname = NetworkInfo.localHostName(), hostname != primaryHost {
             result.append(ShareAddress(kind: .localHostname, scope: .localNetwork,
@@ -211,6 +250,10 @@ final class AppState: ObservableObject {
 
     private func makePresentedURL(host: String) -> String {
         accessCodeEnabled ? "http://\(host):\(port)" : makeURL(host: host)
+    }
+
+    private func makeURL(host: String) -> String {
+        makeURL(base: "http://\(host):\(port)")
     }
 
     var hasNetwork: Bool { !interfaces.isEmpty || (tailscaleAccessEnabled && tailscaleStatus != nil) }
@@ -235,6 +278,113 @@ final class AppState: ObservableObject {
                 self.tailscaleStatus = status
             }
         }
+    }
+
+    var canEnableRemote: Bool { isRunning && !sharedItems.isEmpty && remoteSettings.isValid }
+
+    func saveRemoteSettings(_ settings: RemoteSettings, enrollmentKey: String = "") {
+        if remoteAccessEnabled { disconnectRemote() }
+        remoteSettings = settings
+        remoteEnrollmentKey = enrollmentKey
+        UserDefaults.standard.set(settings.serverAddress, forKey: remoteServerKey)
+        remotePaired = remoteAgent.isPaired(for: remoteSettings.serverURL)
+    }
+
+    func connectRemote(enrollmentKey: String) {
+        guard canEnableRemote, let serverURL = remoteSettings.serverURL else {
+            remoteError = L.remoteConfigHint(lang)
+            return
+        }
+        remoteAccessEnabled = true
+        remoteError = nil
+        applyRemotePolicy()
+        remoteAgent.connect(serverURL: serverURL, enrollmentKey: enrollmentKey,
+                            localBaseURL: localShareBaseURL, localToken: token,
+                            deviceName: Host.current().localizedName ?? "Mac", lang: lang)
+    }
+
+    func pairRemote(enrollmentKey: String) async -> String? {
+        guard let serverURL = remoteSettings.serverURL else { return L.remoteConfigHint(lang) }
+        do {
+            try await remoteAgent.pair(serverURL: serverURL, enrollmentKey: enrollmentKey,
+                                       deviceName: Host.current().localizedName ?? "Mac", lang: lang)
+            remotePaired = true
+            remoteEnrollmentKey = ""
+            remoteError = nil
+            return nil
+        } catch {
+            remotePaired = remoteAgent.isPaired(for: serverURL)
+            return error.localizedDescription
+        }
+    }
+
+    func disconnectRemote() {
+        remoteAgent.disconnect()
+        remoteAccessEnabled = false
+        remoteShareBaseURL = nil
+        remotePaired = remoteAgent.isPaired
+        applyRemotePolicy()
+    }
+
+    func forgetRemoteDevice() {
+        remoteAccessEnabled = false
+        remoteShareBaseURL = nil
+        applyRemotePolicy()
+        do {
+            try remoteAgent.forgetDevice()
+            remotePaired = false
+        } catch let failure as RemoteKeychain.Failure {
+            remotePaired = remoteAgent.isPaired
+            remoteError = LStr.remoteKeychainFailed(failure.reason, lang)
+        } catch {
+            remotePaired = remoteAgent.isPaired
+            remoteError = LStr.remoteKeychainFailed(error.localizedDescription, lang)
+        }
+    }
+
+    private var agentLocalAddress: String {
+        legacyBindSelectedOnly ? (selectedInterface?.ip ?? "127.0.0.1") : "127.0.0.1"
+    }
+
+    private var localShareBaseURL: URL {
+        URL(string: "http://\(agentLocalAddress):\(port)")!
+    }
+
+    private func applyRemotePolicy() {
+        server?.remoteAccessEnabled = remoteAccessEnabled
+        server?.uploadEnabled = permission.add && canToggleUpload && !remoteAccessEnabled
+        server?.textInboxEnabled = textInboxEnabled && !remoteAccessEnabled
+        server?.sharedText = remoteAccessEnabled ? nil : (hasText ? sharedText : nil)
+    }
+
+    private func startRemoteAgent() {
+        guard remoteAccessEnabled, isRunning, let serverURL = remoteSettings.serverURL else { return }
+        remoteAgent.connect(serverURL: serverURL, enrollmentKey: "", localBaseURL: localShareBaseURL,
+                            localToken: token, deviceName: Host.current().localizedName ?? "Mac", lang: lang)
+    }
+
+    private func startNetworkMonitoring() {
+        let monitor = NWPathMonitor()
+        networkMonitor = monitor
+        let queue = DispatchQueue(label: "localshare.network-monitor")
+        monitor.pathUpdateHandler = { [weak self] path in
+            let status = path.status
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let statusChanged = self.networkPathStatus != status
+                self.networkPathStatus = status
+                guard self.isRunning else { return }
+                let oldInterfaces = self.interfaces
+                self.refreshNetwork()
+                guard self.remoteAccessEnabled else { return }
+                if self.legacyBindSelectedOnly && oldInterfaces != self.interfaces {
+                    self.rebindServer()
+                } else if statusChanged || oldInterfaces != self.interfaces {
+                    self.startRemoteAgent()
+                }
+            }
+        }
+        monitor.start(queue: queue)
     }
 
     // MARK: - 选择分享对象
@@ -276,8 +426,11 @@ final class AppState: ObservableObject {
         server?.setCredentials(token: token, accessCode: accessCodeEnabled ? accessCode : nil)
         server?.tailscaleAccessEnabled = tailscaleAccessEnabled
         server?.sharedText = hasText ? sharedText : nil
-        server?.textInboxEnabled = textInboxEnabled
         server?.share = currentShare
+        applyRemotePolicy()
+        if remoteAccessEnabled, isRunning {
+            remoteAgent.updateLocalShare(baseURL: localShareBaseURL, token: token)
+        }
     }
 
     // 分享 / 更新一段文本（Mac→手机）。token 的「会话」维度与分享文件一致：只在会话边界轮换
@@ -346,11 +499,12 @@ final class AppState: ObservableObject {
 
     // 仅「单个文件夹」分享有上传落点；单文件/多选时设置页开关置灰。
     // 附带文本会把分享转成虚拟根（无单一落点），故此时上传也不可用。
-    var canToggleUpload: Bool { sharedItems.count == 1 && !sharedIsFile && !hasText }
+    var canToggleUpload: Bool { !remoteAccessEnabled && sharedItems.count == 1 && !sharedIsFile && !hasText }
 
     func setUploadAllowed(_ on: Bool) {
+        guard !remoteAccessEnabled else { return }
         permission.add = on && canToggleUpload
-        server?.uploadEnabled = permission.add
+        applyRemotePolicy()
     }
 
     private func resetUpload() {
@@ -380,11 +534,12 @@ final class AppState: ObservableObject {
     // 「允许收文本」闸门。开：不限分享形态都能开，开了就把服务拉起（无分享时即「只收模式」），不轮换 token、
     // 不重启（运行中只切 server 标志，发送表单随之显隐、已发链接继续有效）。关：若再无其它分享则停服务。
     func setTextInboxEnabled(_ on: Bool) {
+        guard !(remoteAccessEnabled && on) else { return }
         guard on != textInboxEnabled else { return }
         textInboxEnabled = on
         UserDefaults.standard.set(on, forKey: textInboxKey)
         if isRunning {
-            if isServing { server?.textInboxEnabled = on }   // 仍有理由服务：原地切标志
+            if isServing { applyRemotePolicy() }              // 仍有理由服务：原地切标志
             else { stop() }                                  // 关掉且无其它分享 → 拆服务，回到空状态
         } else if isServing {
             start()                                          // 从空状态开启 → 起服务（只收模式）
@@ -464,8 +619,9 @@ final class AppState: ObservableObject {
         fs.accessCode = accessCodeEnabled ? accessCode : nil
         fs.tailscaleAccessEnabled = tailscaleAccessEnabled
         fs.sharedText = hasText ? sharedText : nil
-        fs.uploadEnabled = permission.add && canToggleUpload
-        fs.textInboxEnabled = textInboxEnabled
+        fs.remoteAccessEnabled = remoteAccessEnabled
+        fs.uploadEnabled = permission.add && canToggleUpload && !remoteAccessEnabled
+        fs.textInboxEnabled = textInboxEnabled && !remoteAccessEnabled
         fs.onUpload = { url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
         }
@@ -487,6 +643,7 @@ final class AppState: ObservableObject {
             isRunning = true
             lastError = nil
             startViewerPolling()
+            if remoteAccessEnabled { startRemoteAgent() }
         } catch {
             lastError = LStr.startFailed(error.localizedDescription, lang)
             isRunning = false
@@ -505,12 +662,14 @@ final class AppState: ObservableObject {
         guard isRunning else { return }
         viewerTimer?.invalidate()
         viewerTimer = nil
+        if remoteAccessEnabled { remoteAgent.disconnect() }
         server?.stop()
         server = nil
         start()
     }
 
     func stop() {
+        disconnectRemote()
         viewerTimer?.invalidate()
         viewerTimer = nil
         viewerCount = 0
