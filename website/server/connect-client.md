@@ -58,5 +58,3 @@ Server 部署完成后，只需用 Enrollment Key 完成一次设备配对。之
 5. Client 是否已选择分享内容；空分享时 `Connect` 不可用。
 6. Client 状态是否为 `Connected`，票据上是否出现远程 URL。
 7. 当前 URL 是否仍对应本次连接；断开连接、切换内容或 Server 重启后，旧 Share Token 会失效。
-
-需要了解消息协议和安全边界时，请阅读[远程分享设计](../REMOTE_SHARING_PLAN)。

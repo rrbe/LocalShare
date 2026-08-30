@@ -53,7 +53,7 @@ LocalShare/
   docs/
     ARCHITECTURE.md        # This file
     REMOTE_SHARING_PLAN.md # LocalShare Server, pairing, relay, and client flow
-    images/                # README screenshots
+  website/                 # Public VitePress documentation and screenshots
   Sources/LocalShare/
     App.swift              # @main EntryPoint: GUI / headless / CLI dispatch; LocalShareApp and AppDelegate
     AppState.swift         # @MainActor ObservableObject; single source of truth for shares, text, server, network, presence, persistence

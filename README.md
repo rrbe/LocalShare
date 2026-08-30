@@ -9,9 +9,9 @@ A small macOS app that moves files and text between your Mac and other devices (
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
-    <td align="center"><img src="docs/images/screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
-    <td align="center"><img src="docs/images/screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
+    <td align="center"><img src="website/images/screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
+    <td align="center"><img src="website/images/screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
+    <td align="center"><img src="website/images/screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
   </tr>
 </table>
 

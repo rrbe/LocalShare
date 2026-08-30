@@ -41,13 +41,6 @@ export default defineConfig({
           { text: '连接 Client', link: '/server/connect-client' },
         ],
       },
-      {
-        text: '深入了解',
-        items: [
-          { text: '应用架构', link: '/ARCHITECTURE' },
-          { text: '远程分享设计', link: '/REMOTE_SHARING_PLAN' },
-        ],
-      },
     ],
     search: {
       provider: 'local',

@@ -14,5 +14,5 @@ private_key.txt
 .codex/
 .worktrees/
 node_modules/
-docs/.vitepress/cache/
-docs/.vitepress/dist/
+website/.vitepress/cache/
+website/.vitepress/dist/
