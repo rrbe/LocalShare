@@ -2,7 +2,7 @@
 
 [简体中文](README_CN.md) | English
 
-A small macOS app that moves files and text between your Mac and other devices (phone, tablet…) over WiFi — the other end just uses a browser, with no client to install.
+A small macOS app that moves files and text between your Mac and other devices (phone, tablet…) over WiFi, with optional browser-only remote sharing — the other end just uses a browser, with no client to install.
 
 - Pick a file or folder, scan the QR code that appears (or just open the link), and browse the files in your phone's browser (HTML, PDF, Markdown, images…)
 - Two-way text transfer — type some text and share it via a QR code, or send text back from the phone to the Mac
@@ -22,6 +22,7 @@ A small macOS app that moves files and text between your Mac and other devices (
 - After you share, the other end can send files and text back
 - Shows who's currently viewing
 - `localshare` command line: bring up the window to share, or `--headless` to print the link and QR code in the terminal
+- Optional browser-only remote access through a self-hosted LocalShare Server; remote shares are read-only
 
 ## Why this app exists
 
@@ -39,6 +40,10 @@ Scan the QR code, or open the LAN address directly. If macOS shows a firewall pr
 The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`: the link carries a one-time token, so whoever scans it gets in seamlessly, while anyone who only knows the IP:port cannot access it.
 
 > ⚠️ Traffic is plain HTTP (unencrypted). Best avoided on public networks like airports and cafés.
+
+### Remote browser sharing
+
+Run the self-contained [`localshare-server`](server/README.md), create a one-time Enrollment Key, then enter the Server address and key in Settings. After pairing, the app remembers the device credential in Keychain; active shares use Connect/Disconnect and the receiving device only needs a browser. See the [remote-sharing plan](docs/REMOTE_SHARING_PLAN.md).
 
 ## Terminal usage
 

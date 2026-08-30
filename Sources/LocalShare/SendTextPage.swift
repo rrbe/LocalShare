@@ -129,7 +129,7 @@ enum SendText {
             if(!v.trim())return;
             if(new Blob([v]).size>MAX){flash(LS_I18N.sendOverLimit,false);return;}
             btn.disabled=true;
-            fetch('/ls/text',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:v})
+            fetch(LS_ROOT+'ls/text',{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:v})
               .then(function(r){
                 if(r.ok){btn.disabled=false;ta.value='';remember(v);flash(LS_I18N.sent,true);ta.focus();}
                 else fail(r);
@@ -192,9 +192,9 @@ enum SendText {
           \(card(lang: lang, withHead: false))
           <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
-        <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="../";</script>
         <script>
-        (function(){function ping(){fetch('/ls/ping',{cache:'no-store'}).catch(function(){})}ping();setInterval(ping,15000);})();
+        (function(){function ping(){fetch(LS_ROOT+'ls/ping',{cache:'no-store'}).catch(function(){})}ping();setInterval(ping,15000);})();
         \(boot)
         </script>
         </body></html>

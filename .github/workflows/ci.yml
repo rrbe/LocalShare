@@ -32,6 +32,9 @@ jobs:
     runs-on: macos-latest # 与 release 同款 runner，自带 Xcode / Swift 工具链与 Node
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.23'
 
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build
@@ -66,6 +69,18 @@ jobs:
 
       - name: 网页逐请求语言（Accept-Language）
         run: ./tools/smoke-accept-language.sh
+
+      - name: 远程访问只读策略
+        run: ./tools/smoke-remote-readonly.sh
+
+      - name: 远程访问完整链路
+        run: ./tools/smoke-remote-e2e.sh
+
+      - name: Release 模式远程访问完整链路
+        run: |
+          swift build -c release
+          BIN=.build/release/LocalShare ./tools/smoke-remote-readonly.sh
+          CLIENT_BIN=.build/release/LocalShare ./tools/smoke-remote-e2e.sh
 
       - name: 传递文本（/ls/text + 转义 + 虚拟根文本行）
         run: ./tools/smoke-text.sh
