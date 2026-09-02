@@ -22,4 +22,24 @@ final class CanaryTests: XCTestCase {
             XCTAssertTrue(page.contains("clamp(24px,4vw,64px)"))
         }
     }
+
+    func testGeneratedBrowserPagesUseConciseCopy() {
+        let send = SendText.html(lang: .zh)
+        XCTAssertTrue(send.contains("<span>LocalShare</span>"))
+        XCTAssertTrue(send.contains("<h1>发送文本</h1>"))
+        XCTAssertTrue(send.contains("placeholder=\"输入文本…\""))
+        XCTAssertFalse(send.contains("class=\"sub\""))
+
+        let viewer = TextViewer.html(text: "hello", crumbs: nil, canUpload: false, lang: .zh)
+        XCTAssertFalse(viewer.contains("class=\"hint\""))
+
+        let empty = DirectoryListing.html(items: [], rootName: "分享内容", lang: .zh)
+        XCTAssertTrue(empty.contains("空文件夹"))
+
+        let item = (name: "example.txt", url: URL(fileURLWithPath: "/tmp/example.txt"), isDir: false)
+        let listing = DirectoryListing.html(items: [item], rootName: "Files", lang: .en)
+        XCTAssertTrue(listing.contains("No matching files"))
+        XCTAssertFalse(listing.contains("class=\"nr-s\""))
+        XCTAssertTrue(listing.contains("<div class=\"colophon\">LocalShare</div>"))
+    }
 }

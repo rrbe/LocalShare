@@ -82,13 +82,12 @@ enum L: CaseIterable {
     case install, reinstall, uninstall, installed, alwaysOn
 
     // 空状态 / 拖拽
-    case dropToShare, dropHint, dropZoneTitle, dropZoneSub, pickAnyButton
+    case dropToShare, dropZoneTitle, pickAnyButton
 
     // 分享屏
     case shareFileTitle   // 文件票据二级页标题（与「传递文本」并列）
     case received, changePerm, useAccessCode, useFullURL, broadcastStopped, selectSource
-    case sharingKicker, sharingFolderKicker
-    case scanCaptionMultiple, scanCaptionFile, scanCaptionFolder
+    case sharingKicker, scanCaptionAccess
     case revealShareItems, revealInFinder, viewing
     case otherAddresses, tailscaleMagicDNSAddress, tailscaleIPAddress, publicRelayAddress
     case tailscaleNetworkOnly, publicInternet
@@ -102,17 +101,16 @@ enum L: CaseIterable {
     case shareSettings, shareHistory, currentColon
 
     // 设置 —— 网络
-    case thisMachine, portOk, portOccupied, portInvalid, portOkHint
-    case tailscaleTitle, tailscaleDescOff, tailscaleDescOn, tailscaleDescMissing
+    case thisMachine, portOk, portOccupied, portInvalid, portChangeHint
+    case tailscaleTitle, tailscaleDescMissing
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
 
     // 设置 —— 访问权限
-    case permReadName, permReadDesc, permUploadName
-    case permUploadDescOn, permUploadDescOff
-    case accessCodeTitle, accessCodeDesc, accessCodeLabel
-    case permInfoWritable, permInfoReadonly, plaintextWarning
+    case permReadName, permUploadName, permUploadDescOff
+    case accessCodeTitle, accessCodeLabel
+    case permInfoWritable, plaintextWarning
 
     // 设置 —— 外观
     case appearanceFollow, appearanceLight, appearanceDark
@@ -121,11 +119,10 @@ enum L: CaseIterable {
     case langFollow
 
     // 设置 —— 主界面
-    case showRecentsTitle, showRecentsDesc, resetWindowTitle, resetWindowDesc
+    case showRecentsTitle, resetWindowTitle
 
     // 设置 —— 更新
-    case autoUpdate, autoUpdateDescOn, autoUpdateDescOff
-    case manualUpdate, manualUpdateDescOn, manualUpdateDescOff
+    case autoUpdate, updateUnavailable
 
     // 设置 —— 命令行工具
     case cliHintAvailable, cliHintUnavailable
@@ -134,7 +131,7 @@ enum L: CaseIterable {
     case noHistory, live
 
     // 帮助
-    case cantConnect, cantConnectTitle, help1, help2, help3, helpPlaintext
+    case cantConnect, help1, help2, help3, helpPlaintext
 
     // 菜单（App.swift / Updater.swift）
     case showLocalShare, quit, checkForUpdates
@@ -151,26 +148,26 @@ enum L: CaseIterable {
 
     // 传递文本（v1）
     case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
-    case sharingTextKicker, scanCaptionText, editTextButton
+    case sharingTextKicker, editTextButton
     // 传递文本二级页（收/发合一）
-    case transferText, sendTextKicker, scanCaptionTransfer, textIdleHint, retract
+    case transferText, sendTextKicker, scanCaptionTransfer, retract
     case rememberTextTitle, rememberTextDesc, deleteEntry
 
     // 传递文本（v2·手机→Mac 收文本）
-    case recvInboxTitle, recvInboxDesc, persistRecvTitle, persistRecvDesc
+    case recvInboxTitle, persistRecvTitle, persistRecvDesc
     case receivedTextsTitle, inboxWaiting
-    case scanCaptionSend, clearReceivedConfirm, copyTextAction
+    case clearReceivedConfirm, copyTextAction
 
     // —— 网页（由 Swift 直接拼进 HTML 的静态文案）——
     case webUpload, webDropHere, webBackToParent, webEmptyFolder
-    case webNoMatch, webNoMatchSub, webSearchFolder, webClear
+    case webNoMatch, webSearchFolder, webClear
     case webSortLabel, webSortDefault, webSortNameAsc, webSortNameDesc
     case webSortTimeDesc, webSortTimeAsc
     case webFilterAll, webFilterDir, webProvidedBy
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
-    case webText, webTextHint, webCopy, webViewRawText
-    case webSendTitle, webSendEyebrow, webSendSub, webSendHead, webSendPlaceholder, webSendButton
-    case webAccessCodeTitle, webAccessCodeEyebrow, webAccessCodeSub
+    case webText, webCopy, webViewRawText
+    case webSendTitle, webSendHead, webSendPlaceholder, webSendButton
+    case webAccessCodeTitle
     case webAccessCodePlaceholder, webAccessCodeSubmit, webAccessCodeInvalid, webAccessCodeLimited
 
     // —— 网页错误页 / 上传 JSON ——
@@ -218,10 +215,7 @@ enum L: CaseIterable {
         case .alwaysOn:        return ("始终开启", "Always on")
 
         case .dropToShare:     return ("松开即可分享", "Release to share")
-        case .dropHint:        return ("文件夹 / 多项 → 列表浏览 · 单个文件 → 扫码直接打开",
-                                       "Folder / multiple → browse list · single file → open directly")
         case .dropZoneTitle:   return ("拖拽文件或文件夹到这里", "Drag files or folders here")
-        case .dropZoneSub:     return ("同一 Wi-Fi 下的设备即可扫码访问", "Devices on the same Wi-Fi can scan to access")
         case .pickAnyButton:   return ("选择文件或文件夹", "Choose Files or Folders")
 
         case .shareFileTitle:  return ("分享文件", "Share Files")
@@ -231,19 +225,16 @@ enum L: CaseIterable {
         case .useFullURL:      return ("改用完整网址", "Use Full URL")
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
         case .selectSource:    return ("选择信号源", "Choose source")
-        case .sharingKicker:       return ("正在分享", "Sharing")
-        case .sharingFolderKicker: return ("正在分享文件夹", "Sharing folder")
-        case .scanCaptionMultiple: return ("扫码浏览已选项目 · 同一 Wi-Fi", "Scan to browse selected items · same Wi-Fi")
-        case .scanCaptionFile:     return ("扫码查看 · 同一 Wi-Fi", "Scan to view · same Wi-Fi")
-        case .scanCaptionFolder:   return ("扫码浏览全部文件 · 同一 Wi-Fi", "Scan to browse all files · same Wi-Fi")
+        case .sharingKicker:   return ("正在分享", "Sharing")
+        case .scanCaptionAccess: return ("同一 Wi-Fi 扫码访问", "Scan to access on the same Wi-Fi")
         case .revealShareItems: return ("在 Finder 中显示分享项", "Show shared items in Finder")
         case .revealInFinder:  return ("在 Finder 中显示", "Show in Finder")
         case .viewing:         return ("正在浏览", "Viewing")
-        case .otherAddresses:  return ("其他可用地址", "Other Available Addresses")
+        case .otherAddresses:  return ("其他地址", "Other Addresses")
         case .tailscaleMagicDNSAddress: return ("Tailscale MagicDNS", "Tailscale MagicDNS")
         case .tailscaleIPAddress: return ("Tailscale IP", "Tailscale IP")
         case .publicRelayAddress: return ("公网中继", "Public Relay")
-        case .tailscaleNetworkOnly: return ("仅 Tailscale 网络内设备可用", "Tailscale network only")
+        case .tailscaleNetworkOnly: return ("仅限 Tailscale", "Tailscale only")
         case .publicInternet: return ("可通过公网访问", "Available over the internet")
 
         case .noNetwork:       return ("未接入局域网", "Not on a network")
@@ -267,15 +258,9 @@ enum L: CaseIterable {
         case .portOk:          return ("可用", "Available")
         case .portOccupied:    return ("被占用", "In use")
         case .portInvalid:     return ("无效", "Invalid")
-        case .portOkHint:      return ("端口可用 · 修改后会重启服务，已分发的链接需更新。",
-                                       "Port available · changing it restarts the server; shared links must be updated.")
+        case .portChangeHint:  return ("现有链接将失效", "Existing links will stop working")
         case .tailscaleTitle: return ("允许 Tailscale 访问", "Allow Tailscale Access")
-        case .tailscaleDescOff: return ("开启后允许 Tailscale 网络内的设备访问",
-                                        "Enable access from devices on your Tailscale network")
-        case .tailscaleDescOn: return ("已开放给 Tailscale 网络；分享票据会显示专用地址",
-                                       "Open to your Tailscale network; dedicated addresses appear on the share ticket")
-        case .tailscaleDescMissing: return ("已开启；未检测到正在运行的 Tailscale",
-                                            "Enabled; no running Tailscale connection detected")
+        case .tailscaleDescMissing: return ("未检测到 Tailscale", "Tailscale not detected")
 
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
@@ -283,20 +268,13 @@ enum L: CaseIterable {
         case .portTooHighMsg:   return ("超出范围 · 端口最大为 65535", "Out of range · max port is 65535")
 
         case .permReadName:    return ("读取与下载", "Read & Download")
-        case .permReadDesc:    return ("允许查看和下载文件", "Allow viewing and downloading files")
         case .permUploadName:  return ("允许上传", "Allow Upload")
-        case .permUploadDescOn:  return ("访客可把文件传进这个文件夹", "Visitors can upload files into this folder")
         case .permUploadDescOff: return ("仅分享单个文件夹时可用", "Only available when sharing a single folder")
         case .accessCodeTitle: return ("使用访问码", "Use Access Code")
-        case .accessCodeDesc: return ("在另一台电脑输入网址和短码；二维码仍可直接打开",
-                                      "Enter an address and short code on another computer; QR links still open directly")
         case .accessCodeLabel: return ("访问码", "Access code")
-        case .permInfoWritable:  return ("已开启上传 · 访客可向这个文件夹写入文件，请只把二维码交给信任的人。",
-                                         "Upload on · visitors can write to this folder. Only share the QR code with people you trust.")
-        case .permInfoReadonly:  return ("当前为只读分享 · 访客只能查看和下载。",
-                                         "Read-only share · visitors can only view and download.")
-        case .plaintextWarning:  return ("同一网络下传输不加密 · 公共 Wi-Fi（咖啡馆 / 机场等）下同网的人可能看到内容，敏感文件别在这种网络分享。",
-                                         "Traffic isn't encrypted on the LAN · on public Wi-Fi (cafés, airports) others on the network may see the content. Don't share sensitive files there.")
+        case .permInfoWritable:  return ("仅向可信对象分享", "Share only with people you trust")
+        case .plaintextWarning:  return ("局域网传输未加密 · 请勿在公共 Wi-Fi 分享敏感内容",
+                                         "LAN transfers are unencrypted · Don't share sensitive content on public Wi-Fi")
 
         case .appearanceFollow: return ("跟随系统", "System")
         case .appearanceLight:  return ("浅色", "Light")
@@ -305,19 +283,10 @@ enum L: CaseIterable {
         case .langFollow:       return ("跟随系统", "System")
 
         case .showRecentsTitle: return ("展示最近分享", "Show Recent Shares")
-        case .showRecentsDesc:  return ("关闭后主界面不再列出最近分享", "When off, the main screen won't list recent shares")
-        case .resetWindowTitle: return ("恢复默认窗口尺寸", "Reset Window Size")
-        case .resetWindowDesc:  return ("把窗口还原成默认大小", "Restore the window to its default size")
+        case .resetWindowTitle: return ("窗口尺寸", "Window Size")
 
         case .autoUpdate:        return ("自动更新", "Automatic Updates")
-        case .autoUpdateDescOn:  return ("关闭后不自动检查、不弹提示；仍可手动检查",
-                                         "When off, no automatic checks or prompts; manual checks still work")
-        case .autoUpdateDescOff: return ("开发构建未启用更新，正式版生效", "Updates are disabled in dev builds; active in release")
-        case .manualUpdate:      return ("手动检查更新", "Manual Update Check")
-        case .manualUpdateDescOn: return ("立刻检查是否有新版，有更新时按提示安装",
-                                          "Check for a new version now and install when prompted")
-        case .manualUpdateDescOff: return ("开发构建未启用更新，正式版可手动检查",
-                                           "Updates are disabled in dev builds; active in release")
+        case .updateUnavailable: return ("开发构建未启用更新", "Updates unavailable in development builds")
 
         case .cliHintAvailable:   return ("在终端用 localshare 分享文件", "Use localshare in the terminal to share files")
         case .cliHintUnavailable: return ("以 app 包运行时可安装", "Installable when run as an app bundle")
@@ -326,7 +295,6 @@ enum L: CaseIterable {
         case .live:            return ("进行中", "Live")
 
         case .cantConnect:      return ("连不上?", "Can't connect?")
-        case .cantConnectTitle: return ("连不上？逐条排查", "Can't connect? Check these")
         case .help1:           return ("确认两台设备连的是同一个 Wi-Fi / 网络。", "Make sure both devices are on the same Wi-Fi / network.")
         case .help2:           return ("首次启动若弹出防火墙提示，请点「允许」。", "If a firewall prompt appears on first launch, click Allow.")
         case .help3:           return ("公司 / 公共 Wi-Fi 常开「设备隔离」，会阻止互访，换个网络试试。",
@@ -358,40 +326,32 @@ enum L: CaseIterable {
         case .fileKind:        return ("文件", "File")
 
         case .shareTextButton:      return ("分享文本", "Share Text")   // 空态入口 + 编辑弹层标题共用
-        case .textEditorPlaceholder: return ("在此粘贴或输入要分享的文本", "Paste or type the text to share")
+        case .textEditorPlaceholder: return ("输入或粘贴文本", "Enter or paste text")
         case .textShareAction:      return ("分享", "Share")
         case .textUpdateAction:     return ("更新", "Update")
         case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
-        case .scanCaptionText:      return ("扫码查看文本 · 同一 Wi-Fi", "Scan to view text · same Wi-Fi")
         case .editTextButton:       return ("编辑文本", "Edit Text")
         case .transferText:         return ("传递文本", "Transfer Text")
-        case .sendTextKicker:       return ("发送文本", "Send text")
-        case .scanCaptionTransfer:  return ("扫码读取或发送文本 · 同一 Wi-Fi", "Scan to read or send text · same Wi-Fi")
-        case .textIdleHint:         return ("发送一段文本，或开启接收，扫码即可",
-                                           "Send some text or turn on receiving, then scan")
+        case .sendTextKicker:       return ("发送", "Send")
+        case .scanCaptionTransfer:  return ("同一 Wi-Fi 扫码传递", "Scan to transfer on the same Wi-Fi")
         case .retract:              return ("撤回", "Retract")
         case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
-        case .rememberTextDesc:     return ("重启后回填上次内容供再次分享；关闭则退出即忘",
-                                           "Refills the last text after restart for reuse; off forgets it on quit")
+        case .rememberTextDesc:     return ("重启后保留草稿", "Keep the draft after restart")
         case .deleteEntry:          return ("删除", "Delete")
 
-        case .recvInboxTitle:       return ("允许收文本", "Allow Receiving Text")
-        case .recvInboxDesc:        return ("对方扫码后可把一段文本发到这台 Mac", "After scanning, the other device can send text to this Mac")
+        case .recvInboxTitle:       return ("接收文本", "Receive Text")
         case .persistRecvTitle:     return ("记住收到的文本", "Remember Received Text")
-        case .persistRecvDesc:      return ("重启后保留收件箱内容；关闭则退出即忘",
-                                           "Keeps the inbox after restart; off forgets it on quit")
+        case .persistRecvDesc:      return ("重启后保留收件箱", "Keep the inbox after restart")
         case .receivedTextsTitle:   return ("收到的文本", "Received Text")
         case .inboxWaiting:         return ("等待对方发来文本…", "Waiting for text from the other device…")
-        case .scanCaptionSend:      return ("扫码把文本发到这台 Mac · 同一 Wi-Fi", "Scan to send text to this Mac · same Wi-Fi")
         case .clearReceivedConfirm: return ("清空收到的全部文本？", "Clear all received text?")
         case .copyTextAction:       return ("复制", "Copy")
 
         case .webUpload:       return ("上传", "Upload")
         case .webDropHere:     return ("松手上传到这里", "Drop here to upload")
         case .webBackToParent: return ("返回上一级", "Up one level")
-        case .webEmptyFolder:  return ("这个文件夹是空的", "This folder is empty")
+        case .webEmptyFolder:  return ("空文件夹", "Empty folder")
         case .webNoMatch:      return ("未找到匹配的文件", "No matching files")
-        case .webNoMatchSub:   return ("试试其他关键词", "Try a different keyword")
         case .webSearchFolder: return ("搜索此文件夹…", "Search this folder…")
         case .webClear:        return ("清除", "Clear")
         case .webSortLabel:    return ("排序", "Sort")
@@ -402,24 +362,19 @@ enum L: CaseIterable {
         case .webSortTimeAsc:  return ("时间 · 旧 → 新", "Date · Old → New")
         case .webFilterAll:    return ("全部", "All")
         case .webFilterDir:    return ("目录", "Folders")
-        case .webProvidedBy:   return ("由 <b>LocalShare</b> 提供", "Served by <b>LocalShare</b>")
+        case .webProvidedBy:   return ("LocalShare", "LocalShare")
         case .webViewRaw:      return ("查看原文", "View source")
         case .webLoading:      return ("正在加载…", "Loading…")
         case .webSearchJSON:   return ("搜索键或值…", "Search keys or values…")
         case .webFilterRows:   return ("筛选行…", "Filter rows…")
         case .webText:         return ("文本", "Text")
-        case .webTextHint:     return ("分享者发来的一段文本", "A snippet shared from the host")
         case .webCopy:         return ("复制", "Copy")
         case .webViewRawText:  return ("查看原始文本", "View raw text")
-        case .webSendTitle:    return ("发送文本到电脑", "Send Text to Computer")
-        case .webSendEyebrow:  return ("局域网 · 发送到电脑", "LAN · send to computer")
-        case .webSendSub:      return ("输入文本，点发送即可投递到这台 Mac。", "Type some text and send it to this Mac.")
-        case .webSendHead:     return ("发文本给电脑", "Send text to the computer")
-        case .webSendPlaceholder: return ("在此输入要发送到电脑的文本…", "Type text to send to the computer…")
+        case .webSendTitle:    return ("发送文本", "Send Text")
+        case .webSendHead:     return ("发送文本", "Send Text")
+        case .webSendPlaceholder: return ("输入文本…", "Enter text…")
         case .webSendButton:   return ("发送", "Send")
         case .webAccessCodeTitle: return ("输入访问码", "Enter Access Code")
-        case .webAccessCodeEyebrow: return ("LocalShare · 电脑访问", "LocalShare · computer access")
-        case .webAccessCodeSub: return ("输入分享者电脑上显示的短码。", "Enter the short code shown on the sharing computer.")
         case .webAccessCodePlaceholder: return ("例如 K7M-PQ2", "For example K7M-PQ2")
         case .webAccessCodeSubmit: return ("进入分享", "Open Share")
         case .webAccessCodeInvalid: return ("访问码不正确，请重新输入。", "That access code is incorrect. Try again.")

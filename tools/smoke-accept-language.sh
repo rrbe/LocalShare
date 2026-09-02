@@ -43,9 +43,9 @@ get(){ curl -s -H "Accept-Language: $2" "$1/?t=$TOK"; }
 echo "── 英文 Accept-Language → 英文列表页"
 EN="$(get "$base" 'en-US,en;q=0.9')"
 echo "$EN" | grep -q 'html lang="en"'          && ok "html lang=en"            || bad "缺 html lang=en"
-echo "$EN" | grep -q 'Served by <b>LocalShare</b>' && ok "英文署名"             || bad "缺英文署名"
+echo "$EN" | grep -q '<div class="colophon">LocalShare</div>' && ok "英文署名" || bad "缺英文署名"
 echo "$EN" | grep -q 'Search this folder'       && ok "英文搜索占位"            || bad "缺英文搜索占位"
-echo "$EN" | grep -q 'Read-only'                && ok "英文「Read-only」"        || bad "缺英文 Read-only"
+echo "$EN" | grep -q 'LAN · read-only share'    && ok "英文只读权限"             || bad "缺英文只读权限"
 
 echo "── 中文 Accept-Language → 中文列表页"
 ZH="$(get "$base" 'zh-CN,zh;q=0.9')"

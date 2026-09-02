@@ -16,7 +16,6 @@ enum TextViewer {
             <article class="card txt">
               <pre id="txtbody" class="txtbody"></pre>
               <div class="txtbar">
-                <span class="hint">\(PreviewPage.esc(L.webTextHint(lang)))</span>
                 <button class="copybtn" id="copybtn">\
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1V2.5h8v1"/></svg>\
             <span class="lbl">\(PreviewPage.esc(L.webCopy(lang)))</span></button>
@@ -29,10 +28,8 @@ enum TextViewer {
 
     private static let css = """
         .txt{padding:0;overflow:hidden}
-        .txtbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--line);
+        .txtbar{display:flex;align-items:center;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line);
           background:var(--surfaceAlt)}
-        .txtbar .hint{flex:1;min-width:0;font:12px var(--mono);color:var(--inkMute);
-          overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .copybtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 15px;border-radius:10px;
           cursor:pointer;font:600 14px var(--sans);white-space:nowrap;border:1px solid var(--accent);
           background:var(--accent);color:#fff;transition:filter .15s,background .15s,border-color .15s}
@@ -43,7 +40,6 @@ enum TextViewer {
         .txtbody a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)}
         @media(max-width:560px){
           .txtbody{padding:16px 16px;font-size:13px}
-          .txtbar .hint{display:none}
           .copybtn{flex:1}
         }
         """

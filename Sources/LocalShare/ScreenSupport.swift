@@ -226,7 +226,6 @@ struct HelpRow: View {
             .buttonStyle(.plain)
             .popover(isPresented: $show, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 11) {
-                    Text(L.cantConnectTitle(lang)).font(.sans(12, .semibold)).foregroundStyle(t.ink)
                     row("1", L.help1(lang))
                     row("2", L.help2(lang))
                     row("3", L.help3(lang))
