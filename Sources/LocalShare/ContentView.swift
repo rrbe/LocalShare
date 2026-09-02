@@ -74,8 +74,6 @@ struct ContentView: View {
             VStack(spacing: 14) {
                 Image(systemName: "tray.and.arrow.down").font(.system(size: 40)).foregroundStyle(t.accent)
                 Text(L.dropToShare(state.lang)).font(.display(22)).foregroundStyle(t.ink)
-                Text(L.dropHint(state.lang))
-                    .font(.mono(10.5)).foregroundStyle(t.inkMute)
             }
         }
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.accent, lineWidth: 2).padding(12))

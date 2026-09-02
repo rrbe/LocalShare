@@ -17,8 +17,8 @@ struct SettingsScreen: View {
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
         let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
         let ps = permSummary(state.permission, lang)
-        let tailscaleDesc = !state.tailscaleAccessEnabled ? L.tailscaleDescOff(lang)
-            : (state.tailscaleStatus == nil ? L.tailscaleDescMissing(lang) : L.tailscaleDescOn(lang))
+        let tailscaleDesc = state.tailscaleAccessEnabled && state.tailscaleStatus == nil
+            ? L.tailscaleDescMissing(lang) : nil
         return ScreenFrame(t: t) {
             HStack(spacing: 10) {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
@@ -99,7 +99,7 @@ struct SettingsScreen: View {
 
     @ViewBuilder private func settingsDetail(lang: Lang, portCheck: PortCheck, portColor: Color,
                                               portChanged: Bool, permissionSummary: PermSummary,
-                                              tailscaleDescription: String) -> some View {
+                                              tailscaleDescription: String?) -> some View {
         switch state.selectedSettingsCategory {
         case .network:
             networkSettings(lang: lang, portCheck: portCheck, portColor: portColor,
@@ -118,7 +118,7 @@ struct SettingsScreen: View {
     }
 
     private func networkSettings(lang: Lang, portCheck: PortCheck, portColor: Color,
-                                 portChanged: Bool, tailscaleDescription: String) -> some View {
+                                 portChanged: Bool, tailscaleDescription: String?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
                 VStack(alignment: .leading, spacing: 0) {
@@ -146,22 +146,24 @@ struct SettingsScreen: View {
                         .foregroundStyle(portColor)
                     }
 
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(portCheck.state == .ok ? L.portOkHint(lang) : portCheck.message)
-                            .font(.sans(11.5, portCheck.state == .ok ? .regular : .semibold))
-                            .foregroundStyle(portCheck.state == .ok ? t.inkMute : portColor)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 4)
-                        if let suggestion = portCheck.suggest {
-                            Button { portText = String(suggestion) } label: {
-                                Text(LStr.changeToPort(suggestion, lang)).font(.sans(11.5, .bold)).foregroundStyle(t.accent)
-                                    .padding(.horizontal, 10).frame(height: 24)
-                                    .background(Capsule().fill(t.accentSoft))
+                    if portCheck.state != .ok || portChanged {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(portCheck.state == .ok ? L.portChangeHint(lang) : portCheck.message)
+                                .font(.sans(11.5, portCheck.state == .ok ? .regular : .semibold))
+                                .foregroundStyle(portCheck.state == .ok ? t.inkMute : portColor)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            if let suggestion = portCheck.suggest {
+                                Button { portText = String(suggestion) } label: {
+                                    Text(LStr.changeToPort(suggestion, lang)).font(.sans(11.5, .bold)).foregroundStyle(t.accent)
+                                        .padding(.horizontal, 10).frame(height: 24)
+                                        .background(Capsule().fill(t.accentSoft))
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.top, 8)
                     }
-                    .padding(.top, 8)
 
                     if portChanged {
                         HStack(spacing: 18) {
@@ -198,31 +200,31 @@ struct SettingsScreen: View {
     private func permissionSettings(lang: Lang, summary: PermSummary) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
-                permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
-                permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
-                        locked: false, on: state.accessCodeEnabled, top: true) {
+                permRow(name: L.permReadName(lang), locked: true, on: true)
+                permRow(name: L.accessCodeTitle(lang), locked: false, on: state.accessCodeEnabled, top: true) {
                     state.setAccessCodeEnabled(!state.accessCodeEnabled)
                 }
                 permRow(name: L.permUploadName(lang),
-                        desc: state.canToggleUpload ? L.permUploadDescOn(lang) : L.permUploadDescOff(lang),
+                        desc: state.canToggleUpload ? nil : L.permUploadDescOff(lang),
                         locked: !state.canToggleUpload, on: state.permission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
-                permRow(name: L.recvInboxTitle(lang), desc: L.recvInboxDesc(lang),
-                        locked: false, on: state.textInboxEnabled, top: true) {
+                permRow(name: L.recvInboxTitle(lang), locked: false, on: state.textInboxEnabled, top: true) {
                     state.setTextInboxEnabled(!state.textInboxEnabled)
                 }
             }
 
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
-                Text(summary.writable ? L.permInfoWritable(lang) : L.permInfoReadonly(lang))
-                    .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
-                Spacer(minLength: 0)
+            if summary.writable {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(t.accent).padding(.top, 1)
+                    Text(L.permInfoWritable(lang))
+                        .font(.sans(11.5)).foregroundStyle(t.dark ? t.ink : Color(hex: 0x8a3a1e)).lineSpacing(2)
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
+                .padding(.top, 12)
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(t.accentSoft))
-            .padding(.top, 12)
 
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "lock.open").font(.system(size: 13)).foregroundStyle(t.inkMute).padding(.top, 1)
@@ -253,7 +255,7 @@ struct SettingsScreen: View {
     private func mainSettings(_ lang: Lang) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
-                settingRow(title: L.showRecentsTitle(lang), desc: L.showRecentsDesc(lang)) {
+                settingRow(title: L.showRecentsTitle(lang)) {
                     ToggleSwitch(t: t, isOn: state.showRecents) { state.setShowRecents(!state.showRecents) }
                 }
                 settingRow(top: true, title: L.rememberTextTitle(lang), desc: L.rememberTextDesc(lang)) {
@@ -262,7 +264,7 @@ struct SettingsScreen: View {
                 settingRow(top: true, title: L.persistRecvTitle(lang), desc: L.persistRecvDesc(lang)) {
                     ToggleSwitch(t: t, isOn: state.persistReceivedText) { state.setPersistReceivedText(!state.persistReceivedText) }
                 }
-                settingRow(top: true, title: L.resetWindowTitle(lang), desc: L.resetWindowDesc(lang)) {
+                settingRow(top: true, title: L.resetWindowTitle(lang)) {
                     GhostButton(t: t, title: L.resetDefault(lang), systemImage: "arrow.counterclockwise") {
                         state.resetWindowSize()
                     }
@@ -275,19 +277,21 @@ struct SettingsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
                 settingRow(title: L.autoUpdate(lang),
-                           desc: updater.isActive ? L.autoUpdateDescOn(lang) : L.autoUpdateDescOff(lang)) {
+                           desc: updater.isActive ? nil : L.updateUnavailable(lang)) {
                     ToggleSwitch(t: t, isOn: updater.automaticChecks, locked: !updater.isActive) {
                         updater.setAutomaticChecks(!updater.automaticChecks)
                     }
                 }
-                settingRow(top: true, title: L.manualUpdate(lang),
-                           desc: updater.isActive ? L.manualUpdateDescOn(lang) : L.manualUpdateDescOff(lang)) {
+                HStack {
+                    Spacer()
                     GhostButton(t: t, title: L.checkForUpdates(lang), systemImage: "arrow.clockwise") {
                         updater.checkForUpdates()
                     }
                     .disabled(!updater.canCheckForUpdates)
                     .opacity(updater.canCheckForUpdates ? 1 : 0.5)
                 }
+                .padding(.vertical, 13)
+                .overlay(alignment: .top) { Rectangle().fill(t.line).frame(height: 1) }
             }
         }
     }
@@ -403,7 +407,7 @@ struct SettingsScreen: View {
 
     // 权限专用行（带「始终开启」标记与可锁定开关）。locked 且无 action = 锁定常开（读取）；
     // locked 且有 action = 当前形态不可用（开关置灰）。top 同 settingRow：仅相邻行间画分隔线。
-    private func permRow(name: String, desc: String, locked: Bool, on: Bool, top: Bool = false,
+    private func permRow(name: String, desc: String? = nil, locked: Bool, on: Bool, top: Bool = false,
                          action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -411,7 +415,9 @@ struct SettingsScreen: View {
                     Text(name).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
                     if locked && action == nil { Text(L.alwaysOn(state.lang)).font(.sans(11)).foregroundStyle(t.inkFaint) }
                 }
-                Text(desc).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                if let desc {
+                    Text(desc).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                }
             }
             Spacer()
             ToggleSwitch(t: t, isOn: on, locked: locked, action: action ?? {})

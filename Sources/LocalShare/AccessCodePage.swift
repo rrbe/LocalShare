@@ -37,25 +37,22 @@ enum AccessCodePage {
           padding:24px;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
         main{width:min(100%,420px)}.kicker{margin-bottom:12px;color:var(--accent);font:700 12px var(--sans);
           letter-spacing:.06em}h1{margin:0;font:600 32px/1.15 var(--serif);letter-spacing:-.02em}
-        .sub{margin:10px 0 22px;color:var(--inkMute);font-size:13.5px}.card{padding:18px;background:var(--surface);
+        .card{margin-top:22px;padding:18px;background:var(--surface);
           border:1px solid var(--line);border-radius:16px}.field{display:flex;align-items:center;gap:10px;
           height:48px;padding:0 14px;background:var(--field);border:1px solid var(--line);border-radius:11px}
         input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);text-transform:uppercase;
           text-align:center;font:700 20px/1 var(--mono);letter-spacing:.16em}button{width:100%;height:44px;margin-top:12px;
           border:1px solid var(--accent);border-radius:11px;background:var(--accent);color:white;cursor:pointer;
           font:600 14px var(--sans)}.error{margin:12px 2px 0;color:var(--danger);font-size:12.5px}
-        .foot{margin-top:18px;text-align:center;color:var(--inkMute);font-size:12px}
         </style></head><body><main>
-          <div class="kicker">\(escape(L.webAccessCodeEyebrow(lang)))</div>
+          <div class="kicker">\(L.webProvidedBy(lang))</div>
           <h1>\(escape(L.webAccessCodeTitle(lang)))</h1>
-          <p class="sub">\(escape(L.webAccessCodeSub(lang)))</p>
           <form class="card" method="post" action="/ls/join" autocomplete="off">
             <label class="field"><input name="code" inputmode="text" maxlength="12" autofocus
               placeholder="\(escape(L.webAccessCodePlaceholder(lang)))" aria-label="\(escape(L.accessCodeLabel(lang)))"></label>
             <button type="submit">\(escape(L.webAccessCodeSubmit(lang)))</button>
             \(errorHTML)
           </form>
-          <div class="foot">\(L.webProvidedBy(lang))</div>
         </main></body></html>
         """
     }

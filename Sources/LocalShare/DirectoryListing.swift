@@ -206,7 +206,7 @@ enum DirectoryListing {
             // 无文件项但有文本（纯文本分享的虚拟根回退页）：只列文本行，不显示空文件夹提示
             listInner = "<ul class=\"list\">\(pinned)</ul>"
         } else {
-            listInner = #"<ul class="list">\#(pinned)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div><div class="nr-s">\#(L.webNoMatchSub(lang))</div></div>"#
+            listInner = #"<ul class="list">\#(pinned)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div></div>"#
         }
         return """
         <!doctype html><html lang="\(lang.htmlLang)"><head>
@@ -356,7 +356,6 @@ enum DirectoryListing {
 
         .noresult{list-style:none;text-align:center;padding:40px 20px}
         .nr-t{font:600 15px var(--sans);color:var(--ink)}
-        .nr-s{margin-top:5px;font:13px var(--sans);color:var(--inkMute)}
         .empty{text-align:center;color:var(--inkMute);padding:64px 20px;font:15px var(--sans)}
         .empty .big{display:block;margin-bottom:14px;font-size:46px;color:var(--accent);opacity:.7}
 
@@ -413,7 +412,7 @@ enum DirectoryListing {
             \(listInner)
           </section>
           \(canReceiveText ? SendText.card(lang: lang) : "")
-          <div class="colophon">\(L.webProvidedBy(lang)) · \(htmlText(ps.tag))</div>
+          <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
         \(dropMask)
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>

@@ -107,12 +107,17 @@ struct ShareScreen: View {
             HStack(alignment: .top, spacing: 12) {
                 MultiGlyph(t: t, size: 42)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(L.sharingKicker(lang)) · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                     Text(LStr.itemCount(items.count, lang)).font(.sans(16, .bold)).foregroundStyle(t.ink)
                     Text(parts.joined(separator: " · ")).font(.mono(11.5)).foregroundStyle(t.inkMute)
                 }
                 Spacer(minLength: 8)
                 ClearButton(t: t, lang: lang) { state.clearShare() }
+            }
+            HStack(spacing: 6) {
+                ForEach(Array(ps.chips.enumerated()), id: \.offset) { i, chip in
+                    PermChip(t: t, text: chip, hot: ps.writable && i > 0)
+                }
+                Spacer()
             }
             MultiPreviewMenu(t: t, lang: lang, items: items, preview: preview) { state.revealInFinder($0) }
         }
@@ -148,7 +153,6 @@ struct ShareScreen: View {
             HStack(alignment: .top, spacing: 12) {
                 FolderGlyph(t: t, size: 42)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(L.sharingFolderKicker(state.lang)) · \(ps.tag)").font(.sans(10.5, .bold)).tracking(0.8).foregroundStyle(t.inkMute)
                     Text(url.lastPathComponent).font(.sans(16, .bold)).foregroundStyle(t.ink)
                         .lineLimit(1).truncationMode(.middle)
                     Text(state.sharedDetail ?? "").font(.mono(11.5)).foregroundStyle(t.inkMute)
@@ -196,12 +200,10 @@ struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.isTextOnly ? L.scanCaptionText(state.lang)
-            : (state.isMultiple ? L.scanCaptionMultiple(state.lang)
-            : (state.sharedIsFile ? L.scanCaptionFile(state.lang) : L.scanCaptionFolder(state.lang)))
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
-            Text(running ? caption : L.broadcastStopped(state.lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
+            Text(running ? L.scanCaptionAccess(state.lang) : L.broadcastStopped(state.lang))
+                .font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             CopyPill(t: t, lang: state.lang, value: state.presentedURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)
             if let code = state.presentedAccessCode {

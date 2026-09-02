@@ -31,8 +31,11 @@ final class AccessCodeTests: XCTestCase {
 
     func testJoinPageIsLocalizedAndKeepsCodeOutOfURL() {
         let zh = AccessCodePage.html(lang: .zh, error: .invalid)
+        XCTAssertTrue(zh.contains(">LocalShare</div>"))
         XCTAssertTrue(zh.contains("输入访问码"))
+        XCTAssertTrue(zh.contains("例如 K7M-PQ2"))
         XCTAssertTrue(zh.contains("访问码不正确"))
+        XCTAssertFalse(zh.contains("class=\"sub\""))
         XCTAssertTrue(zh.contains("method=\"post\""))
         XCTAssertFalse(zh.contains("?code="))
 

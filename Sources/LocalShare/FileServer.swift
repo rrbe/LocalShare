@@ -828,7 +828,7 @@ final class FileServer {
         <!doctype html><html lang="\(lang.htmlLang)"><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px;color:#444">
-        <h2>🔒 \(L.webForbiddenTitle(lang))</h2><p>\(L.webForbiddenBody(lang))</p></body></html>
+        <h2>\(L.webForbiddenTitle(lang))</h2><p>\(L.webForbiddenBody(lang))</p></body></html>
         """
     }
 

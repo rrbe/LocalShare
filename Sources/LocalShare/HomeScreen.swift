@@ -23,13 +23,6 @@ struct HomeScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                // 主页通常「待命」；但文件分享 / 传递文本可在后台续跑（退回主页时），此刻如实显运行态
-                //（亮点 + 实际 IP:端口），不再骗「待命」。要彻底停就进对应票据点「停止」。
-                if state.isRunning {
-                    StatusPill(t: t, running: true, host: state.selectedInterface?.ip, port: state.port)
-                } else {
-                    IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
-                }
                 WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
@@ -64,7 +57,6 @@ struct HomeScreen: View {
                 .overlay(Image(systemName: "arrow.up.to.line").font(.system(size: 24, weight: .medium)).foregroundStyle(t.accent))
                 .padding(.bottom, 14)
             Text(L.dropZoneTitle(state.lang)).font(.sans(15.5, .semibold)).foregroundStyle(t.ink)
-            Text(L.dropZoneSub(state.lang)).font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
             PrimaryButton(t: t, title: L.pickAnyButton(state.lang), systemImage: "doc.badge.plus") { state.pickAny() }
                 .padding(.top, 18)
         }
