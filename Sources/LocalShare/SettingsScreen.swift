@@ -198,7 +198,8 @@ struct SettingsScreen: View {
     private func permissionSettings(lang: Lang, summary: PermSummary) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
-                permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true)
+                AutoStopSettings(t: t)
+                permRow(name: L.permReadName(lang), desc: L.permReadDesc(lang), locked: true, on: true, top: true)
                 permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
                         locked: false, on: state.accessCodeEnabled, top: true) {
                     state.setAccessCodeEnabled(!state.accessCodeEnabled)

@@ -215,6 +215,7 @@ struct ShareScreen: View {
                 state.setAccessCodeEnabled(!state.accessCodeEnabled)
             }
             .padding(.top, 6)
+            AutoStopDeadline(t: t).padding(.top, 8)
             // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
             // 0 人时整行隐藏（不占位、不留空文案）。
             if running && state.viewerCount > 0 {

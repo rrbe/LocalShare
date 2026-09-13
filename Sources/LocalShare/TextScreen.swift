@@ -225,6 +225,7 @@ struct TextScreen: View {
                 state.setAccessCodeEnabled(!state.accessCodeEnabled)
             }
             .padding(.top, 6)
+            AutoStopDeadline(t: t).padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)
