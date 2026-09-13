@@ -3,8 +3,8 @@ import AppKit
 /// A session deadline uses wall time so time spent asleep still counts.
 @MainActor
 final class ShareAutoStop {
-    static let defaultMinutes = 120
-    static let presets = [10, 60, 120, 360, 1440]
+    static let defaultMinutes = 60
+    static let presets = [10, 60, 360, 1440]
     static let customRange = 1...(99 * 60 + 59)
 
     private(set) var deadline: Date?

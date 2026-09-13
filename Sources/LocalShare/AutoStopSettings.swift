@@ -4,7 +4,7 @@ struct AutoStopSettings: View {
     let t: Theme
     @EnvironmentObject var state: AppState
     @State private var showCustom = false
-    @State private var hours = "2"
+    @State private var hours = String(ShareAutoStop.defaultMinutes / 60)
     @State private var minutes = "0"
 
     private var customMinutes: Int? {
