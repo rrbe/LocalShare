@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0] - 2026-09-13
+
+- Added media grid browsing with image and video thumbnails and in-browser previews
+- Added batch downloads from both list and grid views
+- Added configurable automatic sharing timeouts for file and text shares
+- Reorganized Settings with two-column sidebar navigation
+
 ## [0.12.0] - 2026-08-27
 
 - Added optional short access codes for manually joining a share, with rate limiting and automatic credential rotation
