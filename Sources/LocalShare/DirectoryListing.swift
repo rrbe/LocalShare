@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 // 关键行为(纯前端 JS)：① 搜索按文件名实时过滤；② 排序 5 档(默认/名称 A→Z·Z→A/时间 新→旧·旧→新)，
 // 文件夹始终分组在前；③ 类型 chips 真实过滤；④ 计数随过滤显示 N / total。无 emoji、无彩色填充图标。
 // 导航：非根列表首行固定「返回上一级」（.row.back，不参与搜索/排序/过滤，空目录也保留）；
-// 目录行原地进入，文件行新标签打开(target=_blank，与行尾外开箭头图标一致，列表不丢)。
+// 目录行原地进入；列表模式文件行新标签打开，方格模式图片/视频由 MediaGallery 在页内预览。
 // 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 用绝对路径并逐段编码。
 enum DirectoryListing {
     private static let dateFmt: DateFormatter = {
@@ -376,6 +376,7 @@ enum DirectoryListing {
           .d-col{display:none}
           .d-in{display:inline}
         }
+        \(MediaGallery.css)
         \(canReceiveText ? SendText.css : "")
         </style></head><body>
         <main>
@@ -567,6 +568,7 @@ enum DirectoryListing {
         })();
         \(canReceiveText ? SendText.boot : "")
         </script>
+        <script>\(MediaGallery.script)</script>
         </body></html>
         """
     }
