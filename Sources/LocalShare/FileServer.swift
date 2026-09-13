@@ -69,6 +69,7 @@ final class FileServer {
     static func multipleRootName(_ lang: Lang) -> String { lang == .zh ? "分享内容" : "Shared items" }
 
     private let server = HttpServer()
+    private let archiveLock = NSLock()
     private let thumbnails = ThumbnailStore()
 
     // 监听地址：nil = 绑定全部接口（0.0.0.0，默认）——回环可达、对网络切换鲁棒，headless/CLI 与冒烟
@@ -466,6 +467,44 @@ final class FileServer {
         // 超单条上限 → 413；空白 → 400。落库与未读由 onReceiveText 交给 AppState。
         if req.method == "POST", req.path == "/ls/text" {
             return handleReceiveText(req: req, lang: lang, extra: extra)
+        }
+
+        if req.method == "POST", req.path == "/ls/download" {
+            guard req.body.count <= 262144,
+                  let json = Self.formValue("paths", in: req.body),
+                  let data = json.data(using: .utf8),
+                  let paths = try? JSONDecoder().decode([String].self, from: data),
+                  !paths.isEmpty, paths.count <= 1000 else {
+                return htmlResponse(400, "Bad Request", L.webReadFailed(lang), extra: extra)
+            }
+            guard archiveLock.try() else {
+                return htmlResponse(429, "Too Many Requests", L.webReadFailed(lang), extra: extra)
+            }
+            defer { archiveLock.unlock() }
+            // Read the share under the same lock as its credential; an old page cannot archive a new share.
+            lock.lock()
+            let currentShare = _share
+            let stillAuthorized = _token == token
+            lock.unlock()
+            guard stillAuthorized else { return .forbidden }
+            do {
+                let archive = try BatchDownload(paths: paths, share: currentShare)
+                var headers = extra
+                headers["Content-Type"] = "application/zip"
+                headers["Content-Disposition"] = "attachment; filename=LocalShare.zip"
+                headers["Content-Length"] = String(try archive.url.resourceValues(forKeys: [.fileSizeKey]).fileSize!)
+                headers["Cache-Control"] = "no-store"
+                headers["X-Content-Type-Options"] = "nosniff"
+                return .raw(200, "OK", headers) { writer in
+                    let handle = try FileHandle(forReadingFrom: archive.url)
+                    defer { try? handle.close() }
+                    while let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty {
+                        try writer.write(chunk)
+                    }
+                }
+            } catch {
+                return htmlResponse(400, "Bad Request", L.webReadFailed(lang), extra: extra)
+            }
         }
 
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，

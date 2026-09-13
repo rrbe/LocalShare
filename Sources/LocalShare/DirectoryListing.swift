@@ -476,6 +476,7 @@ enum DirectoryListing {
             var filtering=query!==''||active!=='__all';
             countEl.textContent=filtering? LS_I18N.countFiltered.replace('{shown}',vis.length).replace('{total}',total) : LS_I18N.countItems.replace('{n}',total);
             list.classList.toggle('sort-time', key==='time');
+            list.dispatchEvent(new Event('listingchange'));
           }
 
           chips.forEach(function(c){c.addEventListener('click',function(){

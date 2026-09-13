@@ -658,6 +658,12 @@ enum LStr {
             // 列表页
             ("listView", "列表", "List"),
             ("gridView", "方格", "Grid"),
+            ("batchDownload", "批量下载", "Batch download"),
+            ("selectAll", "全选 / 取消全选", "Select / clear all"),
+            ("downloadSelected", "下载 ZIP", "Download ZIP"),
+            ("selectedN", "已选 {n} 项", "{n} selected"),
+            ("cancel", "取消", "Cancel"),
+            ("downloadFailed", "下载失败，请重试", "Download failed. Try again."),
             ("downloadFile", "下载", "Download"),
             ("previous", "上一项", "Previous"),
             ("next", "下一项", "Next"),
