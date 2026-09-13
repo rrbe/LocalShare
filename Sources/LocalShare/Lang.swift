@@ -665,6 +665,13 @@ enum LStr {
     static func i18nJSON(_ lang: Lang) -> String {
         let entries: [(String, String, String)] = [
             // 列表页
+            ("listView", "列表", "List"),
+            ("gridView", "方格", "Grid"),
+            ("downloadFile", "下载", "Download"),
+            ("previous", "上一项", "Previous"),
+            ("next", "下一项", "Next"),
+            ("close", "关闭", "Close"),
+            ("mediaUnavailable", "此格式无法预览，可下载查看", "Preview unavailable. Download to view."),
             ("viewersN",     "{n} 人正在浏览",            "{n} viewing"),
             ("countItems",   "{n} 项",                   "{n} items"),
             ("countFiltered","{shown} / {total} 项",      "{shown} / {total} items"),
