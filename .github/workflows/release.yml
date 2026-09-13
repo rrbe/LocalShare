@@ -35,6 +35,22 @@ jobs:
           }
           echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
 
+      - uses: actions/setup-go@v7
+        if: ${{ hashFiles('server/go.mod') != '' }}
+        with:
+          go-version-file: server/go.mod
+
+      - name: 编译 LocalShare Server（Linux amd64 / arm64）
+        if: ${{ hashFiles('server/go.mod') != '' }}
+        working-directory: server
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o "../LocalShare-Server-$VERSION-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" -o "../LocalShare-Server-$VERSION-linux-arm64" .
+          cd ..
+          shasum -a 256 LocalShare-Server-* > "LocalShare-Server-$VERSION-checksums.txt"
+
       - name: 写入版本号到 Info.plist
         run: |
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" bundle/Info.plist
@@ -94,6 +110,9 @@ jobs:
             CHANGELOG="$(git tag -l --format='%(contents)' "$RELEASE_TAG")"
           fi
           printf '**LocalShare %s** · 局域网文件 / 文件夹只读分享，扫码即看。\nUniversal（Apple Silicon + Intel），要求 macOS 13+。\n' "$VERSION" > release_body.md
+          if [ -f "LocalShare-Server-$VERSION-linux-amd64" ]; then
+            printf '\n远程分享 Server 同时提供 Linux amd64 / arm64 单文件二进制及 SHA-256 校验文件。\n' >> release_body.md
+          fi
           if [ -n "$CHANGELOG" ]; then
             printf '\n## 更新内容\n\n%s\n' "$CHANGELOG" >> release_body.md
           fi
@@ -115,7 +134,10 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: LocalShare ${{ env.VERSION }}
-          files: LocalShare-${{ env.VERSION }}.dmg
+          files: |
+            LocalShare-${{ env.VERSION }}.dmg
+            LocalShare-Server-${{ env.VERSION }}-linux-*
+            LocalShare-Server-${{ env.VERSION }}-checksums.txt
           body_path: release_body.md
 
       - name: EdDSA 签名 DMG + 生成 appcast.xml 挂到 Release
