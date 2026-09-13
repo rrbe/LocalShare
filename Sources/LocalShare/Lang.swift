@@ -78,6 +78,7 @@ enum L: CaseIterable {
     // 通用动作 / 标签
     case settings, back, refresh, stop, clear, rebroadcast, replace, replaceFile
     case discardChanges, applyRestart, resetDefault, reshare, viewAll, clearAll
+    case autoStopTitle, autoStopDesc, autoStopNever, autoStopCustom, autoStopApply, hours, minutes, autoStopHint
     case cancel, clearAllConfirm
     case install, reinstall, uninstall, installed, alwaysOn
 
@@ -209,6 +210,14 @@ enum L: CaseIterable {
         case .reshare:         return ("重新分享", "Reshare")
         case .viewAll:         return ("查看全部", "View All")
         case .clearAll:        return ("清空", "Clear")
+        case .autoStopTitle:   return ("定时关闭分享", "Stop sharing after")
+        case .autoStopDesc:    return ("每次开始分享时自动计时", "Start a timer with each share")
+        case .autoStopNever:   return ("永不", "Never")
+        case .autoStopCustom:  return ("自定义…", "Custom…")
+        case .autoStopApply:   return ("应用", "Apply")
+        case .hours:           return ("小时", "Hours")
+        case .minutes:         return ("分钟", "Minutes")
+        case .autoStopHint:    return ("更改后，当前分享将重新计时", "Changing this restarts the current share timer")
         case .cancel:          return ("取消", "Cancel")
         case .clearAllConfirm: return ("清空全部分享历史？", "Clear all share history?")
         case .install:         return ("安装", "Install")
