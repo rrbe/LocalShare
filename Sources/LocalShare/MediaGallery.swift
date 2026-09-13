@@ -3,14 +3,17 @@ import Foundation
 // Enhances the same directory rows so search, sorting and folder navigation stay shared.
 enum MediaGallery {
     static let css = #"""
-    .viewbar,.gallery-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-    .viewbar{margin-top:14px}
-    .viewbar button,.gallery-actions button,.gallery-actions a{min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 13px var(--sans);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+    .viewbar,.selectionbar,.gallery-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .viewbar{margin-top:14px}.viewbar .batch-toggle{margin-left:auto}
+    .viewbar button,.selectionbar button,.gallery-actions button,.gallery-actions a{min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 13px var(--sans);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
     .viewbar .view-toggle{width:38px;padding:0}
     .view-toggle svg{width:16px;height:16px}
     .viewbar button[aria-pressed=true]{background:var(--accentSoft);border-color:var(--accent);color:var(--accent)}
+    .selectionbar{margin-top:10px}.selectionbar[hidden],.viewbar [hidden]{display:none}
+    .selectionbar .download-selected{background:var(--accent);color:white;border-color:var(--accent)}
     button:disabled{opacity:.45;cursor:default}
-    .thumb{display:none}
+    .selected-count{font:12px var(--mono);color:var(--inkMute)}
+    .thumb,.pick{display:none}
     .list.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;background:none;border:0;overflow:visible}
     .grid .row{position:relative;min-width:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
     .grid .row>a{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:10px;height:100%}
@@ -24,6 +27,13 @@ enum MediaGallery {
     .video-badge{position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);color:white;border-radius:999px;width:28px;height:28px;display:grid;place-items:center;font-size:13px}
     .grid .back,.grid .txtentry{grid-column:1/-1}.grid .back>a,.grid .txtentry>a{flex-direction:row;align-items:center}
     .grid .back .ic,.grid .txtentry .ic{width:34px;height:34px;aspect-ratio:auto}
+    .list.selecting .row[data-kind=file]{position:relative}
+    .list.selecting .row[data-kind=file] .pick{display:block;position:absolute;right:16px;top:50%;transform:translateY(-50%);margin:0;z-index:2;width:24px;height:24px;accent-color:var(--accent);cursor:pointer}
+    .list:not(.grid).selecting .row[data-kind=file]>a{padding-right:58px}
+    .list:not(.grid).selecting .row[data-kind=file] .chev{display:none}
+    .list:not(.grid) .row.selected{background:var(--accentSoft)}
+    .grid.selecting .row[data-kind=file] .pick{top:16px;transform:none}
+    .grid .row.selected{outline:2px solid var(--accent);outline-offset:-2px}
     .gallery{width:min(1100px,calc(100% - 24px));max-width:none;max-height:calc(100dvh - 24px);padding:16px;border:1px solid var(--lineStrong);border-radius:16px;background:var(--surface);color:var(--ink)}
     .gallery::backdrop{background:rgba(0,0,0,.78)}
     .gallery-actions{margin-bottom:12px}.gallery-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 14px var(--sans)}
@@ -50,14 +60,28 @@ enum MediaGallery {
         b.className='view-toggle';b.title=b.textContent;b.setAttribute('aria-label',b.textContent);
         b.innerHTML='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+icon+'</svg>';
       });
-      let grid=false;
+      const batch=button(t.batchDownload,bar,'batch-toggle');
+      const selection=document.createElement('div');selection.className='selectionbar';selection.hidden=true;bar.after(selection);
+      const selectAll=button(t.selectAll,selection),download=button(t.downloadSelected,selection,'download-selected');
+      const count=document.createElement('span');count.className='selected-count';count.setAttribute('aria-live','polite');selection.appendChild(count);
+      const selected=new Set();let grid=false,selecting=false;
       const visible=()=>Array.from(list.querySelectorAll('[data-kind]')).filter(r=>r.style.display!=='none');
+      function sync(){
+        rows.forEach(r=>{if(r.style.display==='none')selected.delete(r);r.classList.toggle('selected',selected.has(r));const cb=r.querySelector('.pick');if(cb)cb.checked=selected.has(r);});
+        count.textContent=t.selectedN.replace('{n}',selected.size);download.disabled=!selected.size;
+        selectAll.disabled=!visible().some(r=>r.dataset.kind==='file');
+      }
+      function setSelecting(value){selecting=value;selection.hidden=!value;list.classList.toggle('selecting',value);batch.textContent=value?t.cancel:t.batchDownload;selected.clear();sync();}
       const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{
         if(!entry.isIntersecting||!grid)return;
         const media=entry.target;media.src=media.dataset.src;observer.unobserve(media);
       }),{rootMargin:'200px'});
       rows.forEach(r=>{
         const a=r.querySelector('a');
+        if(r.dataset.kind==='file'){
+          const cb=document.createElement('input');cb.type='checkbox';cb.className='pick';cb.setAttribute('aria-label',r.querySelector('.nm').textContent);r.appendChild(cb);
+          cb.addEventListener('change',()=>{if(cb.checked)selected.add(r);else selected.delete(r);sync();});
+        }
         if(r.dataset.type==='image'||r.dataset.type==='video'){
           const thumb=document.createElement('span');thumb.className='thumb';thumb.setAttribute('aria-hidden','true');
           const media=document.createElement('img');
@@ -69,6 +93,7 @@ enum MediaGallery {
           thumb.prepend(media);a.prepend(thumb);
         }
         a.addEventListener('click',e=>{
+          if(selecting&&r.dataset.kind==='file'){e.preventDefault();if(selected.has(r))selected.delete(r);else selected.add(r);sync();return;}
           if(!grid)return;
           if(r.dataset.type==='image'||r.dataset.type==='video'){e.preventDefault();open(r);}
         });
@@ -80,6 +105,17 @@ enum MediaGallery {
       }
       let saved=false;try{saved=sessionStorage.getItem('ls-directory-view')==='grid';}catch(e){}
       setGrid(saved);listButton.onclick=()=>setGrid(false);gridButton.onclick=()=>setGrid(true);
+      batch.onclick=()=>setSelecting(!selecting);
+      selectAll.onclick=()=>{const files=visible().filter(r=>r.dataset.kind==='file');const clear=files.every(r=>selected.has(r));files.forEach(r=>{if(clear)selected.delete(r);else selected.add(r);});sync();};
+      list.addEventListener('listingchange',sync);
+      // A normal attachment download streams to the browser's download manager, not a JS Blob.
+      const frame=document.createElement('iframe');frame.name='ls-download';frame.hidden=true;document.body.appendChild(frame);
+      frame.addEventListener('load',()=>{if(frame.contentDocument&&frame.contentDocument.body.textContent.trim())count.textContent=t.downloadFailed;});
+      download.onclick=()=>{
+        const form=document.createElement('form');form.method='POST';form.action='/ls/download'+location.search;form.target=frame.name;
+        const input=document.createElement('input');input.type='hidden';input.name='paths';input.value=JSON.stringify(visible().filter(r=>selected.has(r)).map(r=>r.querySelector('a').getAttribute('href')));
+        form.appendChild(input);document.body.appendChild(form);form.submit();form.remove();
+      };
       const dialog=document.createElement('dialog');dialog.className='gallery';dialog.setAttribute('aria-labelledby','gallery-title');
       const actions=document.createElement('div');actions.className='gallery-actions';dialog.appendChild(actions);
       const title=document.createElement('span');title.className='gallery-title';title.id='gallery-title';actions.appendChild(title);
