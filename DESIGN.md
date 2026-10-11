@@ -232,8 +232,13 @@ Copy categories: static strings use `L` enum keys with compiler-enforced exhaust
 ## 7. Copywriting
 
 - Bilingual product UI: Simplified Chinese and English, routed through `Lang.swift` string tables. Keep copy short and restrained. Use ` · ` as the separator.
-- Persistent copy expresses current state, available actions, or otherwise invisible consequences. Remove repeated instructions, background explanation, and state already expressed by nearby controls; keep the shortest guidance needed for first use, transfer direction, recovery steps, validation errors, destructive confirmations, disabled reasons, and concrete security consequences.
-- Access-code settings explain entering the address and code on another device, while scanning skips code entry. The join page tells visitors to get the code from the person sharing. Upload warnings name the destination folder. Label automatic update checks `Automatically Check for Updates`; browser text forms name the destination Mac.
+- Every line should add useful information: purpose, current state, an available action, or an otherwise invisible consequence. Remove explanations that merely repeat a nearby title, switch, badge, or button.
+- Use icons, controls, badges, and layout to communicate familiar actions and state. Consolidate repeated labels while preserving grouping, hierarchy, and spacing; a short hint can sit beside the relevant control instead of occupying its own card.
+- Keep the shortest guidance needed for first use. State access requirements such as the same Wi-Fi or where to get an access code. An idle screen should make the next step clear, such as sharing text or enabling receiving to show the QR code.
+- Label the actual action and its direction. Browser text forms name the destination Mac; QR captions follow the current send/receive capabilities. Use `Automatically Check for Updates` for automatic update checks.
+- Keep recovery steps, validation errors, disabled reasons, destructive confirmations, and concrete security consequences. Name the effect and affected content, such as existing links becoming invalid or visitors uploading into the shared folder.
+- Show explanations when relevant: port-change consequences after an edit, upload warnings when uploading is enabled, and unavailable-feature reasons beside the disabled control.
+- Keep the same meaning in Chinese and English, including destination, conditions, and consequences; translations may differ in length to remain natural.
 - Technical values such as IP, port, path, size, item count, and date always use mono.
 - Destructive action verb: "Stop". Positive actions: choose files/folders, broadcast again, reshare.
 - Permission wording follows state: "read-only share" / "read/write", not translated mechanically.
