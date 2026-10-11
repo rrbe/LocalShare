@@ -178,19 +178,14 @@ enum SendText {
         .kicker .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
         .kicker span{font:700 12px/1 var(--sans);letter-spacing:.05em;color:var(--accent)}
         h1{margin:0;font:600 34px/1.15 var(--serif);letter-spacing:-.02em;word-break:break-word}
-        .sub{margin:10px 0 0;font:13.5px/1.6 var(--sans);color:var(--inkMute)}
         .card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
-        .colophon{text-align:center;margin-top:24px;font:12px var(--sans);color:var(--inkFaint)}
-        .colophon b{font:600 12px var(--serif);color:var(--inkMute)}
         @media(max-width:560px){main{padding:18px 18px 24px}h1{font-size:26px}}
         \(css)
         </style></head><body>
         <main>
-          <div class="kicker"><span class="dot"></span><span>\(esc(L.webSendEyebrow(lang)))</span></div>
+          <div class="kicker"><span class="dot"></span><span>\(L.webProvidedBy(lang))</span></div>
           <h1>\(esc(L.webSendTitle(lang)))</h1>
-          <p class="sub">\(esc(L.webSendSub(lang)))</p>
           \(card(lang: lang, withHead: false))
-          <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
         <script>

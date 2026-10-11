@@ -152,7 +152,14 @@ struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                if state.isRunning, state.qrImage != nil { qrCard } else { idleHint }
+                if state.isRunning, state.hasText || state.textInboxEnabled, state.qrImage != nil {
+                    qrCard
+                } else if !state.hasNetwork {
+                    noNetworkHint
+                } else {
+                    Text(L.textIdleHint(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
+                        .multilineTextAlignment(.center)
+                }
                 composeCard
                 receiveRow
                 if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
@@ -204,7 +211,7 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 二维码：恒指 /ls/text。说明文案随状态切换——发+收为「读取或发送」、仅发为「查看」、仅收为「发到本机」。
+    // 二维码恒指 /ls/text；说明随收发状态表达扫码后的动作。
     private var qrCard: some View {
         let lang = state.lang
         let caption = state.hasText
@@ -233,13 +240,12 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 还没东西可服务（没发文本、也没开接收）：给一句提示而非空白二维码；无网络时换网提示。
-    private var idleHint: some View {
+    // 无网络时保留恢复提示。
+    private var noNetworkHint: some View {
         let lang = state.lang
-        let net = state.hasNetwork
         return VStack(spacing: 10) {
-            Image(systemName: net ? "qrcode" : "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
-            Text(net ? L.textIdleHint(lang) : L.noNetwork(lang))
+            Image(systemName: "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
+            Text(L.noNetwork(lang))
                 .font(.sans(12.5)).foregroundStyle(t.inkMute)
                 .multilineTextAlignment(.center).lineSpacing(2)
         }
@@ -248,15 +254,11 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 允许收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
+    // 接收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
     private var receiveRow: some View {
         let lang = state.lang
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
-                Text(L.recvInboxDesc(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        return HStack(spacing: 12) {
+            Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
             Spacer(minLength: 8)
             ToggleSwitch(t: t, isOn: state.textInboxEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
         }

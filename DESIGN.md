@@ -106,6 +106,7 @@ New icons must keep the same visual weight and 16px grid.
 - **StatusPill**: radius 999, `surface` background + `line` border, containing a status dot, label, vertical divider, and `:port` in mono.
   - States: `broadcasting` uses accent + pulsing dot; `connected` shows the visitor line with device name; `stopped` uses `inkMute` without pulse.
   - Visitor summaries: one visitor `<name> is browsing`; multiple visitors `<name> and N others are browsing`; unknown names fall back to the IP suffix. Long text truncates at the end.
+  - Do not show a status pill on the home screen. File activity is expressed by the active-share banner; Text Transfer activity uses its pulse dot. Idle state has no persistent status label.
 - **Dot**: status dot. `live` adds `lsPulse` expansion animation, `1.8s ease-out infinite`.
 - **Chip**: radius 999 label. Accent state uses `accentSoft` background + accent text; normal state uses transparent background + `line` border.
 
@@ -132,6 +133,7 @@ New icons must keep the same visual weight and 16px grid.
 
 - **QR**: decorative placeholder in mocks, deterministic pseudo QR, white background, rounded corners, foreground `#1a1813` (dark mode `#0e0c09`). **Replace with a real QR code in implementation**, but keep size, radius, white background, and padding.
 - **CopyPill**: `field` rounded bar. Left side is a mono address with middle ellipsis and a full-address hover tooltip. Right side has copy (green check for 1.3s after success) and open-in-browser buttons; expand/collapse appears only when the full address does not fit on one line. Expanded addresses wrap without a fixed row height.
+- File tickets and the home drop zone use `Scan to access on the same Wi-Fi`. Text captions reflect direction: `Scan to view text on the same Wi-Fi`, `Scan to send text to this Mac on the same Wi-Fi`, or `Scan to view or send text on the same Wi-Fi` when both channels are active.
 
 ---
 
@@ -150,7 +152,7 @@ Permission object: `{ read(always locked on), add, edit, del }`. Use `permSummar
 - `eyebrow`: `LAN · Read-only share` versus `LAN · Read/write share`.
 - `chips`: read-only = `[Read-only, Downloadable]`; writable = `[Downloadable, Uploadable?, Editable?, Deletable?]` depending on enabled permissions.
 
-Linked surfaces driven by the same permission state: empty-state eyebrow, folder-share card eyebrow and permission chips, single-file ticket "Sharing · read-only/read-write", Settings "Current: read-only/read-write" tag, bottom warning copy, and alternate VariantA/C eyebrows. Changing write permissions in Settings must update the wording at the top of other screens immediately.
+Linked surfaces driven by the same permission state: empty-state eyebrow, folder/multiple-share permission chips, single-file ticket "read-only/read-write", and browser-page eyebrows. Changing write permissions in Settings must update these surfaces immediately. Folder and multiple-share tickets do not repeat the permission state in a separate "Sharing ..." eyebrow.
 
 ### 6.3 Live Port Validation
 
@@ -162,7 +164,7 @@ Validate as the user types via `validatePort`:
 - Occupied sample set (`80,443,3000,5000,5432,3306,8000,7890`) -> `Port X is already in use` (warn) and show a **Use :nextAvailablePort** button that fills the next available port.
 - Otherwise -> `Port available` (ok).
 
-Visuals: input/container border follows status color (ok keeps default line; warn/error use semantic colors). Right-side badge shows `Available / In use / Invalid` with check/help icon. Helper line follows status color; ok copy says changing the port restarts the service and shared links need updating.
+Visuals: input/container border follows status color (ok keeps default line; warn/error use semantic colors). Right-side badge shows `Available / In use / Invalid` with check/help icon. Normal available state has no helper line. Validation errors keep their reason and available-port suggestion; after a valid edit, show only `Existing links will stop working`.
 
 ### 6.4 Client Folder Page: Filter / Search / Sort
 
@@ -172,7 +174,7 @@ Toolbar sits below the title and above filter chips: search input on the left, s
 - **Sort dropdown**: `Default order / Name A-Z / Name Z-A / Newest first / Oldest first`; selected item gets a check. **Folders always group before files**, then sort within each group by the selected key.
 - Count: while filtering/searching show `N / 304 items`; otherwise `304 items`.
 - Right side of each row shows creation date in mono; when sorting by time, emphasize this column.
-- Empty result state: `No matching files` with helper copy.
+- Empty result state: `No matching files`. An empty directory uses `Empty folder`.
 - When dropdown is open, add a transparent fixed overlay that closes it on click.
 - **Parent directory row**: non-root listings always have a fixed first row for "Back to parent", with a dashed icon border and muted text. It is excluded from filtering/search/sort and remains visible in empty directories. Breadcrumb segments, including root, are clickable with dotted underline affordance.
 - **Open behavior**: directories navigate in place; files open in a new tab via `target=_blank`, matching the external-open arrow at the row end.
@@ -181,7 +183,7 @@ Toolbar sits below the title and above filter chips: search input on the left, s
 
 Browser navigation to `.md(.markdown)` / `.json(.geojson)` / `.csv(.tsv)` renders a preview page instead of raw text. The preview shares the `PreviewPage` shell and uses the **same URL as the file**, so relative references resolve naturally.
 
-- Shell: kicker based on permission wording -> serif title from filename -> clickable breadcrumb with "View raw" mono link on the right -> viewfinder content card -> footer credit. Loading/failure states use muted mono copy: `Loading...` / `Failed to parse · View raw`.
+- Shell: kicker based on permission wording -> serif title from filename -> clickable breadcrumb with "View raw" mono link on the right -> viewfinder content card -> `LocalShare` footer credit. Loading/failure states use muted mono copy: `Loading...` / `Failed to parse · View raw`.
 - `?raw=1` always returns original text; curl/scripts with non-HTML Accept headers automatically receive raw text.
 - **Markdown**: serif headings, mono code/tables, accent left border on blockquotes, rounded bordered images with `max-width:100%`. Render with vendored marked. **Raw HTML is always escaped and shown as visible text**, never executed.
 - **JSON**: collapsible tree using native `details`, first two levels expanded by default; type coloring for strings/number/boolean/null; lazy child construction; "show more" batches every 500 items; strings truncate at 200 characters and expand on click. Search traverses the full data tree and displays flat matches as `full path + value` up to 500 results. Toolbar meta shows `Object · N keys · size`.
@@ -191,7 +193,7 @@ Browser navigation to `.md(.markdown)` / `.json(.geojson)` / `.csv(.tsv)` render
 
 - **Visible only on current network** switch: in Settings under Listening Port. Row contains a title, helper copy, and Switch. Multi-interface copy: only selected network source can access it; other connected networks cannot. Single-interface copy: only current network can access it, and future networks will not. Default is off, meaning open on all local interfaces; when enabled, the share binds only to the selected source network.
 - **Online visitor device names**: the line below the share address no longer shows only a count. It uses a small green dot and visitor summary copy. Unknown names fall back to IP suffixes; line is single-line with end truncation.
-- **Plain HTTP notice**: two restrained gray `inkMute` placements with `lock.open` icon: under Access in Settings and after a separator at the end of the "Can't connect?" bubble. Copy: same-network transfers are not encrypted; on public Wi-Fi, others on the same network may see content; avoid sensitive files there. **Do not use a colored warning box.**
+- **Plain HTTP notice**: two restrained gray `inkMute` placements with `lock.open` icon: under Access in Settings and after a separator at the end of the "Can't connect?" bubble. Copy: `LAN transfers are unencrypted · Don't share sensitive content on public Wi-Fi`. **Do not use a colored warning box.** The help bubble starts directly with troubleshooting steps; it does not repeat the trigger title.
 
 ### 6.7 Text Transfer: Send / Receive
 
@@ -199,9 +201,9 @@ Browser navigation to `.md(.markdown)` / `.json(.geojson)` / `.csv(.tsv)` render
 
 Screen sections, top to bottom:
 
-1. **QR card / empty state**: service running with URL -> QRCard (172x172, padding 18, radius 14) + explanatory text + CopyPill. Otherwise show empty copy: send text or enable receiving, then scan.
-2. **Send text card**: `surface` radius 16, padding 16, `line` border. Section eyebrow -> `PlainTextEditor` (`field`, radius 12, **mono 13**, min-height 118, custom placeholder compatible with Chinese IME, accent caret) -> PrimaryBtn "Share" or "Update"; show "Withdraw" GhostBtn when already shared.
-3. **Allow receiving row**: `surface` radius 14, padding 14. Title + helper copy + Switch. Opt-in and off by default.
+1. **QR card**: service running with URL -> QRCard (172x172, padding 18, radius 14) + direction-specific caption + CopyPill. When the service is idle, show one line: `Share text or enable receiving to show the QR code`, without an empty-state card. Preserve the network warning when offline.
+2. **Send text card**: `surface` radius 16, padding 16, `line` border. `Send` section label -> `PlainTextEditor` (`field`, radius 12, **mono 13**, min-height 118, placeholder `Enter or paste text`, compatible with Chinese IME, accent caret) -> PrimaryBtn "Share" or "Update"; show "Withdraw" GhostBtn when already shared.
+3. **Receive text row**: `surface` radius 14, padding 14. Title + Switch, with no persistent helper copy. Opt-in and off by default.
 4. **Inbox card**: visible only when receiving is enabled or messages exist. Header = accent status dot + title + unread badge + Clear action. List shows up to 12 items, then a count. Each row has TextGlyph, source device/IP and relative time, text preview up to 3 selectable lines, copy success check, and delete button.
 5. **Stop transfer**: DangerBtn "Stop", visible only while service is running and there is shared text or receiving is enabled.
 
@@ -230,10 +232,17 @@ Copy categories: static strings use `L` enum keys with compiler-enforced exhaust
 ## 7. Copywriting
 
 - Bilingual product UI: Simplified Chinese and English, routed through `Lang.swift` string tables. Keep copy short and restrained. Use ` · ` as the separator.
+- Every line should add useful information: purpose, current state, an available action, or an otherwise invisible consequence. Remove explanations that merely repeat a nearby title, switch, badge, or button.
+- Use icons, controls, badges, and layout to communicate familiar actions and state. Consolidate repeated labels while preserving grouping, hierarchy, and spacing; a short hint can sit beside the relevant control instead of occupying its own card.
+- Keep the shortest guidance needed for first use. State access requirements such as the same Wi-Fi or where to get an access code. An idle screen should make the next step clear, such as sharing text or enabling receiving to show the QR code.
+- Label the actual action and its direction. Browser text forms name the destination Mac; QR captions follow the current send/receive capabilities. Use `Automatically Check for Updates` for automatic update checks.
+- Keep recovery steps, validation errors, disabled reasons, destructive confirmations, and concrete security consequences. Name the effect and affected content, such as existing links becoming invalid or visitors uploading into the shared folder.
+- Show explanations when relevant: port-change consequences after an edit, upload warnings when uploading is enabled, and unavailable-feature reasons beside the disabled control.
+- Keep the same meaning in Chinese and English, including destination, conditions, and consequences; translations may differ in length to remain natural.
 - Technical values such as IP, port, path, size, item count, and date always use mono.
 - Destructive action verb: "Stop". Positive actions: choose files/folders, broadcast again, reshare.
 - Permission wording follows state: "read-only share" / "read/write", not translated mechanically.
-- Footer credit: `Powered by LocalShare · Read-only`, adjusted when writable.
+- Footer credit: `LocalShare`. Permission remains in the page eyebrow and is not repeated in the footer.
 
 ---
 
