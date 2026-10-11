@@ -109,7 +109,7 @@ enum L: CaseIterable {
 
     // 设置 —— 访问权限
     case permReadName, permUploadName, permUploadDescOff
-    case accessCodeTitle, accessCodeLabel
+    case accessCodeTitle, accessCodeDesc, accessCodeLabel
     case permInfoWritable, plaintextWarning
 
     // 设置 —— 外观
@@ -148,9 +148,9 @@ enum L: CaseIterable {
 
     // 传递文本（v1）
     case shareTextButton, textEditorPlaceholder, textShareAction, textUpdateAction
-    case sharingTextKicker, editTextButton
+    case sharingTextKicker, scanCaptionText, editTextButton
     // 传递文本二级页（收/发合一）
-    case transferText, sendTextKicker, scanCaptionTransfer, retract
+    case transferText, sendTextKicker, scanCaptionTransfer, scanCaptionSend, textIdleHint, retract
     case rememberTextTitle, rememberTextDesc, deleteEntry
 
     // 传递文本（v2·手机→Mac 收文本）
@@ -167,7 +167,7 @@ enum L: CaseIterable {
     case webViewRaw, webLoading, webSearchJSON, webFilterRows
     case webText, webCopy, webViewRawText
     case webSendTitle, webSendHead, webSendPlaceholder, webSendButton
-    case webAccessCodeTitle
+    case webAccessCodeTitle, webAccessCodeSub
     case webAccessCodePlaceholder, webAccessCodeSubmit, webAccessCodeInvalid, webAccessCodeLimited
 
     // —— 网页错误页 / 上传 JSON ——
@@ -271,8 +271,11 @@ enum L: CaseIterable {
         case .permUploadName:  return ("允许上传", "Allow Upload")
         case .permUploadDescOff: return ("仅分享单个文件夹时可用", "Only available when sharing a single folder")
         case .accessCodeTitle: return ("使用访问码", "Use Access Code")
+        case .accessCodeDesc: return ("在其他设备输入网址和访问码；扫码无需输入",
+                                      "Enter the address and access code on another device; scanning skips the code")
         case .accessCodeLabel: return ("访问码", "Access code")
-        case .permInfoWritable:  return ("仅向可信对象分享", "Share only with people you trust")
+        case .permInfoWritable:  return ("访客可向此文件夹上传文件 · 仅向可信对象分享",
+                                         "Visitors can upload files to this folder · Share only with people you trust")
         case .plaintextWarning:  return ("局域网传输未加密 · 请勿在公共 Wi-Fi 分享敏感内容",
                                          "LAN transfers are unencrypted · Don't share sensitive content on public Wi-Fi")
 
@@ -285,7 +288,7 @@ enum L: CaseIterable {
         case .showRecentsTitle: return ("展示最近分享", "Show Recent Shares")
         case .resetWindowTitle: return ("窗口尺寸", "Window Size")
 
-        case .autoUpdate:        return ("自动更新", "Automatic Updates")
+        case .autoUpdate:        return ("自动检查更新", "Automatically Check for Updates")
         case .updateUnavailable: return ("开发构建未启用更新", "Updates unavailable in development builds")
 
         case .cliHintAvailable:   return ("在终端用 localshare 分享文件", "Use localshare in the terminal to share files")
@@ -330,10 +333,14 @@ enum L: CaseIterable {
         case .textShareAction:      return ("分享", "Share")
         case .textUpdateAction:     return ("更新", "Update")
         case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
+        case .scanCaptionText:      return ("同一 Wi-Fi 扫码查看文本", "Scan to view text on the same Wi-Fi")
         case .editTextButton:       return ("编辑文本", "Edit Text")
         case .transferText:         return ("传递文本", "Transfer Text")
         case .sendTextKicker:       return ("发送", "Send")
-        case .scanCaptionTransfer:  return ("同一 Wi-Fi 扫码传递", "Scan to transfer on the same Wi-Fi")
+        case .scanCaptionTransfer:  return ("同一 Wi-Fi 扫码查看或发送文本", "Scan to view or send text on the same Wi-Fi")
+        case .scanCaptionSend:      return ("同一 Wi-Fi 扫码发送到 Mac", "Scan to send text to this Mac on the same Wi-Fi")
+        case .textIdleHint:         return ("分享文本或开启接收后显示二维码",
+                                           "Share text or enable receiving to show the QR code")
         case .retract:              return ("撤回", "Retract")
         case .rememberTextTitle:    return ("记住分享的文本", "Remember Shared Text")
         case .rememberTextDesc:     return ("重启后保留草稿", "Keep the draft after restart")
@@ -370,11 +377,12 @@ enum L: CaseIterable {
         case .webText:         return ("文本", "Text")
         case .webCopy:         return ("复制", "Copy")
         case .webViewRawText:  return ("查看原始文本", "View raw text")
-        case .webSendTitle:    return ("发送文本", "Send Text")
-        case .webSendHead:     return ("发送文本", "Send Text")
+        case .webSendTitle:    return ("发送文本到 Mac", "Send Text to Mac")
+        case .webSendHead:     return ("发送文本到 Mac", "Send Text to Mac")
         case .webSendPlaceholder: return ("输入文本…", "Enter text…")
         case .webSendButton:   return ("发送", "Send")
         case .webAccessCodeTitle: return ("输入访问码", "Enter Access Code")
+        case .webAccessCodeSub: return ("向分享者获取访问码", "Get the access code from the person sharing")
         case .webAccessCodePlaceholder: return ("例如 K7M-PQ2", "For example K7M-PQ2")
         case .webAccessCodeSubmit: return ("进入分享", "Open Share")
         case .webAccessCodeInvalid: return ("访问码不正确，请重新输入。", "That access code is incorrect. Try again.")

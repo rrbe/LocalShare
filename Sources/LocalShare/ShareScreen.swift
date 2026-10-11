@@ -200,9 +200,10 @@ struct ShareScreen: View {
     // 通行区：QR + 说明 + 复制条
     private var qrPass: some View {
         let running = state.isRunning
+        let caption = state.isTextOnly ? L.scanCaptionText(state.lang) : L.scanCaptionAccess(state.lang)
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
-            Text(running ? L.scanCaptionAccess(state.lang) : L.broadcastStopped(state.lang))
+            Text(running ? caption : L.broadcastStopped(state.lang))
                 .font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             CopyPill(t: t, lang: state.lang, value: state.presentedURL ?? "—",
                      compact: true, onOpen: openInBrowser).padding(.top, 10)

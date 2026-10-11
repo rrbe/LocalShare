@@ -152,10 +152,13 @@ struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                if state.isRunning, state.qrImage != nil {
+                if state.isRunning, state.hasText || state.textInboxEnabled, state.qrImage != nil {
                     qrCard
                 } else if !state.hasNetwork {
                     noNetworkHint
+                } else {
+                    Text(L.textIdleHint(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
+                        .multilineTextAlignment(.center)
                 }
                 composeCard
                 receiveRow
@@ -208,12 +211,15 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 二维码恒指 /ls/text；收发共用一句说明，具体能力由页面上的内容与开关表达。
+    // 二维码恒指 /ls/text；说明随收发状态表达扫码后的动作。
     private var qrCard: some View {
         let lang = state.lang
+        let caption = state.hasText
+            ? (state.textInboxEnabled ? L.scanCaptionTransfer(lang) : L.scanCaptionText(lang))
+            : L.scanCaptionSend(lang)
         return VStack(spacing: 0) {
             QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
-            Text(L.scanCaptionTransfer(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
+            Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             CopyPill(t: t, lang: lang, value: state.presentedURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
             if let code = state.presentedAccessCode {
                 AccessCodePill(t: t, lang: lang, value: code).padding(.top, 7)
@@ -233,7 +239,7 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 无网络时保留恢复提示；联网但尚未开始传递时直接呈现可执行的发送与接收控件。
+    // 无网络时保留恢复提示。
     private var noNetworkHint: some View {
         let lang = state.lang
         return VStack(spacing: 10) {

@@ -57,6 +57,7 @@ struct HomeScreen: View {
                 .overlay(Image(systemName: "arrow.up.to.line").font(.system(size: 24, weight: .medium)).foregroundStyle(t.accent))
                 .padding(.bottom, 14)
             Text(L.dropZoneTitle(state.lang)).font(.sans(15.5, .semibold)).foregroundStyle(t.ink)
+            Text(L.scanCaptionAccess(state.lang)).font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
             PrimaryButton(t: t, title: L.pickAnyButton(state.lang), systemImage: "doc.badge.plus") { state.pickAny() }
                 .padding(.top, 18)
         }

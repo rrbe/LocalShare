@@ -201,7 +201,8 @@ struct SettingsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
                 permRow(name: L.permReadName(lang), locked: true, on: true)
-                permRow(name: L.accessCodeTitle(lang), locked: false, on: state.accessCodeEnabled, top: true) {
+                permRow(name: L.accessCodeTitle(lang), desc: L.accessCodeDesc(lang),
+                        locked: false, on: state.accessCodeEnabled, top: true) {
                     state.setAccessCodeEnabled(!state.accessCodeEnabled)
                 }
                 permRow(name: L.permUploadName(lang),

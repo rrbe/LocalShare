@@ -133,7 +133,7 @@ New icons must keep the same visual weight and 16px grid.
 
 - **QR**: decorative placeholder in mocks, deterministic pseudo QR, white background, rounded corners, foreground `#1a1813` (dark mode `#0e0c09`). **Replace with a real QR code in implementation**, but keep size, radius, white background, and padding.
 - **CopyPill**: `field` rounded bar. Left side is a mono address with middle ellipsis and a full-address hover tooltip. Right side has copy (green check for 1.3s after success) and open-in-browser buttons; expand/collapse appears only when the full address does not fit on one line. Expanded addresses wrap without a fixed row height.
-- QR captions are shared by purpose: file tickets use `Scan to access on the same Wi-Fi`; Text Transfer uses `Scan to transfer on the same Wi-Fi`.
+- File tickets and the home drop zone use `Scan to access on the same Wi-Fi`. Text captions reflect direction: `Scan to view text on the same Wi-Fi`, `Scan to send text to this Mac on the same Wi-Fi`, or `Scan to view or send text on the same Wi-Fi` when both channels are active.
 
 ---
 
@@ -201,7 +201,7 @@ Browser navigation to `.md(.markdown)` / `.json(.geojson)` / `.csv(.tsv)` render
 
 Screen sections, top to bottom:
 
-1. **QR card**: service running with URL -> QRCard (172x172, padding 18, radius 14) + `Scan to transfer on the same Wi-Fi` + CopyPill. When the service is idle, omit the explanatory empty-state card. Preserve the network warning when offline.
+1. **QR card**: service running with URL -> QRCard (172x172, padding 18, radius 14) + direction-specific caption + CopyPill. When the service is idle, show one line: `Share text or enable receiving to show the QR code`, without an empty-state card. Preserve the network warning when offline.
 2. **Send text card**: `surface` radius 16, padding 16, `line` border. `Send` section label -> `PlainTextEditor` (`field`, radius 12, **mono 13**, min-height 118, placeholder `Enter or paste text`, compatible with Chinese IME, accent caret) -> PrimaryBtn "Share" or "Update"; show "Withdraw" GhostBtn when already shared.
 3. **Receive text row**: `surface` radius 14, padding 14. Title + Switch, with no persistent helper copy. Opt-in and off by default.
 4. **Inbox card**: visible only when receiving is enabled or messages exist. Header = accent status dot + title + unread badge + Clear action. List shows up to 12 items, then a count. Each row has TextGlyph, source device/IP and relative time, text preview up to 3 selectable lines, copy success check, and delete button.
@@ -232,7 +232,8 @@ Copy categories: static strings use `L` enum keys with compiler-enforced exhaust
 ## 7. Copywriting
 
 - Bilingual product UI: Simplified Chinese and English, routed through `Lang.swift` string tables. Keep copy short and restrained. Use ` · ` as the separator.
-- Persistent copy expresses only current state, available actions, or otherwise invisible consequences. Remove operating instructions, background explanation, and state already expressed by a nearby title, badge, switch, or card; keep recovery steps, validation errors, destructive confirmations, disabled reasons, and security warnings.
+- Persistent copy expresses current state, available actions, or otherwise invisible consequences. Remove repeated instructions, background explanation, and state already expressed by nearby controls; keep the shortest guidance needed for first use, transfer direction, recovery steps, validation errors, destructive confirmations, disabled reasons, and concrete security consequences.
+- Access-code settings explain entering the address and code on another device, while scanning skips code entry. The join page tells visitors to get the code from the person sharing. Upload warnings name the destination folder. Label automatic update checks `Automatically Check for Updates`; browser text forms name the destination Mac.
 - Technical values such as IP, port, path, size, item count, and date always use mono.
 - Destructive action verb: "Stop". Positive actions: choose files/folders, broadcast again, reshare.
 - Permission wording follows state: "read-only share" / "read/write", not translated mechanically.

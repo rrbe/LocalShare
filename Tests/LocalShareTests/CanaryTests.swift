@@ -26,7 +26,9 @@ final class CanaryTests: XCTestCase {
     func testGeneratedBrowserPagesUseConciseCopy() {
         let send = SendText.html(lang: .zh)
         XCTAssertTrue(send.contains("<span>LocalShare</span>"))
-        XCTAssertTrue(send.contains("<h1>发送文本</h1>"))
+        XCTAssertTrue(send.contains("<h1>发送文本到 Mac</h1>"))
+        XCTAssertTrue(SendText.html(lang: .en).contains("<h1>Send Text to Mac</h1>"))
+        XCTAssertTrue(SendText.card(lang: .zh).contains("发送文本到 Mac"))
         XCTAssertTrue(send.contains("placeholder=\"输入文本…\""))
         XCTAssertFalse(send.contains("class=\"sub\""))
 
