@@ -78,6 +78,7 @@ enum L: CaseIterable {
     // 通用动作 / 标签
     case settings, back, refresh, stop, clear, rebroadcast, replace, replaceFile
     case discardChanges, applyRestart, resetDefault, reshare, viewAll, clearAll
+    case autoStopTitle, autoStopDesc, autoStopNever, autoStopCustom, autoStopApply, hours, minutes, autoStopHint
     case cancel, clearAllConfirm
     case install, reinstall, uninstall, installed, alwaysOn
 
@@ -206,6 +207,14 @@ enum L: CaseIterable {
         case .reshare:         return ("重新分享", "Reshare")
         case .viewAll:         return ("查看全部", "View All")
         case .clearAll:        return ("清空", "Clear")
+        case .autoStopTitle:   return ("定时关闭分享", "Stop sharing after")
+        case .autoStopDesc:    return ("每次开始分享时自动计时", "Start a timer with each share")
+        case .autoStopNever:   return ("永不", "Never")
+        case .autoStopCustom:  return ("自定义…", "Custom…")
+        case .autoStopApply:   return ("应用", "Apply")
+        case .hours:           return ("小时", "Hours")
+        case .minutes:         return ("分钟", "Minutes")
+        case .autoStopHint:    return ("更改后，当前分享将重新计时", "Changing this restarts the current share timer")
         case .cancel:          return ("取消", "Cancel")
         case .clearAllConfirm: return ("清空全部分享历史？", "Clear all share history?")
         case .install:         return ("安装", "Install")
@@ -619,6 +628,19 @@ enum LStr {
     static func i18nJSON(_ lang: Lang) -> String {
         let entries: [(String, String, String)] = [
             // 列表页
+            ("listView", "列表", "List"),
+            ("gridView", "方格", "Grid"),
+            ("batchDownload", "批量下载", "Batch download"),
+            ("selectAll", "全选 / 取消全选", "Select / clear all"),
+            ("downloadSelected", "下载 ZIP", "Download ZIP"),
+            ("selectedN", "已选 {n} 项", "{n} selected"),
+            ("cancel", "取消", "Cancel"),
+            ("downloadFailed", "下载失败，请重试", "Download failed. Try again."),
+            ("downloadFile", "下载", "Download"),
+            ("previous", "上一项", "Previous"),
+            ("next", "下一项", "Next"),
+            ("close", "关闭", "Close"),
+            ("mediaUnavailable", "此格式无法预览，可下载查看", "Preview unavailable. Download to view."),
             ("viewersN",     "{n} 人正在浏览",            "{n} viewing"),
             ("countItems",   "{n} 项",                   "{n} items"),
             ("countFiltered","{shown} / {total} 项",      "{shown} / {total} items"),

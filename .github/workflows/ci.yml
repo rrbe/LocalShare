@@ -42,6 +42,9 @@ jobs:
       - name: 中文 / 空格 / 百分号文件名解码
         run: ./tools/smoke-filenames.sh
 
+      - name: 视频 Range 与批量 ZIP 下载
+        run: ./tools/smoke-media-download.sh
+
       - name: 多选虚拟根路由
         run: ./tools/smoke-multiselect.sh
 
