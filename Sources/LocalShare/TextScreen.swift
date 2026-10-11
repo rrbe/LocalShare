@@ -152,13 +152,23 @@ struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                if state.isRunning, state.qrImage != nil { qrCard } else { idleHint }
+                if state.remoteAccessEnabled {
+                    Text(L.remoteTextUnavailable(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
+                        .multilineTextAlignment(.center)
+                } else if state.isRunning, state.hasText || state.textInboxEnabled, state.qrImage != nil {
+                    qrCard
+                } else if !state.hasNetwork {
+                    noNetworkHint
+                } else {
+                    Text(L.textIdleHint(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
+                        .multilineTextAlignment(.center)
+                }
                 composeCard
                 receiveRow
                 if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
                 // 正在传递（发文本或收文本）才出「停止」：一步撤文本+关接收+停服务+回选择页，
                 // 对齐文件票据的「停止」。只是编辑没发、也没开接收时无可停，靠 ← 返回即可。
-                if state.isRunning && (state.hasText || state.textInboxEnabled) {
+                if state.isRunning && !state.remoteAccessEnabled && (state.hasText || state.textInboxEnabled) {
                     HStack {
                         Spacer()
                         DangerButton(t: t, title: L.stop(state.lang)) { state.stopTextTransfer() }
@@ -196,15 +206,15 @@ struct TextScreen: View {
                           systemImage: "paperplane.fill", fullWidth: true) {
                 state.setSharedText(draft)
             }
-            .disabled(blank || unchanged)
-            .opacity(blank || unchanged ? 0.5 : 1)
+            .disabled(blank || unchanged || state.remoteAccessEnabled)
+            .opacity(blank || unchanged || state.remoteAccessEnabled ? 0.5 : 1)
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 二维码：恒指 /ls/text。说明文案随状态切换——发+收为「读取或发送」、仅发为「查看」、仅收为「发到本机」。
+    // 二维码恒指 /ls/text；说明随收发状态表达扫码后的动作。
     private var qrCard: some View {
         let lang = state.lang
         let caption = state.hasText
@@ -225,6 +235,7 @@ struct TextScreen: View {
                 state.setAccessCodeEnabled(!state.accessCodeEnabled)
             }
             .padding(.top, 6)
+            AutoStopDeadline(t: t).padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18).padding(.vertical, 18)
@@ -232,13 +243,12 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 还没东西可服务（没发文本、也没开接收）：给一句提示而非空白二维码；无网络时换网提示。
-    private var idleHint: some View {
+    // 无网络时保留恢复提示。
+    private var noNetworkHint: some View {
         let lang = state.lang
-        let net = state.hasNetwork
         return VStack(spacing: 10) {
-            Image(systemName: net ? "qrcode" : "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
-            Text(net ? L.textIdleHint(lang) : L.noNetwork(lang))
+            Image(systemName: "wifi.slash").font(.system(size: 28)).foregroundStyle(t.inkFaint)
+            Text(L.noNetwork(lang))
                 .font(.sans(12.5)).foregroundStyle(t.inkMute)
                 .multilineTextAlignment(.center).lineSpacing(2)
         }
@@ -247,17 +257,13 @@ struct TextScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 允许收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
+    // 接收文本：默认关的小开关（与设置页同一闸门 textInboxEnabled）。开了二维码页就挂出发送框、下面长出收件箱。
     private var receiveRow: some View {
         let lang = state.lang
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
-                Text(L.recvInboxDesc(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        return HStack(spacing: 12) {
+            Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
             Spacer(minLength: 8)
-            ToggleSwitch(t: t, isOn: state.textInboxEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
+            ToggleSwitch(t: t, isOn: state.textInboxEnabled && !state.remoteAccessEnabled, locked: state.remoteAccessEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))

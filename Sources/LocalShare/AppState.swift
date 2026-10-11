@@ -27,6 +27,9 @@ final class AppState: ObservableObject {
     @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹/多选→项数
     @Published var sharedText: String?    // 当前广播的一段文本（nil=未分享文本）；与 sharedItems 正交
     @Published var textDraft = ""         // 文本编辑器草稿（重启回填、再次编辑用）；与 sharedText 解耦
+    @Published private(set) var autoStopMinutes = ShareAutoStop.defaultMinutes // 0 = never
+    @Published private(set) var customAutoStopMinutes = ShareAutoStop.defaultMinutes
+    @Published private(set) var autoStopAt: Date?
     @Published var isRunning = false
     @Published var port: in_port_t = 0    // 实际绑定端口（可能因占用回退而异于 configuredPort）
     @Published var interfaces: [NetworkInterface] = []
@@ -74,6 +77,7 @@ final class AppState: ObservableObject {
     private let remoteAgent = RemoteAgent()
     private var networkMonitor: NWPathMonitor?
     private var networkPathStatus: NWPath.Status?
+    private let shareAutoStop = ShareAutoStop()
     private var networkRefreshID = UUID()
     private var wideLayoutBeforeSettings: Bool?
     // 已移除的“仅当前网络可见”开关不再面向新用户，但升级时必须继续兑现既有的隔离选择，
@@ -98,6 +102,11 @@ final class AppState: ObservableObject {
     private let fallbackPorts: [in_port_t] = [8000, 8888, 9000, 8080]
 
     init() {
+        if let saved = UserDefaults.standard.object(forKey: "autoStopMinutes") as? Int,
+           saved == 0 || ShareAutoStop.customRange.contains(saved) { autoStopMinutes = saved }
+        if let saved = UserDefaults.standard.object(forKey: "customAutoStopMinutes") as? Int,
+           ShareAutoStop.customRange.contains(saved) { customAutoStopMinutes = saved }
+        shareAutoStop.onExpire = { [weak self] in self?.stop() }
         let savedPort = UserDefaults.standard.integer(forKey: portKey)
         if (1024...65535).contains(savedPort) { configuredPort = in_port_t(savedPort) }
         remoteSettings = RemoteSettings(serverAddress: UserDefaults.standard.string(forKey: remoteServerKey) ?? "")
@@ -280,6 +289,8 @@ final class AppState: ObservableObject {
         }
     }
 
+    var effectivePermission: Permission { remoteAccessEnabled ? Permission() : permission }
+
     var canEnableRemote: Bool { isRunning && !sharedItems.isEmpty && remoteSettings.isValid }
 
     func saveRemoteSettings(_ settings: RemoteSettings, enrollmentKey: String = "") {
@@ -415,7 +426,10 @@ final class AppState: ObservableObject {
         resetUpload()   // 换分享内容即回到只读（安全默认），收件提示一并清空
         recordRecent()
         screen = .file   // 进文件票据二级页（带返回）；冷启动不恢复，故只需记入最近分享
-        if isRunning { pushToServer() }   // 运行中不重启（端口不变）
+        if isRunning {
+            pushToServer()   // 运行中不重启（端口不变）
+            resetAutoStop()
+        }
         else { start() }
     }
 
@@ -614,6 +628,7 @@ final class AppState: ObservableObject {
 
     func start() {
         guard isServing else { return }
+        let wasRunning = isRunning
         refreshNetwork()
         let fs = FileServer(share: currentShare, token: token)
         fs.accessCode = accessCodeEnabled ? accessCode : nil
@@ -633,6 +648,7 @@ final class AppState: ObservableObject {
             guard let bindIP = selectedInterface?.ip else {
                 lastError = LStr.ifaceUnavailable(lang)
                 isRunning = false
+                resetAutoStop()
                 return
             }
             fs.listenAddress = bindIP
@@ -644,9 +660,11 @@ final class AppState: ObservableObject {
             lastError = nil
             startViewerPolling()
             if remoteAccessEnabled { startRemoteAgent() }
+            if !wasRunning { resetAutoStop() }
         } catch {
             lastError = LStr.startFailed(error.localizedDescription, lang)
             isRunning = false
+            resetAutoStop()
         }
     }
 
@@ -670,6 +688,8 @@ final class AppState: ObservableObject {
 
     func stop() {
         disconnectRemote()
+        shareAutoStop.cancel()
+        autoStopAt = nil
         viewerTimer?.invalidate()
         viewerTimer = nil
         viewerCount = 0
@@ -720,11 +740,34 @@ final class AppState: ObservableObject {
         configuredPort = p
         UserDefaults.standard.set(Int(p), forKey: portKey)
         guard isRunning, !isEmpty else { return }
+        let deadline = autoStopAt
         stop()
         start()
+        if isRunning {
+            autoStopAt = deadline
+            shareAutoStop.schedule(at: deadline)
+            shareAutoStop.checkExpiration()
+        }
         if isRunning && port != p {
             lastError = LStr.portFallback(requested: p, actual: port, lang)
         }
+    }
+
+    func setAutoStopMinutes(_ minutes: Int, custom: Bool = false) {
+        guard minutes == 0 || ShareAutoStop.customRange.contains(minutes) else { return }
+        autoStopMinutes = minutes
+        UserDefaults.standard.set(minutes, forKey: "autoStopMinutes")
+        if custom, minutes > 0 {
+            customAutoStopMinutes = minutes
+            UserDefaults.standard.set(minutes, forKey: "customAutoStopMinutes")
+        }
+        resetAutoStop()
+    }
+
+    private func resetAutoStop() {
+        autoStopAt = isRunning && autoStopMinutes > 0
+            ? Date().addingTimeInterval(TimeInterval(autoStopMinutes) * 60) : nil
+        shareAutoStop.schedule(at: autoStopAt)
     }
 
     // 访问码是一个凭证呈现模式，不改变分享内容。切换时轮换整套凭证，让关闭开关立即作废通过短码

@@ -116,3 +116,4 @@ Release flow:
 ## Design Constraint
 
 Prefer communicating through the design language over adding explanatory text. When text is necessary, keep it short, common, and natural.
+Follow `DESIGN.md` §7 for UI copy: remove repetition while preserving essential first-use guidance, transfer direction, access requirements, and concrete consequences. Keep Chinese and English aligned when changing copy.
