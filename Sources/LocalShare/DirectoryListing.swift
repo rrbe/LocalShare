@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 // 关键行为(纯前端 JS)：① 搜索按文件名实时过滤；② 排序 5 档(默认/名称 A→Z·Z→A/时间 新→旧·旧→新)，
 // 文件夹始终分组在前；③ 类型 chips 真实过滤；④ 计数随过滤显示 N / total。无 emoji、无彩色填充图标。
 // 导航：非根列表首行固定「返回上一级」（.row.back，不参与搜索/排序/过滤，空目录也保留）；
-// 目录行原地进入，文件行新标签打开(target=_blank，与行尾外开箭头图标一致，列表不丢)。
+// 目录行原地进入；列表模式文件行新标签打开，方格模式图片/视频由 MediaGallery 在页内预览。
 // 只用系统字体栈 + 内联原生 JS，零外部依赖、局域网离线可渲染。href 使用相对路径并逐段编码，
 // 同时兼容 LAN 根路径与远程 `/share/<token>/` 挂载前缀。
 enum DirectoryListing {
@@ -21,7 +21,7 @@ enum DirectoryListing {
     // 真实目录页：枚举目录 → 目录在前/名称序 → 交给渲染核心（href 基路径 = 请求路径）。
     // canUpload：单文件夹分享且开了访客上传时为 true，页面出上传按钮 + 整页拖拽，措辞联动「可读写」。
     static func html(directory: URL, requestPath: String, rootName: String, canUpload: Bool = false,
-                     canReceiveText: Bool = false, lang: Lang) -> String {
+                     canReceiveText: Bool = false, canBatchDownload: Bool = true, lang: Lang) -> String {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(
             at: directory,
@@ -37,7 +37,7 @@ enum DirectoryListing {
 
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
         return render(entries: entries, requestPath: requestPath, rootName: rootName,
-                      canUpload: canUpload, canReceiveText: canReceiveText, textPreview: nil, lang: lang)
+                      canUpload: canUpload, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: nil, lang: lang)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
@@ -45,20 +45,20 @@ enum DirectoryListing {
     // textPreview 非 nil：在文件项之上钉一个指向 /ls/text 的「文本」行（首行预览）——文本与文件共存、
     // 或纯文本分享（items 为空）时由 FileServer 传入；它不参与搜索/排序/筛选（同「返回上一级」行）。
     static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String,
-                     textPreview: String? = nil, canReceiveText: Bool = false, lang: Lang) -> String {
+                     textPreview: String? = nil, canReceiveText: Bool = false, canBatchDownload: Bool = true, lang: Lang) -> String {
         let sorted = items.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
         return render(entries: sorted, requestPath: "/", rootName: rootName,
-                      canUpload: false, canReceiveText: canReceiveText, textPreview: textPreview, lang: lang)
+                      canUpload: false, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: textPreview, lang: lang)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
                                requestPath: String, rootName: String, canUpload: Bool,
-                               canReceiveText: Bool, textPreview: String?, lang: Lang) -> String {
+                               canReceiveText: Bool, canBatchDownload: Bool, textPreview: String?, lang: Lang) -> String {
         let fm = FileManager.default
         var rows = ""
         var folderCount = 0
@@ -87,7 +87,7 @@ enum DirectoryListing {
         let chips = filterChips(folderCount: folderCount, counts: counts, total: total, lang: lang)
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
                     isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
-                    canReceiveText: canReceiveText, backHref: parentHref(of: requestPath),
+                    canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, backHref: parentHref(of: requestPath),
                     textPreview: textPreview, rootPrefix: rootRelativePrefix(requestPath: requestPath), lang: lang)
     }
 
@@ -160,7 +160,7 @@ enum DirectoryListing {
     }
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
-                             isEmpty: Bool, total: Int, canUpload: Bool, canReceiveText: Bool,
+                             isEmpty: Bool, total: Int, canUpload: Bool, canReceiveText: Bool, canBatchDownload: Bool,
                              backHref: String?, textPreview: String?, rootPrefix: String, lang: Lang) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI）：网页端可能出现「上传」与「可收文本」两类写能力
         let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
@@ -205,7 +205,7 @@ enum DirectoryListing {
             // 无文件项但有文本（纯文本分享的虚拟根回退页）：只列文本行，不显示空文件夹提示
             listInner = "<ul class=\"list\">\(pinned)</ul>"
         } else {
-            listInner = #"<ul class="list">\#(pinned)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div><div class="nr-s">\#(L.webNoMatchSub(lang))</div></div>"#
+            listInner = #"<ul class="list">\#(pinned)\#(rows)</ul><div class="noresult" style="display:none"><div class="nr-t">\#(L.webNoMatch(lang))</div></div>"#
         }
         return """
         <!doctype html><html lang="\(lang.htmlLang)"><head>
@@ -355,7 +355,6 @@ enum DirectoryListing {
 
         .noresult{list-style:none;text-align:center;padding:40px 20px}
         .nr-t{font:600 15px var(--sans);color:var(--ink)}
-        .nr-s{margin-top:5px;font:13px var(--sans);color:var(--inkMute)}
         .empty{text-align:center;color:var(--inkMute);padding:64px 20px;font:15px var(--sans)}
         .empty .big{display:block;margin-bottom:14px;font-size:46px;color:var(--accent);opacity:.7}
 
@@ -375,6 +374,7 @@ enum DirectoryListing {
           .d-col{display:none}
           .d-in{display:inline}
         }
+        \(MediaGallery.css)
         \(canReceiveText ? SendText.css : "")
         </style></head><body>
         <main>
@@ -412,10 +412,10 @@ enum DirectoryListing {
             \(listInner)
           </section>
           \(canReceiveText ? SendText.card(lang: lang) : "")
-          <div class="colophon">\(L.webProvidedBy(lang)) · \(htmlText(ps.tag))</div>
+          <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
         \(dropMask)
-        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";</script>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";var LS_BATCH_DOWNLOAD=\(canBatchDownload);</script>
         <script>\(WebWideLayout.script)</script>
         <script>
         (function(){
@@ -474,6 +474,7 @@ enum DirectoryListing {
             var filtering=query!==''||active!=='__all';
             countEl.textContent=filtering? LS_I18N.countFiltered.replace('{shown}',vis.length).replace('{total}',total) : LS_I18N.countItems.replace('{n}',total);
             list.classList.toggle('sort-time', key==='time');
+            list.dispatchEvent(new Event('listingchange'));
           }
 
           chips.forEach(function(c){c.addEventListener('click',function(){
@@ -566,6 +567,7 @@ enum DirectoryListing {
         })();
         \(canReceiveText ? SendText.boot : "")
         </script>
+        <script>\(MediaGallery.script)</script>
         </body></html>
         """
     }

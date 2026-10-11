@@ -14,6 +14,17 @@ LOCAL_PORT=$(( SERVER_PORT + 9000 ))
 mkdir -p "$SHARE/sub folder"
 printf 'hello remote\n' > "$SHARE/a.txt"
 printf 'nested\n' > "$SHARE/sub folder/b.txt"
+# A PNG fixture with an encoded filename exercises the mounted thumbnail endpoint.
+python3 - "$SHARE/sub folder/中文 100%.png" <<'PYIMAGE'
+import struct, sys, zlib
+from pathlib import Path
+def chunk(kind, data):
+    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+png = b'\x89PNG\r\n\x1a\n'
+png += chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 2, 0, 0, 0))
+png += chunk(b'IDAT', zlib.compress(b'\x00\xff\x00\x00\x00\xff\x00' * 2))
+Path(sys.argv[1]).write_bytes(png + chunk(b'IEND', b''))
+PYIMAGE
 
 SERVER_PID=""
 CLIENT_PID=""
@@ -68,6 +79,14 @@ printf '%s' "$HTML" | grep -q 'var LS_ROOT=""' && ok "页面根相对" || bad "�
 NESTED_HTML=$(curl -s "${REMOTE_URL}sub%20folder/")
 printf '%s' "$NESTED_HTML" | grep -q 'href="b.txt"' && ok "嵌套目录链接相对" || bad "嵌套目录链接错误"
 printf '%s' "$NESTED_HTML" | grep -q 'href="../"' && ok "面包屑保留挂载前缀" || bad "面包屑根链接错误"
+
+echo "── 远程媒体预览与只读边界"
+printf '%s' "$NESTED_HTML" | grep -q 'var LS_BATCH_DOWNLOAD=false' && ok "远程隐藏批量下载" || bad "远程仍显示批量下载"
+printf '%s' "$NESTED_HTML" | grep -q "LS_ROOT+'ls/thumbnail" && ok "缩略图使用挂载内端点" || bad "缩略图端点逃出分享"
+THUMBNAIL_STATUS=$(curl -s -o "$TMP/thumbnail.jpg" -w '%{http_code}' --get --data-urlencode 'path=/sub folder/中文 100%.png' "${REMOTE_URL}ls/thumbnail")
+[ "$THUMBNAIL_STATUS" = "200" ] && sips -g format "$TMP/thumbnail.jpg" | grep -q 'format: jpeg' && ok "嵌套中文百分号文件缩略图" || bad "缩略图返回 $THUMBNAIL_STATUS"
+POST_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST --data-urlencode 'paths=["/a.txt"]' "${REMOTE_URL}ls/download")
+[ "$POST_STATUS" = "405" ] && ok "远程拒绝 POST 下载" || bad "远程 POST 返回 $POST_STATUS"
 
 echo "── 远程读取、嵌套目录与 Range"
 [ "$(curl -s "${REMOTE_URL}a.txt")" = "hello remote" ] && ok "读取文件" || bad "读取文件失败"

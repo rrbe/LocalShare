@@ -39,10 +39,10 @@ final class RemoteSharingTests: XCTestCase {
     }
 
     func testByteRangesSupportPrefixSuffixAndRejectMultipleRanges() {
-        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.start, 2)
-        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.end, 5)
-        XCTAssertEqual(FileServer.byteRange("bytes=-3", size: 10)?.start, 7)
-        XCTAssertEqual(FileServer.byteRange("bytes=8-", size: 10)?.end, 9)
+        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.lowerBound, 2)
+        XCTAssertEqual(FileServer.byteRange("bytes=2-5", size: 10)?.upperBound, 5)
+        XCTAssertEqual(FileServer.byteRange("bytes=-3", size: 10)?.lowerBound, 7)
+        XCTAssertEqual(FileServer.byteRange("bytes=8-", size: 10)?.upperBound, 9)
         XCTAssertNil(FileServer.byteRange("bytes=20-", size: 10))
         XCTAssertNil(FileServer.byteRange("bytes=0-1,4-5", size: 10))
     }

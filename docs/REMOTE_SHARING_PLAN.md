@@ -74,7 +74,7 @@ localshare-server device revoke <device-id>
 
 - `Connect`：建立 WebSocket 长连接并注册当前分享；
 - `Disconnect`：断开当前连接，但保留已配对的 Device Token；
-- `Forget Device`：删除 Keychain 中的 Device Token，下一次需要新的 Enrollment Key。
+- `Forget Server`：删除 Keychain 中的 Device Token，下一次需要新的 Enrollment Key。
 
 应用重启后不自动恢复远程分享；用户在当前分享页点击 `Connect` 即可重新连接。连接断开时，Client 自动重试，退避上限 60 秒。
 

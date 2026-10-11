@@ -20,6 +20,24 @@ final class FileServer {
             let isDir: Bool
         }
 
+        func fileURL(for path: String) -> URL? {
+            guard path.hasPrefix("/") else { return nil }
+            let parts = path.split(separator: "/").map(String.init)
+            guard !parts.contains(".."), !parts.contains("."), !parts.isEmpty else { return nil }
+            switch self {
+            case .directory(let root):
+                return FileServer.resolveWithinRoot(root, relPath: parts.joined(separator: "/"))
+            case .file(let file):
+                return parts == [file.lastPathComponent] ? file.resolvingSymlinksInPath() : nil
+            case .multiple(let items):
+                guard let item = items.first(where: { $0.key == parts[0] }) else { return nil }
+                if item.isDir {
+                    return FileServer.resolveWithinRoot(item.url, relPath: parts.dropFirst().joined(separator: "/"))
+                }
+                return parts.count == 1 ? item.url.resolvingSymlinksInPath() : nil
+            }
+        }
+
         // 由选中的 URL 列表构造有序项；key 取 lastPathComponent。多选通常同源一个父目录、兄弟项本不重名；
         // 仅对「跨目录拖拽」这类边角追加 -2/-3 后缀兜底，避免两项映射到同一 key 造成路由二义。
         static func makeItems(_ urls: [URL]) -> [Item] {
@@ -51,6 +69,8 @@ final class FileServer {
     static func multipleRootName(_ lang: Lang) -> String { lang == .zh ? "分享内容" : "Shared items" }
 
     private let server = HttpServer()
+    private let archiveLock = NSLock()
+    private let thumbnails = ThumbnailStore()
 
     // 监听地址：nil = 绑定全部接口（0.0.0.0，默认）——回环可达、对网络切换鲁棒，headless/CLI 与冒烟
     // 测试都走这条。设为某块网卡的私网 IPv4 时，socket 只绑那一个地址，分享便仅在该网络可见
@@ -70,7 +90,7 @@ final class FileServer {
     private var _share: Share
     var share: Share {
         get { lock.lock(); defer { lock.unlock() }; return _share }
-        set { lock.lock(); _share = newValue; lock.unlock() }
+        set { lock.lock(); _share = newValue; thumbnails.clear(); lock.unlock() }
     }
 
     // 访问令牌随每次「分享」动作轮换（AppState 负责生成）：旧 ?t= 链接与旧 cookie 即刻失效，
@@ -80,6 +100,7 @@ final class FileServer {
         get { lock.lock(); defer { lock.unlock() }; return _token }
         set {
             lock.lock()
+            if _token != newValue { thumbnails.clear() }
             _token = newValue
             lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []
             joinAttempts = [:]
@@ -98,6 +119,7 @@ final class FileServer {
     // 运行中切模式/换分享时必须原子替换两枚凭证：否则极窄窗口里可能用旧短码换到新 token，或反之。
     func setCredentials(token: String, accessCode: String?) {
         lock.lock()
+        if _token != token { thumbnails.clear() }
         _token = token
         _accessCode = accessCode
         lastSeen = [:]; firstSeen = [:]; nameCache = [:]; nameLookupInFlight = []
@@ -300,7 +322,7 @@ final class FileServer {
         throw lastError ?? NSError(domain: "FileServer", code: -1)
     }
 
-    func stop() { server.stop() }
+    func stop() { thumbnails.clear(); server.stop() }
 
     // MARK: - 请求处理
 
@@ -362,6 +384,34 @@ final class FileServer {
             var h = extra
             h["Cache-Control"] = "no-store"
             return jsonResponse(200, "OK", #"{"viewers":\#(activeViewers())}"#, extra: h)
+        }
+
+        // Swifter leaves one encoded layer in query values too; decode the logical path once.
+        if req.method == "GET", req.path == "/ls/thumbnail" {
+            guard let path = req.queryParams.first(where: { $0.0 == "path" })?.1.removingPercentEncoding else {
+                return .badRequest(nil)
+            }
+            lock.lock()
+            let currentShare = _share
+            let generation = thumbnails.generation
+            let authorized = _token == token
+            lock.unlock()
+            guard authorized else { return .forbidden }
+            guard let url = currentShare.fileURL(for: path),
+                  let data = thumbnails.thumbnail(for: url, generation: generation) else {
+                return .raw(404, "Not Found", extra.merging(["Cache-Control": "no-store", "Content-Length": "0"]) { _, new in new }, nil)
+            }
+            lock.lock()
+            let stillAuthorized = _token == token && thumbnails.generation == generation
+            lock.unlock()
+            guard stillAuthorized else { return .forbidden }
+            var headers = extra
+            headers["Content-Type"] = "image/jpeg"
+            headers["Content-Length"] = String(data.count)
+            headers["X-Content-Type-Options"] = "nosniff"
+            // Keep auth and invalidation server-side; a new share must not reuse a browser-cached image.
+            headers["Cache-Control"] = "no-store"
+            return .raw(200, "OK", headers) { writer in try writer.write(data) }
         }
 
         // token 清洗：浏览器首次经 ?t= 进入（尚无 cookie、cookie 已在 extra 里种好）时，立刻 302 到
@@ -435,6 +485,44 @@ final class FileServer {
             return handleReceiveText(req: req, clientAddress: clientAddress, lang: lang, extra: extra)
         }
 
+        if req.method == "POST", req.path == "/ls/download" {
+            guard req.body.count <= 262144,
+                  let json = Self.formValue("paths", in: req.body),
+                  let data = json.data(using: .utf8),
+                  let paths = try? JSONDecoder().decode([String].self, from: data),
+                  !paths.isEmpty, paths.count <= 1000 else {
+                return htmlResponse(400, "Bad Request", L.webReadFailed(lang), extra: extra)
+            }
+            guard archiveLock.try() else {
+                return htmlResponse(429, "Too Many Requests", L.webReadFailed(lang), extra: extra)
+            }
+            defer { archiveLock.unlock() }
+            // Read the share under the same lock as its credential; an old page cannot archive a new share.
+            lock.lock()
+            let currentShare = _share
+            let stillAuthorized = _token == token
+            lock.unlock()
+            guard stillAuthorized else { return .forbidden }
+            do {
+                let archive = try BatchDownload(paths: paths, share: currentShare)
+                var headers = extra
+                headers["Content-Type"] = "application/zip"
+                headers["Content-Disposition"] = "attachment; filename=LocalShare.zip"
+                headers["Content-Length"] = String(try archive.url.resourceValues(forKeys: [.fileSizeKey]).fileSize!)
+                headers["Cache-Control"] = "no-store"
+                headers["X-Content-Type-Options"] = "nosniff"
+                return .raw(200, "OK", headers) { writer in
+                    let handle = try FileHandle(forReadingFrom: archive.url)
+                    defer { try? handle.close() }
+                    while let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty {
+                        try writer.write(chunk)
+                    }
+                }
+            } catch {
+                return htmlResponse(400, "Bad Request", L.webReadFailed(lang), extra: extra)
+            }
+        }
+
         // 访客上传：POST 到当前浏览的目录。开关关 / 非文件夹分享一律拒绝（先于单文件分支拦截，
         // 否则单文件模式下 POST 会拿到文件本体）。
         if req.method == "POST" {
@@ -460,7 +548,7 @@ final class FileServer {
                 let entries = items.map { (name: $0.key, url: $0.url, isDir: $0.isDir) }
                 // 文本与文件共存（或纯文本分享 items 为空）时，虚拟根列表多挂一个指向 /ls/text 的文本行。
                 let textRow = sharedText.flatMap { $0.isEmpty ? nil : Self.textPreview($0) }
-                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, textPreview: textRow, canReceiveText: recvOn, lang: lang), extra: extra)
+                return htmlResponse(200, "OK", DirectoryListing.html(items: entries, rootName: rootName, textPreview: textRow, canReceiveText: recvOn, canBatchDownload: !remoteMode, lang: lang), extra: extra)
             }
             var segs = decodedPath.split(separator: "/").map(String.init)
             let key = segs.removeFirst()
@@ -644,7 +732,7 @@ final class FileServer {
             }
             let html = DirectoryListing.html(directory: target, requestPath: decodedPath,
                                              rootName: rootName, canUpload: canUpload,
-                                             canReceiveText: canReceiveText, lang: lang)
+                                             canReceiveText: canReceiveText, canBatchDownload: !remoteAccessEnabled, lang: lang)
             return htmlResponse(200, "OK", html, extra: extra)
         }
 
@@ -805,61 +893,59 @@ final class FileServer {
     }
 
     private func fileResponse(_ url: URL, lang: Lang, extra: [String: String], range: String? = nil) -> HttpResponse {
+        guard let handle = try? FileHandle(forReadingFrom: url),
+              let size = try? handle.seekToEnd() else {
+            return htmlResponse(404, "Not Found", Self.notFoundPage(lang), extra: extra)
+        }
         var headers = extra
         headers["Content-Type"] = Mime.contentType(forExtension: url.pathExtension)
         // 关掉浏览器的 MIME 猜测兜底：一律按上面声明的类型处理。已正确声明类型的文件照常内联显示，
         // 未知类型本就回退 octet-stream 下载——nosniff 只是确保它不会被某些浏览器猜成 HTML 执行。
         headers["X-Content-Type-Options"] = "nosniff"
-        let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         headers["Accept-Ranges"] = "bytes"
-        var status = 200
-        var start: Int64 = 0
-        var length = size
-        if let range, !range.isEmpty {
-            guard let selected = Self.byteRange(range, size: size) else {
+        var start: UInt64 = 0, length = size
+        var partial = false
+        if let range, range.hasPrefix("bytes="), !range.contains(",") {
+            guard let bounds = Self.byteRange(range, size: size) else {
+                try? handle.close()
                 headers["Content-Range"] = "bytes */\(size)"
                 headers["Content-Length"] = "0"
                 return .raw(416, "Range Not Satisfiable", headers, nil)
             }
-            status = 206
-            start = selected.start
-            length = selected.end - selected.start + 1
-            headers["Content-Range"] = "bytes \(selected.start)-\(selected.end)/\(size)"
+            start = bounds.lowerBound
+            length = bounds.upperBound - start + 1
+            partial = true
+            headers["Content-Range"] = "bytes \(start)-\(bounds.upperBound)/\(size)"
         }
         headers["Content-Length"] = String(length)
-        return .raw(status, status == 206 ? "Partial Content" : "OK", headers) { writer in
-            guard let handle = try? FileHandle(forReadingFrom: url) else {
-                try? writer.write(Data(L.webReadFailed(lang).utf8))
-                return
-            }
+        return .raw(partial ? 206 : 200, partial ? "Partial Content" : "OK", headers) { writer in
             defer { try? handle.close() }
-            if start > 0 { try? handle.seek(toOffset: UInt64(start)) }
+            try handle.seek(toOffset: start)
             var remaining = length
             while remaining > 0 {
-                let chunk = handle.readData(ofLength: Int(min(Int64(64 * 1024), remaining)))
-                if chunk.isEmpty { break }
+                guard let chunk = try handle.read(upToCount: Int(min(remaining, 65536))), !chunk.isEmpty else { break }
                 try writer.write(chunk)
-                remaining -= Int64(chunk.count)
+                remaining -= UInt64(chunk.count)
             }
         }
     }
 
-    static func byteRange(_ header: String, size: Int64) -> (start: Int64, end: Int64)? {
-        guard size > 0,
-              header.lowercased().hasPrefix("bytes="),
-              let value = header.dropFirst(6).split(separator: ",", omittingEmptySubsequences: false).first,
-              !header.dropFirst(6).contains(","),
-              let dash = value.firstIndex(of: "-") else { return nil }
-        let first = value[..<dash].trimmingCharacters(in: .whitespaces)
-        let last = value[value.index(after: dash)...].trimmingCharacters(in: .whitespaces)
-        if first.isEmpty {
-            guard let suffix = Int64(last), suffix > 0 else { return nil }
-            return (max(0, size - suffix), size - 1)
+    static func byteRange(_ value: String, size: UInt64) -> ClosedRange<UInt64>? {
+        guard size > 0, value.hasPrefix("bytes=") else { return nil }
+        let parts = value.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        if parts[0].isEmpty {
+            guard let suffix = UInt64(parts[1]), suffix > 0 else { return nil }
+            return (size - min(size, suffix))...(size - 1)
         }
-        guard let start = Int64(first), start >= 0, start < size else { return nil }
-        let end = last.isEmpty ? size - 1 : (Int64(last) ?? -1)
-        guard end >= start else { return nil }
-        return (start, min(end, size - 1))
+        guard let start = UInt64(parts[0]), start < size else { return nil }
+        let end: UInt64
+        if parts[1].isEmpty { end = size - 1 }
+        else {
+            guard let parsed = UInt64(parts[1]), parsed >= start else { return nil }
+            end = min(parsed, size - 1)
+        }
+        return start...end
     }
 
     // 分享文本的原文响应（?raw=1 / curl）：text/plain；带 Content-Length 让客户端显示进度、知道何时收完。
@@ -895,7 +981,7 @@ final class FileServer {
         <!doctype html><html lang="\(lang.htmlLang)"><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px;color:#444">
-        <h2>🔒 \(L.webForbiddenTitle(lang))</h2><p>\(L.webForbiddenBody(lang))</p></body></html>
+        <h2>\(L.webForbiddenTitle(lang))</h2><p>\(L.webForbiddenBody(lang))</p></body></html>
         """
     }
 

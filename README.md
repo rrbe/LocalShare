@@ -43,7 +43,7 @@ The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`
 
 ### Remote browser sharing
 
-Run the self-contained [`localshare-server`](server/README.md), create a one-time Enrollment Key, then enter the Server address and key in Settings. After pairing, the app remembers the device credential in Keychain; active shares use Connect/Disconnect and the receiving device only needs a browser. See the [remote-sharing plan](docs/REMOTE_SHARING_PLAN.md).
+Run the self-contained [`localshare-server`](server/README.md), create a one-time Enrollment Key, then enter the Server address and key in Settings → Network. After pairing, the app remembers the device credential in Keychain; active shares use Connect/Disconnect and the receiving device only needs a browser. See the [remote-sharing plan](docs/REMOTE_SHARING_PLAN.md).
 
 ## Terminal usage
 

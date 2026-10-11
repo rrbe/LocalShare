@@ -133,7 +133,7 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	result := make(chan []byte, 1)
 	errors := make(chan error, 1)
 	go func() {
-		response, err := http.Get(ready.ShareURL + "/hello.txt")
+		response, err := http.Get(ready.ShareURL + "/hello.txt?t=attacker&path=%2Fsub%20folder%2F%E4%B8%AD%E6%96%87%20100%25%2B.png&raw=1")
 		if err != nil {
 			errors <- err
 			return
@@ -161,6 +161,9 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	}
 	if request.ShareID != "local_1" {
 		t.Fatalf("request share id = %q", request.ShareID)
+	}
+	if request.Path != "/hello.txt?path=%2Fsub%20folder%2F%E4%B8%AD%E6%96%87%20100%25%2B.png&raw=1" {
+		t.Fatalf("forwarded path = %q", request.Path)
 	}
 	body := bytes.Repeat([]byte("x"), 128<<10)
 	responseBegin, _ := json.Marshal(wireMessage{

@@ -31,13 +31,17 @@ final class AccessCodeTests: XCTestCase {
 
     func testJoinPageIsLocalizedAndKeepsCodeOutOfURL() {
         let zh = AccessCodePage.html(lang: .zh, error: .invalid)
+        XCTAssertTrue(zh.contains(">LocalShare</div>"))
         XCTAssertTrue(zh.contains("输入访问码"))
+        XCTAssertTrue(zh.contains("例如 K7M-PQ2"))
         XCTAssertTrue(zh.contains("访问码不正确"))
+        XCTAssertTrue(zh.contains("向分享者获取访问码"))
         XCTAssertTrue(zh.contains("method=\"post\""))
         XCTAssertFalse(zh.contains("?code="))
 
         let en = AccessCodePage.html(lang: .en, error: .limited)
         XCTAssertTrue(en.contains("Enter Access Code"))
+        XCTAssertTrue(en.contains("Get the access code from the person sharing"))
         XCTAssertTrue(en.contains("Too many attempts"))
     }
 }

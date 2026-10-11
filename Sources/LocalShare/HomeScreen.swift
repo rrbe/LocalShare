@@ -13,9 +13,9 @@ struct HomeScreen: View {
     }
     // 「传递文本」入口的呼吸点只该表「文本在后台续跑」，故精确判文本态——而非笼统的 isRunning
     //（现在主页可能正跑着文件分享，那不该让文本入口误亮）。
-    private var textActive: Bool { state.isRunning && (state.hasText || state.textInboxEnabled) }
+    private var textActive: Bool { state.isRunning && !state.remoteAccessEnabled && (state.hasText || state.textInboxEnabled) }
     var body: some View {
-        let ps = permSummary(state.permission, state.lang)
+        let ps = permSummary(state.effectivePermission, state.lang)
         ScreenFrame(t: t) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -23,13 +23,6 @@ struct HomeScreen: View {
                     Text("LocalShare").font(.display(28, .semibold)).tracking(-0.3).foregroundStyle(t.ink)
                 }
                 Spacer()
-                // 主页通常「待命」；但文件分享 / 传递文本可在后台续跑（退回主页时），此刻如实显运行态
-                //（亮点 + 实际 IP:端口），不再骗「待命」。要彻底停就进对应票据点「停止」。
-                if state.isRunning {
-                    StatusPill(t: t, running: true, host: state.selectedInterface?.ip, port: state.port)
-                } else {
-                    IdlePill(t: t, label: L.idle(state.lang), port: state.configuredPort)
-                }
                 WideLayoutButton(t: t)
                 IconButton(t: t, systemImage: "gearshape", help: L.settings(state.lang)) { state.openSettings() }
             }
@@ -64,7 +57,7 @@ struct HomeScreen: View {
                 .overlay(Image(systemName: "arrow.up.to.line").font(.system(size: 24, weight: .medium)).foregroundStyle(t.accent))
                 .padding(.bottom, 14)
             Text(L.dropZoneTitle(state.lang)).font(.sans(15.5, .semibold)).foregroundStyle(t.ink)
-            Text(L.dropZoneSub(state.lang)).font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
+            Text(L.scanCaptionAccess(state.lang)).font(.sans(12.5)).foregroundStyle(t.inkMute).padding(.top, 4)
             PrimaryButton(t: t, title: L.pickAnyButton(state.lang), systemImage: "doc.badge.plus") { state.pickAny() }
                 .padding(.top, 18)
         }

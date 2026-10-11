@@ -438,7 +438,8 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	query.Del("t")
-	if encodedQuery := query.Encode(); encodedQuery != "" {
+	// Swifter decodes percent escapes but does not treat '+' as a query-space escape.
+	if encodedQuery := strings.ReplaceAll(query.Encode(), "+", "%20"); encodedQuery != "" {
 		localPath += "?" + encodedQuery
 	}
 	h.mu.Lock()

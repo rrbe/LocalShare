@@ -43,7 +43,7 @@
 
 ### 远程浏览器分享
 
-运行自包含的 [`localshare-server`](server/README.md)，生成一次性 Enrollment Key，在「设置」里填写 Server 地址和 key。配对后设备凭据会保存到 Keychain；正在分享时只需点击 Connect/Disconnect，对端设备只需浏览器。详见[远程分享计划](docs/REMOTE_SHARING_PLAN.md)。
+运行自包含的 [`localshare-server`](server/README.md)，生成一次性 Enrollment Key，在「设置 → 网络」里填写服务器地址和配对码。配对后设备凭据会保存到 Keychain；正在分享时只需点击「连接 / 断开」，对端设备只需浏览器。详见[远程分享计划](docs/REMOTE_SHARING_PLAN.md)。
 
 ## 终端用法
 
