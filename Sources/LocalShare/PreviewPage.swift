@@ -95,7 +95,7 @@ enum PreviewPage {
             \(body)
           </section>
           \(canReceiveText ? SendText.card(lang: lang) : "")
-          <div class="colophon">\(L.webProvidedBy(lang)) · \(esc(ps.tag))</div>
+          <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
         <script>var LS_I18N=\(LStr.i18nJSON(lang));</script>
         <script>\(WebWideLayout.script)</script>
