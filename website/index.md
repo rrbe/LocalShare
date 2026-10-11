@@ -3,11 +3,15 @@ title: LocalShare 文档
 description: 通过局域网或自托管 Server，把 Mac 上的文件和文本安全地送到浏览器。
 ---
 
+<script setup>
+import mainScreenshot from "./images/screenshot-main-page.png"
+</script>
+
 # 从 Mac 分享到任何浏览器
 
 <p class="doc-lead">LocalShare 是原生 macOS 文件分享工具。选择文件或文件夹后，手机、平板和电脑只需打开链接或扫描二维码，就能在浏览器中查看内容；需要跨网络访问时，可以接入自托管的 LocalShare Server。</p>
 
-<ZoomImage compact src="./images/screenshot-main-page.png" alt="LocalShare 主界面，显示文件分享和文本传递入口" />
+<ZoomImage compact :src="mainScreenshot" alt="LocalShare 主界面，显示文件分享和文本传递入口" />
 
 ## 选择使用方式
 

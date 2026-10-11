@@ -415,7 +415,7 @@ enum DirectoryListing {
           <div class="colophon">\(L.webProvidedBy(lang))</div>
         </main>
         \(dropMask)
-        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";var LS_BATCH_DOWNLOAD=\(canBatchDownload);</script>
+        <script>var LS_I18N=\(LStr.i18nJSON(lang));var LS_ROOT="\(rootPrefix)";var LS_BATCH_DOWNLOAD=\(canBatchDownload);var LS_BATCH_LIMIT=\(BatchDownload.maxFiles);</script>
         <script>\(WebWideLayout.script)</script>
         <script>
         (function(){

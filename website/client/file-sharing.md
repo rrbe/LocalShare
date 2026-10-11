@@ -3,11 +3,15 @@ title: 传递文件
 description: 使用 LocalShare 分享文件、文件夹并在浏览器中预览或下载。
 ---
 
+<script setup>
+import fileScreenshot from "../images/screenshot-share-file.png"
+</script>
+
 # 传递文件
 
 LocalShare 会把选中的内容映射到临时浏览地址。浏览器可以逐层浏览目录、预览支持的格式或下载原文件，而 Mac 上的源文件不会被复制到其他位置。
 
-<ZoomImage src="../images/screenshot-share-file.png" alt="LocalShare 文件分享界面，显示二维码和访问链接" />
+<ZoomImage :src="fileScreenshot" alt="LocalShare 文件分享界面，显示二维码和访问链接" />
 
 ## 支持的分享方式
 

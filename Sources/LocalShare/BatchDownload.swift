@@ -3,6 +3,7 @@ import Foundation
 // Store regular files in a UTF-8 ZIP64 archive without buffering their contents in memory.
 // The response retains this object until streaming ends, including a disconnected client.
 final class BatchDownload {
+    static let maxFiles = 1000
     private let directory: URL
     let url: URL
 

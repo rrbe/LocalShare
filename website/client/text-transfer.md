@@ -3,11 +3,15 @@ title: 传递文本
 description: 在 LocalShare Client 与同一局域网中的浏览器之间双向传递文本。
 ---
 
+<script setup>
+import textScreenshot from "../images/screenshot-share-text.png"
+</script>
+
 # 传递文本
 
 文本传递适合发送临时命令、网址、地址或其他不便手动输入的内容。它使用与文件分享相同的本地服务和访问令牌。
 
-<ZoomImage src="../images/screenshot-share-text.png" alt="LocalShare 文本传递界面，显示文本编辑区和二维码" />
+<ZoomImage :src="textScreenshot" alt="LocalShare 文本传递界面，显示文本编辑区和二维码" />
 
 ## 从 Mac 发送到浏览器
 

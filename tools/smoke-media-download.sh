@@ -66,6 +66,16 @@ with tempfile.TemporaryDirectory(prefix='ls-media-test-') as temp:
             assert z.read('large.bin') == payload
             assert z.read('empty.txt') == b''
         assert archive(paths, False)[0] == 403
+        bulk = root / 'bulk'
+        bulk.mkdir()
+        bulk_paths = [f'/bulk/{i}.txt' for i in range(1001)]
+        for i in range(1001):
+            (bulk / f'{i}.txt').write_text('demo')
+        assert archive(bulk_paths)[0] == 400
+        status, _, body = archive(bulk_paths[:1000])
+        assert status == 200
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            assert len(z.namelist()) == 1000 and z.testzip() is None
         for bad in ['/../secret.txt','/%2e%2e/secret.txt','/..%2fsecret.txt','/link.txt','/folder','/missing.txt']:
             assert archive([bad])[0] == 400, bad
         assert archive([])[0] == 400

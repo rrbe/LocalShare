@@ -490,7 +490,7 @@ final class FileServer {
                   let json = Self.formValue("paths", in: req.body),
                   let data = json.data(using: .utf8),
                   let paths = try? JSONDecoder().decode([String].self, from: data),
-                  !paths.isEmpty, paths.count <= 1000 else {
+                  !paths.isEmpty, paths.count <= BatchDownload.maxFiles else {
                 return htmlResponse(400, "Bad Request", L.webReadFailed(lang), extra: extra)
             }
             guard archiveLock.try() else {

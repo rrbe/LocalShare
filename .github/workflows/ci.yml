@@ -59,7 +59,9 @@ jobs:
         run: ./tools/smoke-filenames.sh
 
       - name: 视频 Range 与批量 ZIP 下载
-        run: ./tools/smoke-media-download.sh
+        run: |
+          ./tools/smoke-media-download.sh
+          node tools/smoke-media-selection.cjs
 
       - name: 多选虚拟根路由
         run: ./tools/smoke-multiselect.sh
