@@ -115,7 +115,7 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	if err := json.Unmarshal(payload, &hello); err != nil || hello.Type != "hello" {
 		t.Fatalf("invalid hello: %q", payload)
 	}
-	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":1,"share_id":"local_1"}`)); err != nil {
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":2,"share_id":"local_1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	_, payload, err = conn.Read(ctx)
@@ -133,7 +133,7 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	result := make(chan []byte, 1)
 	errors := make(chan error, 1)
 	go func() {
-		response, err := http.Get(ready.ShareURL + "/hello.txt")
+		response, err := http.Get(ready.ShareURL + "hello.txt?t=attacker&path=%2Fsub%20folder%2F%E4%B8%AD%E6%96%87%20100%25%2B.png&raw=1")
 		if err != nil {
 			errors <- err
 			return
@@ -162,6 +162,9 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	if request.ShareID != "local_1" {
 		t.Fatalf("request share id = %q", request.ShareID)
 	}
+	if request.Path != "/hello.txt?path=%2Fsub%20folder%2F%E4%B8%AD%E6%96%87%20100%25%2B.png&raw=1" {
+		t.Fatalf("forwarded path = %q", request.Path)
+	}
 	body := bytes.Repeat([]byte("x"), 128<<10)
 	responseBegin, _ := json.Marshal(wireMessage{
 		Type: "response.begin", RequestID: request.RequestID, Status: http.StatusOK,
@@ -170,8 +173,15 @@ func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	if err := conn.Write(ctx, websocket.MessageText, responseBegin); err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.Write(ctx, websocket.MessageBinary, encodeData(request.RequestID, body)); err != nil {
-		t.Fatal(err)
+	for start := 0; start < len(body); start += maxRelayChunkSize {
+		if err := conn.Write(ctx, websocket.MessageBinary, encodeData(request.RequestID, body[start:start+maxRelayChunkSize])); err != nil {
+			t.Fatal(err)
+		}
+		_, payload, err = conn.Read(ctx)
+		var ack wireMessage
+		if err != nil || json.Unmarshal(payload, &ack) != nil || ack.Type != "response.ack" {
+			t.Fatalf("ack: %s %v", payload, err)
+		}
 	}
 	responseEnd, _ := json.Marshal(wireMessage{Type: "response.end", RequestID: request.RequestID})
 	if err := conn.Write(ctx, websocket.MessageText, responseEnd); err != nil {
@@ -428,7 +438,7 @@ func openTestAgent(t *testing.T) (*hub, *httptest.Server, *websocket.Conn, strin
 	if _, _, err := conn.Read(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":1,"share_id":"local_1"}`)); err != nil {
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":2,"share_id":"local_1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	_, payload, err := conn.Read(ctx)

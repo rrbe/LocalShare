@@ -1,6 +1,6 @@
 # LocalShare Architecture
 
-> Native single-window macOS app: choose a folder, show a QR code, and let phones on the same Wi-Fi—or an explicitly enabled browser-only remote endpoint—browse it read-only. Guest upload and Text Transfer can be enabled for LAN shares; the default is read-only.
+> Native single-window macOS app: choose a folder, show a QR code, and let phones on the same Wi-Fi—or an explicitly enabled browser-only remote endpoint—browse it read-only. Guest upload is available on LAN; file and text sharing can use the optional internet relay. Receiving text has independent LAN and internet permissions, both off by default.
 
 This is the **current architecture reference**: core constraints, project structure, important design decisions, and implementation notes for anyone continuing work after `git pull`. Related documents: visual design specification in `DESIGN.md`; release/version workflow in `CLAUDE.md`.
 
@@ -53,7 +53,7 @@ LocalShare/
   docs/
     ARCHITECTURE.md        # This file
     REMOTE_SHARING_PLAN.md # LocalShare Server, pairing, relay, and client flow
-    images/                # README screenshots
+  website/                 # Public VitePress documentation and screenshots
   Sources/LocalShare/
     App.swift              # @main EntryPoint: GUI / headless / CLI dispatch; LocalShareApp and AppDelegate
     AppState.swift         # @MainActor ObservableObject; single source of truth for shares, text, server, network, presence, persistence
@@ -101,11 +101,11 @@ LocalShare/
 
 1. **Network gate**: requests sourced from Tailscale's `100.64.0.0/10` range are rejected unless the persisted Tailscale setting is enabled. This check precedes every credential path, so disabling it immediately revokes tailnet access even for a valid token or Cookie.
 2. **Access-code exchange**: when enabled, an unauthenticated browser navigation receives the built-in join page. `POST /ls/join` accepts the short code in the request body, rate-limits failures per client, and returns the normal `ls_token` Cookie plus a 302 to the current share entry. The code never appears in a URL or log. Non-browser requests and all other unauthenticated POSTs still receive 403.
-3. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token once so rotation cannot mix states. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
+3. **Token auth**: allow requests when either `?t=` or cookie `ls_token` equals the current token. Each request snapshots the token, share, text and permissions under one lock; an in-flight read or upload stays bound to its authenticated share. When `?t=` grants access, send `Set-Cookie: ls_token=...; HttpOnly`. Browser navigations with `Accept: text/html` then **302** to the clean URL without `?t=` so tokens do not stay in address bars or history. curl and `*/*` subresource requests do not trigger the redirect.
 4. **Traversal guard**: `decoded -> strip leading / -> append to root -> standardizedFileURL.resolvingSymlinksInPath`. The result must equal the root path or have `root + "/"` as prefix; otherwise return 403. `standardizedFileURL` removes `..`; encoded dot-dot is blocked because decoding happens before normalization.
 5. **Directories**: path without trailing slash gets 301 so relative resources resolve; `index.html` is served directly when present; otherwise `DirectoryListing` renders the listing with segment-encoded absolute hrefs, hidden files omitted, and a fixed parent row outside the root.
 6. **Files**: MIME is inferred by extension, text types get `charset=utf-8`, and `FileHandle` streams in 64 KB chunks. Exception: browser navigation to `.md` / `.json` / `.csv` returns a preview shell at the **same URL as the file**, so relative references resolve through normal serving. curl, `?raw=1`, and `*/*` receive raw file content.
-7. **Remote policy**: while remote mode is enabled, only `GET` and `HEAD` are accepted, and upload and text-receive routes disappear. The Server authenticates its own Share Token and never forwards browser credentials to the Mac.
+7. **Remote policy**: authenticated internal requests carry a separate random `X-LocalShare-Relay` marker. Remote requests allow GET/HEAD and, with an independent opt-in, POST `/ls/text` up to 64 KiB. LAN permissions remain unchanged. The Server authenticates Share Tokens and never forwards visitor credentials or internal identity headers.
 
 Single-folder serving extracts steps 4-6 into `serveTree(rootURL:relPath:...)`. **Single-file** shares return only that file. **Multi-share** uses `Share.multiple([Item])`, where `makeItems` uses `lastPathComponent` as key and appends `-2` for collisions. Empty path returns the virtual-root listing; otherwise the first path segment is mapped to a real URL. Unknown keys and subpaths under file items return 404. Each item has an independent traversal root.
 
@@ -125,7 +125,7 @@ Related hardening: token 302 cleanup; uploaded files receive `com.apple.quaranti
 
 ### Online Presence
 
-After auth, requests record `lastSeen` by client IP. A 45-second window counts as "N people browsing". Device-name reverse lookup runs best-effort in the background through `getnameinfo`, with `nameCache` and `nameLookupInFlight` protected by the server lock and cleared on token rotation. `/ls/ping` is a reserved heartbeat path handled before share content; listing pages call it every 15 seconds and it returns only counts, not device names. The GUI polls every 2 seconds through `AppState`, uses a named lead visitor when known, falls back to "N people browsing", hides IPs from the summary, and shows details in a popover.
+After auth, requests record `lastSeen` by client IP. A 45-second window counts as "N people browsing". Remote requests carry the Server-derived `request.begin.client_ip` through an internal header; FileServer accepts it only with the process-local relay credential and a valid IP. Browser identity headers are discarded. Shared public addresses are counted once, so this remains an approximate IP count. Remote text receipts and visitor details retain the source IP rather than the loopback proxy address. Device-name reverse lookup runs only for LAN clients, best-effort in the background through `getnameinfo`, with `nameCache` and `nameLookupInFlight` protected by the server lock and cleared on token rotation. `/ls/ping` is a reserved heartbeat path handled before share content; listing pages call it every 15 seconds and it returns only counts, not device names. The GUI polls every 2 seconds through `AppState`, uses a named lead visitor when known, falls back to "N people browsing", hides IPs from the summary, and shows details in a popover.
 
 ### Headless Interface Binding
 
@@ -139,15 +139,16 @@ The ticket keeps one primary address and folds Bonjour hostname, Tailscale Magic
 
 ### Remote Sharing
 
-Remote settings persist the Server address. The first connection also accepts a one-time Enrollment Key, exchanges it for a Device Token, and stores that token in macOS Keychain. `RemoteAgent` then opens an outbound WebSocket to `/api/v1/agent`, registers the current share, and retries with a 1–60 second capped backoff.
+The default service is `https://share.fairydog.net`. Explicit Connect automatically registers a device; credentials are kept per server in Keychain. Self-hosting uses one-time enrollment keys. `RemoteAgent` opens an outbound WebSocket to `/api/v1/agent` and publishes the current share. Temporary connection failures retry with a 1–60 second capped backoff; invalid credentials and protocol mismatches stop retries. Pending connection attempts are cancelled and checked against a generation before saving credentials or opening a socket.
 
-The Server combines the Control Plane and Data Relay on one public port. Browser requests use `/share/<share-token>/...`; the Server sends them over the existing WebSocket to the Client, which calls its local `FileServer` and streams the response back. The Client keeps the existing token and traversal logic as the single source of file-serving truth. Remote mode is read-only and does not restore on cold launch; Connect/Disconnect controls the session while Forget Device removes the Keychain credential.
+The Server combines the Control Plane and Data Relay on one public port. Browser requests use `/share/<share-token>/...`; the Server sends them over the existing WebSocket to the Client, which calls its local `FileServer` and streams the response back. The Client keeps the existing token and traversal logic as the single source of file-serving truth. Remote files are read-only; optional text reception permits only `POST /ls/text` with a 64 KiB body limit and defaults off. A process-local random credential marks relay requests so LAN upload and text permissions remain independent. Cold launch never publishes automatically. Connect/Disconnect controls the session while Forget Server removes only that server's Keychain credential. Generated media URLs stay inside the share mount; batch downloads use POST and are shown only in LAN mode.
 
 Generated browser pages use relative links because the same `FileServer` HTML is mounted both at LAN `/` and remote
 `/share/<share-token>/`. `share.start` registers a `share_id` generation and every relayed request echoes it; the Client
-rejects stale generations before touching `FileServer`, closing the old-token/new-content race during share changes.
-Relay requests have a 60-second idle timeout and cancellation propagation. The Client pauses each local data task while
-its current WebSocket data frame is in flight, providing bounded backpressure instead of queueing a whole file.
+rejects stale generations before touching `FileServer`; its request snapshot also keeps already authenticated local requests within their original share.
+Protocol v2 adds text request bodies, `share.update` permissions and per-chunk `response.ack`. RemoteLocalRequest reads AsyncBytes on a background task in 64 KiB chunks, awaiting the relay acknowledgement after each chunk. Go acknowledges after HTTP writes/flushes, enforces write deadlines and keeps bounded queues. Requests have a 60-second idle timeout; cancelling, stopping or revoking interrupts pending writes. Same-session text updates preserve tokens and folder paths; changing selected files rotates the share generation.
+
+Public HTTP is rejected; loopback HTTP is for tests. TLS may terminate in the binary or at a same-host proxy with loopback listening and `--behind-proxy`. TLS protects both public links; the trusted relay can read the content. Device revocation closes live sockets and cancels shares/requests on a one-second monitoring interval. Resource limits, state cleanup and deployment details are defined in [the implementation plan](REMOTE_SHARING_PLAN.md).
 
 `state.json` mutations are protected by both an in-process mutex and a `.state.lock` advisory file lock, because the
 running `serve` process and administrator CLI commands access the same state directory. Existing directories are
@@ -158,10 +159,10 @@ normalized to `0700`; state and lock files are `0600`.
 - Single source of truth is `sharedItems: [URL]`: empty, single, or multiple. Derived values include `isMultiple`, `isEmpty`, and convenience `sharedURL`.
 - **Cold launch does not restore sharing**. `init` does not read the last share back into `sharedItems`, and no file service starts automatically. Quietly serving a folder on LAN after opening the app would be unsafe. The last share remains available in Recent Shares (`RecentShare.paths`) for manual restart. Text inbox can auto-start only when explicitly enabled.
 - Closing the window does **not** quit. The process and service continue; `@StateObject` is created once per process, so reactivating the app returns to the previous screen.
-- Remote access is opt-in per session. It is forced read-only, never restored on cold launch, and the Server URL/QR replace the LAN primary URL only after share registration. A disconnected agent retries and re-registers the current share.
+- Remote access is opt-in per session and never restored on cold launch. Files remain read-only; remote text reception has a separate default-off switch. The Server URL/QR replace the LAN primary URL only after share registration. A temporarily disconnected agent retries and re-registers the current share.
 - **Timed stop (GUI)**: Settings → Access defaults to stopping after 1 hour, with Never, 10 minutes, 1/6/24 hours, and a custom hours/minutes duration (1 minute–99 hours 59 minutes). The preference persists; each successful start, file replacement, or timer-setting change starts a fresh countdown. Text edits and network/port rebinding retain the deadline. The timer uses wall time, runs with the window closed, and checks overdue deadlines on wake. Expiry calls `stop()`, stopping file/text/receive service and rotating credentials while retaining the selected content. Headless mode is unchanged.
 - Port preference order is `[8080, 8000, 8888, 9000]`; if all fail, choose a random high port.
-- **Changing a share does not restart the server** when the port is unchanged. The lock updates `share` and `token`, with the key changed before the content to prevent an old token from briefly reading the new share.
+- **Changing a share does not restart the server** when the port is unchanged. The key changes before the content, and request snapshots bind authentication and routing to the same share. In-flight reads and uploads cannot cross into the replacement share.
 
 ### Screen Routing
 
@@ -192,8 +193,8 @@ normalized to `0700`; state and lock files are `0600`.
 
 Text Transfer expands "choose content -> scan on phone" from disk files to a text snippet. It has **two independent one-way channels**: `sharedText` for Mac -> phone and inbox for phone -> Mac.
 
-- **v1 Mac -> phone**: `AppState.sharedText: String?` reuses almost all read-only serving. Text is another GET-served content type under reserved namespace `/ls/text`, matched before virtual-root keys. It can be shared alone or included in a multi-share virtual root. Browser navigation returns `TextViewer`; `?raw=1` and curl return `text/plain`. Phone page escapes text, has a large Copy button with `execCommand` fallback because plain HTTP LAN is not a secure context, and auto-links safe http(s) URLs.
-- **v2 phone -> Mac**: independent inbox, no disk storage and no folder-share dependency. Gate is `textInboxEnabled`, opt-in and off by default. Enabling it starts the service if needed. `POST /ls/text` receives plain text; listing pages embed the send form. Limits: each message 64 KB, inbox 100 items with oldest eviction. `onReceiveText` hops from socket thread to `MainActor`; feedback stays in-app with no system notification.
+- **v1 Mac -> phone**: `AppState.sharedText: String?` reuses almost all read-only serving. Text is another GET-served content type under reserved namespace `/ls/text`, matched before virtual-root keys. It can be shared alone, alongside a folder without changing file paths, or in a multi-share virtual root. Browser navigation returns `TextViewer`; `?raw=1` and curl return `text/plain`. Phone page escapes text, has a large Copy button with `execCommand` fallback because plain HTTP LAN is not a secure context, and auto-links safe http(s) URLs.
+- **v2 phone -> Mac**: independent inbox, no disk storage and no folder-share dependency. LAN gate is `textInboxEnabled`; internet reception uses `remoteTextInboxEnabled` and a published relay session. Both are opt-in and off by default. Enabling it starts the service if needed. `POST /ls/text` receives plain text; listing pages embed the send form. Limits: each message 64 KB, inbox 100 items with oldest eviction. `onReceiveText` hops from socket thread to `MainActor`; feedback stays in-app with no system notification.
 - **Token is session-scoped**: `setSharedText` does **not** rotate the token, otherwise every text update would kick active viewers and break coexisting file-share links. Rotate only on session boundaries: `setShared`, `stop`, `clearShare`, and `stopTextTransfer`. Persistence toggles default off and are separate for shared text versus received text.
 
 ### Internationalization
@@ -224,7 +225,7 @@ LS_HEADLESS=1 LS_FOLDER=/path/to/dir LS_TOKEN=testtoken LS_PORT=8099 .build/debu
 curl -s "http://127.0.0.1:8099/?t=testtoken"   # Should return a directory listing or index.html
 ```
 
-Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, allow Tailscale clients with `LS_TAILSCALE=1`, simulate remote read-only policy with `LS_REMOTE=1`, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
+Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable upload with `LS_UPLOAD=1`, bind an interface with `LS_BIND=<ip>`, allow Tailscale clients with `LS_TAILSCALE=1`, start the remote agent with `LS_REMOTE=1`, `LS_REMOTE_SERVER` and `LS_REMOTE_KEY` (or `LS_REMOTE_REGISTER=1`); set `LS_REMOTE_RECV=1` for remote text reception, and test Text Transfer with `LS_TEXT` / `LS_RECV`. The two test layers (`swift test` and `tools/smoke-*.sh`) run in `.github/workflows/ci.yml` for every PR and `master` push.
 
 **Sharing with a coworker**: copy `dist/*.app`; for the first launch, help them pass Gatekeeper once by opening the app, then System Settings -> Privacy & Security -> Open Anyway. macOS remembers this approval.
 
@@ -242,5 +243,4 @@ Headless multi-share uses `LS_FOLDERS` separated by `:` or newlines. Enable uplo
 **Potential future work:**
 
 - **Chunked upload**: bypass Swifter's whole-body-in-memory limitation by slicing on the frontend, appending chunks server-side, and atomically renaming on the final chunk. This would allow arbitrary size with constant memory and remove the 500 MB cap.
-- **Managed relay hosting**: the relay is currently self-hosted. A future managed service could reuse the existing opaque public URL model without changing LAN or Tailscale address handling.
 - **Better device-name lookup**: current lookup is best-effort `getnameinfo`; iPhones often do not resolve and fall back to IP. More accurate mDNS PTR lookup via `DNSServiceQueryRecord` is possible but more complex and still not guaranteed.

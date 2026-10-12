@@ -6,7 +6,7 @@ import Foundation
 // 排序/筛选作用于全量数据，DOM 按 1000 行一档「再显示」渐进渲染——几十 MB 不卡死页面。
 enum CsvViewer {
     static func html(fileName: String, requestPath: String = "/", crumbs: String?, canUpload: Bool,
-                     canReceiveText: Bool = false, lang: Lang) -> String {
+                     canReceiveText: Bool = false, lang: Lang, remoteMode: Bool = false) -> String {
         PreviewPage.html(
             fileName: fileName, requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
@@ -19,7 +19,7 @@ enum CsvViewer {
               <div class="vbody" id="view"><p class="ld">\(L.webLoading(lang))</p></div>
             </div>
             """,
-            css: css, scripts: [boot], canReceiveText: canReceiveText)
+            css: css, scripts: [boot], canReceiveText: canReceiveText, remoteMode: remoteMode)
     }
 
     private static let css = """

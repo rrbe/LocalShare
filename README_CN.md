@@ -9,9 +9,9 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/screenshot-main-page.png" alt="主界面" width="260"><br>主界面</td>
-    <td align="center"><img src="docs/images/screenshot-share-file.png" alt="分享文件" width="260"><br>分享文件</td>
-    <td align="center"><img src="docs/images/screenshot-share-text.png" alt="传递文本" width="260"><br>传递文本</td>
+    <td align="center"><img src="website/images/screenshot-main-page.png" alt="主界面" width="260"><br>主界面</td>
+    <td align="center"><img src="website/images/screenshot-share-file.png" alt="分享文件" width="260"><br>分享文件</td>
+    <td align="center"><img src="website/images/screenshot-share-text.png" alt="传递文本" width="260"><br>传递文本</td>
   </tr>
 </table>
 
@@ -22,7 +22,7 @@
 - 支持分享后，由对端反向传输文件、文本
 - 显示当前在线访客
 - 命令行 `localshare` 命令：唤起窗口分享，或 `--headless` 在终端显示链接和二维码
-- 可选通过自托管 LocalShare Server 远程访问浏览器；远程分享只读
+- 可选互联网分享：内置默认中继，浏览器可访问文件和文本；支持自托管
 
 ## 为什么有这个 app
 
@@ -43,7 +43,7 @@
 
 ### 远程浏览器分享
 
-运行自包含的 [`localshare-server`](server/README.md)，生成一次性 Enrollment Key，在「设置」里填写 Server 地址和 key。配对后设备凭据会保存到 Keychain；正在分享时只需点击 Connect/Disconnect，对端设备只需浏览器。详见[远程分享计划](docs/REMOTE_SHARING_PLAN.md)。
+选择文件或发送文本后，点击「互联网分享 → 连接」，把链接发给访问者。App 内置默认服务 `https://share.fairydog.net`，首次启用自动注册，凭据存入 Keychain；Mac 需保持在线。公网使用 HTTPS/WSS，中继可读取内容。远程文件只读，远程收文本独立且默认关闭，局域网权限不受影响。自托管用户可在「设置 → 网络」填写服务器地址和管理员配对码。详见[互联网分享方案](docs/REMOTE_SHARING_PLAN.md)。
 
 ## 终端用法
 

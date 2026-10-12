@@ -9,12 +9,18 @@ struct SettingsScreen: View {
     @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
     @State private var remoteServerText = ""
+    @State private var remoteCustomServer = false
     @State private var remoteKeyText = ""
     @State private var remoteFeedback: RemoteFeedback?
     @State private var remotePairTask: Task<Void, Never>?
 
     private enum RemoteFeedback: Equatable {
         case saved, pairing, paired, failed(String)
+    }
+
+    private var remotePaired: Bool {
+        let draft = RemoteSettings(serverAddress: remoteCustomServer ? remoteServerText : "")
+        return state.remotePaired && draft.serverURL == state.remoteSettings.serverURL
     }
 
     var body: some View {
@@ -46,10 +52,17 @@ struct SettingsScreen: View {
         .onAppear {
             portText = String(state.configuredPort)
             remoteServerText = state.remoteSettings.serverAddress
+            remoteCustomServer = !state.remoteSettings.usesDefaultService
             remoteKeyText = state.remoteEnrollmentKey
             state.refreshCLIStatus()
         }
-        .onChange(of: remoteServerText) { _ in remoteFeedback = nil }
+        .onChange(of: remoteServerText) { _ in
+            remoteFeedback = nil
+            if RemoteSettings(serverAddress: remoteServerText).serverURL != state.remoteSettings.serverURL {
+                remotePairTask?.cancel()
+                remoteKeyText = ""
+            }
+        }
         .onChange(of: remoteKeyText) { _ in remoteFeedback = nil }
         .onDisappear {
             remotePairTask?.cancel()
@@ -211,7 +224,11 @@ struct SettingsScreen: View {
                 }
             }
 
-            eyebrow(L.sectionRemote(lang))
+            HStack(alignment: .firstTextBaseline) {
+                eyebrow(L.sectionRemote(lang))
+                Spacer()
+                RemoteGuideLink(t: t, lang: lang)
+            }
             remoteAccessSettings(lang)
         }
     }
@@ -219,13 +236,32 @@ struct SettingsScreen: View {
     private func remoteAccessSettings(_ lang: Lang) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             groupBox {
-                remoteField(title: L.remoteServerAddress(lang), text: $remoteServerText)
-                remoteField(title: L.remoteEnrollmentKey(lang), text: $remoteKeyText, top: true, secure: true,
-                            placeholder: state.remotePaired ? L.remotePairedPlaceholder(lang) : "",
-                            disabled: state.remotePaired)
-                if !state.remotePaired {
-                    Text(L.remotePairHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                        .padding(.vertical, 10)
+                HStack {
+                    Text(remoteCustomServer ? L.remoteServerAddress(lang) : L.remoteDefaultService(lang))
+                        .font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+                    Spacer()
+                    Button(remoteCustomServer ? L.remoteUseDefault(lang) : L.remoteCustomService(lang)) {
+                        remotePairTask?.cancel()
+                        remoteCustomServer.toggle()
+                        remoteKeyText = ""
+                        if !remoteCustomServer {
+                            remoteServerText = ""
+                            state.saveRemoteSettings(RemoteSettings())
+                        }
+                        remoteFeedback = nil
+                    }.buttonStyle(.plain).font(.sans(12)).foregroundStyle(t.accent)
+                }.padding(.vertical, 10)
+                if remoteCustomServer {
+                    remoteField(title: L.remoteServerAddress(lang), text: $remoteServerText)
+                    remoteField(title: L.remoteEnrollmentKey(lang), text: $remoteKeyText, top: true, secure: true,
+                            placeholder: remotePaired ? L.remotePairedPlaceholder(lang) : "",
+                            disabled: remotePaired)
+                    if !remotePaired {
+                        Text(L.remotePairHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                            .padding(.vertical, 10)
+                    }
+                } else {
+                    Text(RemoteSettings.defaultServerAddress).font(.mono(11.5)).foregroundStyle(t.inkMute).padding(.bottom, 12)
                 }
                 HStack {
                     if let remoteFeedback, remoteFeedback != .saved {
@@ -236,19 +272,21 @@ struct SettingsScreen: View {
                             .foregroundStyle(remoteFeedbackColor(remoteFeedback))
                     }
                     Spacer(minLength: 0)
-                    if !state.remotePaired {
+                    if remoteCustomServer && !remotePaired {
                         GhostButton(t: t, title: L.remotePair(lang), systemImage: "key.horizontal") {
                             testRemotePairing()
                         }
                         .disabled(remoteFeedback == .pairing)
                         .opacity(remoteFeedback == .pairing ? 0.55 : 1)
                     }
+                    if remoteCustomServer {
                     GhostButton(t: t,
                                 title: remoteFeedback == .saved ? L.remoteSaved(lang) : L.remoteSave(lang),
                                 systemImage: remoteFeedback == .saved ? "checkmark.circle.fill" : "checkmark") {
                         saveRemoteSettings()
                     }
-                    if state.remotePaired {
+                    }
+                    if remotePaired {
                         Button {
                             state.forgetRemoteDevice()
                             remoteKeyText = ""
@@ -274,15 +312,12 @@ struct SettingsScreen: View {
                     state.setAccessCodeEnabled(!state.accessCodeEnabled)
                 }
                 permRow(name: L.permUploadName(lang),
-                        desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang)
-                                                       : (state.canToggleUpload ? nil : L.permUploadDescOff(lang)),
-                        locked: !state.canToggleUpload || state.remoteAccessEnabled,
+                        desc: state.canToggleUpload ? nil : L.permUploadDescOff(lang),
+                        locked: !state.canToggleUpload,
                         on: state.effectivePermission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
-                permRow(name: L.recvInboxTitle(lang),
-                        desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang) : nil,
-                        locked: state.remoteAccessEnabled, on: state.textInboxEnabled && !state.remoteAccessEnabled, top: true) {
+                permRow(name: L.localReceiveText(lang), locked: false, on: state.textInboxEnabled, top: true) {
                     state.setTextInboxEnabled(!state.textInboxEnabled)
                 }
             }

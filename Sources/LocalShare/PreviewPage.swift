@@ -11,8 +11,8 @@ enum PreviewPage {
     // rawLabel：页角「查看原文」链接文案，默认「查看原文 / View source」；纯文本预览传「查看原始文本」。
     static func html(fileName: String, requestPath: String, crumbs: String?, canUpload: Bool, lang: Lang,
                      body: String, css: String, scripts: [String], rawLabel: String? = nil,
-                     canReceiveText: Bool = false) -> String {
-        let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
+                     canReceiveText: Bool = false, remoteMode: Bool = false) -> String {
+        let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang, remoteMode: remoteMode)
         let rootPrefix = DirectoryListing.rootRelativePrefix(requestPath: requestPath)
         // 收件箱开启时，预览/文本壳页底部嵌同一份「发文本给电脑」表单（与列表页一致）——让纯文本分享、
         // 单文件预览等没有列表页的形态也能就地回填文本给 Mac。

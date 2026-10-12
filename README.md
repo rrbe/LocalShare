@@ -9,9 +9,9 @@ A small macOS app that moves files and text between your Mac and other devices (
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
-    <td align="center"><img src="docs/images/screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
-    <td align="center"><img src="docs/images/screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
+    <td align="center"><img src="website/images/screenshot-main-page.png" alt="Home" width="260"><br>Home</td>
+    <td align="center"><img src="website/images/screenshot-share-file.png" alt="Share Files" width="260"><br>Share Files</td>
+    <td align="center"><img src="website/images/screenshot-share-text.png" alt="Transfer Text" width="260"><br>Transfer Text</td>
   </tr>
 </table>
 
@@ -22,7 +22,7 @@ A small macOS app that moves files and text between your Mac and other devices (
 - After you share, the other end can send files and text back
 - Shows who's currently viewing
 - `localshare` command line: bring up the window to share, or `--headless` to print the link and QR code in the terminal
-- Optional browser-only remote access through a self-hosted LocalShare Server; remote shares are read-only
+- Optional internet sharing with a built-in relay for files and text; self-hosting is also supported
 
 ## Why this app exists
 
@@ -43,7 +43,7 @@ The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`
 
 ### Remote browser sharing
 
-Run the self-contained [`localshare-server`](server/README.md), create a one-time Enrollment Key, then enter the Server address and key in Settings. After pairing, the app remembers the device credential in Keychain; active shares use Connect/Disconnect and the receiving device only needs a browser. See the [remote-sharing plan](docs/REMOTE_SHARING_PLAN.md).
+Choose files or send text, then click Internet Sharing → Connect and send the link to a visitor. The built-in service is `https://share.fairydog.net`; first use registers an independent device credential in Keychain. Keep your Mac online. Public connections use HTTPS/WSS, and the relay can read shared content. Remote files are read-only; receiving text over the internet is separate and off by default. LAN permissions remain independent. For self-hosting, enter your Server address and administrator-issued enrollment key in Settings → Network. See the [internet-sharing plan](docs/REMOTE_SHARING_PLAN.md).
 
 ## Terminal usage
 

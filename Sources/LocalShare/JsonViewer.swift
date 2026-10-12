@@ -7,7 +7,7 @@ import Foundation
 // 长字符串截断 200 字符、点击展开全文。解析失败给「查看原文」出口。
 enum JsonViewer {
     static func html(fileName: String, requestPath: String = "/", crumbs: String?, canUpload: Bool,
-                     canReceiveText: Bool = false, lang: Lang) -> String {
+                     canReceiveText: Bool = false, lang: Lang, remoteMode: Bool = false) -> String {
         PreviewPage.html(
             fileName: fileName, requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
@@ -20,7 +20,7 @@ enum JsonViewer {
               <div class="vbody" id="view"><p class="ld">\(L.webLoading(lang))</p></div>
             </div>
             """,
-            css: css, scripts: [boot], canReceiveText: canReceiveText)
+            css: css, scripts: [boot], canReceiveText: canReceiveText, remoteMode: remoteMode)
     }
 
     private static let css = """

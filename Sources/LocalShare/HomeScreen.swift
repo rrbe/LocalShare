@@ -13,7 +13,7 @@ struct HomeScreen: View {
     }
     // 「传递文本」入口的呼吸点只该表「文本在后台续跑」，故精确判文本态——而非笼统的 isRunning
     //（现在主页可能正跑着文件分享，那不该让文本入口误亮）。
-    private var textActive: Bool { state.isRunning && !state.remoteAccessEnabled && (state.hasText || state.textInboxEnabled) }
+    private var textActive: Bool { state.isRunning && (state.hasText || state.isReceivingText) }
     var body: some View {
         let ps = permSummary(state.effectivePermission, state.lang)
         ScreenFrame(t: t) {

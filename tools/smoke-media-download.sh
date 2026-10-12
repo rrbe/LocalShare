@@ -9,6 +9,7 @@ with tempfile.TemporaryDirectory(prefix='ls-media-test-') as temp:
     root = Path(temp) / 'share'
     root.mkdir()
     (root / 'folder').mkdir()
+    (root / 'folder' / 'nested %.txt').write_text('nested')
     (root / 'clip.mp4').write_bytes(b'0123456789')
     special = '中文 100% #?.txt'
     (root / special).write_text('selected')
@@ -45,6 +46,14 @@ with tempfile.TemporaryDirectory(prefix='ls-media-test-') as temp:
         status, headers, body = request('/clip.mp4?t=mediatest', headers={'Range':'bytes=10-'})
         assert status == 416 and headers['Content-Range'] == 'bytes */10' and body == b''
         assert request('/clip.mp4', headers={'Range':'bytes=0-1'})[0] == 403
+        status, _, nested = request('/folder/?t=mediatest')
+        assert status == 200 and b'var LS_BATCH_DOWNLOAD=true' in nested
+        assert b'href="nested%20%25.txt"' in nested
+        assert b"form.action=LS_ROOT+'ls/download'" in nested
+        status, _, body = archive(['/folder/nested%20%25.txt'])
+        assert status == 200
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            assert z.read('nested %.txt') == b'nested'
         paths = ['/clip.mp4','/'+urllib.parse.quote(special),'/large.bin','/empty.txt']
         status, headers, body = archive(paths)
         assert status == 200 and headers['Content-Type'] == 'application/zip'
@@ -57,6 +66,16 @@ with tempfile.TemporaryDirectory(prefix='ls-media-test-') as temp:
             assert z.read('large.bin') == payload
             assert z.read('empty.txt') == b''
         assert archive(paths, False)[0] == 403
+        bulk = root / 'bulk'
+        bulk.mkdir()
+        bulk_paths = [f'/bulk/{i}.txt' for i in range(1001)]
+        for i in range(1001):
+            (bulk / f'{i}.txt').write_text('demo')
+        assert archive(bulk_paths)[0] == 400
+        status, _, body = archive(bulk_paths[:1000])
+        assert status == 200
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            assert len(z.namelist()) == 1000 and z.testzip() is None
         for bad in ['/../secret.txt','/%2e%2e/secret.txt','/..%2fsecret.txt','/link.txt','/folder','/missing.txt']:
             assert archive([bad])[0] == 400, bad
         assert archive([])[0] == 400

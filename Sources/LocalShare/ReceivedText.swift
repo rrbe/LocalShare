@@ -6,7 +6,7 @@ import Foundation
 struct ReceivedText: Identifiable, Codable, Equatable {
     var id = UUID()
     let text: String
-    let ip: String          // 来源 IPv4
+    let ip: String          // 来源 IP；远程可为 IPv4 或 IPv6
     let name: String        // 反查到的设备名，查不到为空串
     let date: Date          // 收到时间
     // 收件箱里的来源标签：有设备名显名，否则显完整 IP。

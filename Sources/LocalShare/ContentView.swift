@@ -56,8 +56,8 @@ struct ContentView: View {
             // 顶部出「正在分享」横幅一键回票据（见 HomeScreen）。文件票据本身是独立二级页 .file。
             HomeScreen(t: t, dragging: isDropTargeted)
         case .file:
-            // 文件二维码票据（二级页，带返回）。无网络时换未接入网络页（同样带返回）。
-            if state.hasNetwork {
+            // 已发布的中继链接不依赖本机局域网地址。
+            if state.hasNetwork || state.remoteURL != nil || !state.isRunning {
                 ShareScreen(t: t)
             } else {
                 NoNetworkScreen(t: t)

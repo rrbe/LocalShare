@@ -69,11 +69,15 @@ enum MediaGallery {
       const selected=new Set();let grid=false,selecting=false;
       const visible=()=>Array.from(list.querySelectorAll('[data-kind]')).filter(r=>r.style.display!=='none');
       function sync(){
-        rows.forEach(r=>{if(r.style.display==='none')selected.delete(r);r.classList.toggle('selected',selected.has(r));const cb=r.querySelector('.pick');if(cb)cb.checked=selected.has(r);});
-        count.textContent=t.selectedN.replace('{n}',selected.size);download.disabled=!selected.size;
-        selectAll.disabled=!visible().some(r=>r.dataset.kind==='file');
+        selected.forEach(r=>{if(r.style.display==='none')selected.delete(r);});
+        rows.forEach(r=>{r.classList.toggle('selected',selected.has(r));const cb=r.querySelector('.pick');if(cb){cb.checked=selected.has(r);cb.disabled=selected.size===LS_BATCH_LIMIT&&!cb.checked;}});
+        count.textContent=t.selectedN.replace('{n}',selected.size)+' · '+t.selectionLimit.replace('{n}',LS_BATCH_LIMIT);download.disabled=!selected.size;
+        const files=visible().filter(r=>r.dataset.kind==='file');
+        selectAll.disabled=!files.length;
+        selectAll.textContent=files.length&&selected.size===Math.min(files.length,LS_BATCH_LIMIT)?t.clearSelection:(files.length>LS_BATCH_LIMIT?t.selectUpToN.replace('{n}',LS_BATCH_LIMIT):t.selectAll);
       }
       function setSelecting(value){selecting=value;selection.hidden=!value;list.classList.toggle('selecting',value);batch.textContent=value?t.cancel:t.batchDownload;selected.clear();sync();}
+      function toggleSelection(r){if(selected.has(r))selected.delete(r);else if(selected.size<LS_BATCH_LIMIT)selected.add(r);sync();}
       const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{
         if(!entry.isIntersecting||!grid)return;
         const media=entry.target;media.src=media.dataset.src;observer.unobserve(media);
@@ -82,7 +86,7 @@ enum MediaGallery {
         const a=r.querySelector('a');
         if(r.dataset.kind==='file'){
           const cb=document.createElement('input');cb.type='checkbox';cb.className='pick';cb.setAttribute('aria-label',r.querySelector('.nm').textContent);r.appendChild(cb);
-          cb.addEventListener('change',()=>{if(cb.checked)selected.add(r);else selected.delete(r);sync();});
+          cb.addEventListener('change',()=>toggleSelection(r));
         }
         if(r.dataset.type==='image'||r.dataset.type==='video'){
           const thumb=document.createElement('span');thumb.className='thumb';thumb.setAttribute('aria-hidden','true');
@@ -95,7 +99,7 @@ enum MediaGallery {
           thumb.prepend(media);a.prepend(thumb);
         }
         a.addEventListener('click',e=>{
-          if(selecting&&r.dataset.kind==='file'){e.preventDefault();if(selected.has(r))selected.delete(r);else selected.add(r);sync();return;}
+          if(selecting&&r.dataset.kind==='file'){e.preventDefault();toggleSelection(r);return;}
           if(!grid)return;
           if(r.dataset.type==='image'||r.dataset.type==='video'){e.preventDefault();open(r);}
         });
@@ -108,7 +112,7 @@ enum MediaGallery {
       let saved=false;try{saved=sessionStorage.getItem('ls-directory-view')==='grid';}catch(e){}
       setGrid(saved);listButton.onclick=()=>setGrid(false);gridButton.onclick=()=>setGrid(true);
       batch.onclick=()=>setSelecting(!selecting);
-      selectAll.onclick=()=>{const files=visible().filter(r=>r.dataset.kind==='file');const clear=files.every(r=>selected.has(r));files.forEach(r=>{if(clear)selected.delete(r);else selected.add(r);});sync();};
+      selectAll.onclick=()=>{const files=visible().filter(r=>r.dataset.kind==='file');const clear=files.every(r=>selected.has(r))||selected.size===LS_BATCH_LIMIT;selected.clear();if(!clear)files.slice(0,LS_BATCH_LIMIT).forEach(r=>selected.add(r));sync();};
       list.addEventListener('listingchange',sync);
       // A normal attachment download streams to the browser's download manager, not a JS Blob.
       const frame=document.createElement('iframe');frame.name='ls-download';frame.hidden=true;document.body.appendChild(frame);

@@ -25,6 +25,8 @@ struct NoNetworkScreen: View {
                     .multilineTextAlignment(.center).lineSpacing(3)
                 GhostButton(t: t, title: L.refresh(state.lang), systemImage: "arrow.clockwise") { state.refreshNetwork() }
                     .padding(.top, 4)
+                RemoteAccessCard(t: t)
+                    .padding(.top, 12)
                 Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)

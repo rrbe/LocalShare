@@ -15,6 +15,20 @@ on:
   pull_request:
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:build
+        env:
+          DOCS_BASE: /LocalShare
+
   server:
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +53,7 @@ jobs:
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build
 
-      - name: 单元测试（纯函数：防穿越判据 / 文件名清洗 / key 去重）
+      - name: 单元与状态测试（路径、鉴权、远程分享生命周期）
         run: swift test
 
       # 各脚本独立成步，失败时一眼看出是哪条回归。脚本默认用 .build/debug/LocalShare。
@@ -59,7 +73,9 @@ jobs:
         run: ./tools/smoke-filenames.sh
 
       - name: 视频 Range 与批量 ZIP 下载
-        run: ./tools/smoke-media-download.sh
+        run: |
+          ./tools/smoke-media-download.sh
+          node tools/smoke-media-selection.cjs
 
       - name: 多选虚拟根路由
         run: ./tools/smoke-multiselect.sh
@@ -79,11 +95,16 @@ jobs:
       - name: 远程访问完整链路
         run: ./tools/smoke-remote-e2e.sh
 
+      - name: 拒绝不可信中继证书
+        run: ./tools/smoke-remote-tls.sh
+
       - name: Release 模式远程访问完整链路
         run: |
           swift build -c release
+          swift test -c release --filter 'RemoteSharingTests|ShareRotationTests|AppStateRemoteTests'
           BIN=.build/release/LocalShare ./tools/smoke-remote-readonly.sh
           CLIENT_BIN=.build/release/LocalShare ./tools/smoke-remote-e2e.sh
+          CLIENT_BIN=.build/release/LocalShare ./tools/smoke-remote-tls.sh
 
       - name: 传递文本（/ls/text + 转义 + 虚拟根文本行）
         run: ./tools/smoke-text.sh

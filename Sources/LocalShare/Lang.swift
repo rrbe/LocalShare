@@ -109,6 +109,8 @@ enum L: CaseIterable {
     case remoteServerAddress, remoteEnrollmentKey, remotePairedPlaceholder, remoteSave, remoteSaved
     case remotePair, remotePairing, remotePairSucceeded
     case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
+    case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy, remoteGuide
+    case remoteProtocolMismatch, remoteLimitReached, remoteTLSFailed, remoteConnectionFailed
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
@@ -120,7 +122,7 @@ enum L: CaseIterable {
 
     // 远程访问
     case remoteAccess, remoteAccessDesc, remoteConfigHint
-    case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly, remoteTextUnavailable, scanCaptionRemote
+    case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly, scanCaptionRemote
     case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected
     case remoteLocalUnavailable, remoteInvalidRequest, remoteServerError
 
@@ -193,7 +195,7 @@ enum L: CaseIterable {
 
     // —— 权限派生（permSummary，原生 + 网页共用）——
     case permWritable, permReadonly
-    case eyebrowWritable, eyebrowReadonly
+    case eyebrowWritable, eyebrowReadonly, eyebrowRemoteReadonly, changeLocalPerm
     case chipDownloadable, chipReadonly, chipCanUpload, chipCanEdit, chipCanDelete, chipCanReceiveText
     case permWriteUpload, permWriteEdit, permWriteDelete
 
@@ -241,6 +243,7 @@ enum L: CaseIterable {
         case .shareFileTitle:  return ("分享文件", "Share Files")
         case .received:        return ("新收到", "Received")
         case .changePerm:      return ("改权限 ›", "Permissions ›")
+        case .changeLocalPerm: return ("局域网权限 ›", "Local Permissions ›")
         case .useAccessCode:   return ("改用访问码", "Use Access Code")
         case .useFullURL:      return ("改用完整网址", "Use Full URL")
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
@@ -257,12 +260,12 @@ enum L: CaseIterable {
         case .tailscaleNetworkOnly: return ("仅限 Tailscale", "Tailscale only")
         case .publicInternet: return ("可通过公网访问", "Available over the internet")
 
-        case .noNetwork:       return ("未接入局域网", "Not on a network")
-        case .noNetworkHint:   return ("先把这台 Mac 接入与目标设备相同的\nWi-Fi / 有线网络，再点下方刷新。",
-                                       "Connect this Mac to the same Wi-Fi /\nwired network as the target device, then refresh.")
+        case .noNetwork:       return ("未发现局域网地址", "No local network address")
+        case .noNetworkHint:   return ("局域网访问需要同一 Wi-Fi 或有线网络。",
+                                       "Local access requires the same Wi-Fi or wired network.")
 
         case .sectionNetwork:    return ("网络", "Network")
-        case .sectionRemote:     return ("远程访问", "Remote Access")
+        case .sectionRemote:     return ("互联网分享", "Internet Sharing")
         case .sectionPermission: return ("访问权限", "Access")
         case .sectionAppearance: return ("外观", "Appearance")
         case .sectionLanguage:   return ("语言", "Language")
@@ -283,6 +286,17 @@ enum L: CaseIterable {
         case .tailscaleTitle: return ("允许 Tailscale 访问", "Allow Tailscale Access")
         case .tailscaleDescMissing: return ("未检测到 Tailscale", "Tailscale not detected")
 
+        case .remoteDefaultService: return ("默认服务", "Default Service")
+        case .remoteCustomService: return ("使用自托管服务器", "Use a Self-hosted Server")
+        case .remoteUseDefault: return ("使用默认服务", "Use the Default Service")
+        case .localReceiveText: return ("允许局域网收文本", "Receive Text on the Local Network")
+        case .remoteReceiveText: return ("允许通过互联网收文本", "Receive Text over the Internet")
+        case .remotePrivacy: return ("中继服务可读取分享内容", "The relay can read shared content")
+        case .remoteGuide: return ("使用说明", "User Guide")
+        case .remoteProtocolMismatch: return ("服务器版本不匹配，请更新服务器", "Server version mismatch. Update the server.")
+        case .remoteLimitReached: return ("服务额度已用完，请稍后再试", "Service limit reached. Try again later.")
+        case .remoteTLSFailed: return ("无法建立安全连接，请检查服务器的 HTTPS 配置", "A secure connection could not be established. Check the server's HTTPS configuration.")
+        case .remoteConnectionFailed: return ("无法连接服务器，请检查网络和服务器状态", "Could not connect to the server. Check your network and the server's status.")
         case .remoteServerAddress: return ("服务器地址", "Server Address")
         case .remoteEnrollmentKey: return ("配对码", "Enrollment Key")
         case .remotePairedPlaceholder: return ("已配对", "Paired")
@@ -303,7 +317,7 @@ enum L: CaseIterable {
         case .portTooHighMsg:   return ("超出范围 · 端口最大为 65535", "Out of range · max port is 65535")
 
         case .permReadName:    return ("读取与下载", "Read & Download")
-        case .permUploadName:  return ("允许上传", "Allow Upload")
+        case .permUploadName:  return ("允许局域网上传", "Allow LAN Uploads")
         case .permUploadDescOff: return ("仅分享单个文件夹时可用", "Only available when sharing a single folder")
         case .accessCodeTitle: return ("使用访问码", "Use Access Code")
         case .accessCodeDesc: return ("在其他设备输入网址和访问码；扫码无需输入",
@@ -314,15 +328,14 @@ enum L: CaseIterable {
         case .plaintextWarning:  return ("局域网传输未加密 · 请勿在公共 Wi-Fi 分享敏感内容",
                                          "LAN transfers are unencrypted · Don't share sensitive content on public Wi-Fi")
 
-        case .remoteAccess:      return ("远程访问", "Remote Access")
-        case .remoteAccessDesc:  return ("跨网络只读浏览", "Read-only browsing across networks")
+        case .remoteAccess:      return ("互联网分享", "Internet Sharing")
+        case .remoteAccessDesc:  return ("Mac 需保持在线", "Keep your Mac online")
         case .remoteConfigHint:  return ("在设置 → 网络中填写服务器地址和配对码",
                                           "Enter the server address and enrollment key in Settings → Network")
         case .remoteConnecting:   return ("连接中", "Connecting")
         case .remoteOnline:       return ("在线", "Online")
         case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
-        case .remoteReadOnly:     return ("远程访问仅支持只读", "Remote access is read-only")
-        case .remoteTextUnavailable: return ("断开远程访问后可传递文本", "Disconnect remote access to transfer text")
+        case .remoteReadOnly:     return ("该操作不允许通过互联网执行", "This operation is not allowed over the internet")
         case .scanCaptionRemote: return ("扫码远程访问", "Scan for remote access")
         case .remoteEnrollmentRequired: return ("请先填写配对码", "Enter an enrollment key first")
         case .remoteInvalidCredentials: return ("服务器地址或设备凭证无效",
@@ -472,6 +485,7 @@ enum L: CaseIterable {
         case .permReadonly:      return ("只读", "Read-only")
         case .eyebrowWritable:   return ("局域网 · 可读写分享", "LAN · read-write share")
         case .eyebrowReadonly:   return ("局域网 · 只读分享", "LAN · read-only share")
+        case .eyebrowRemoteReadonly: return ("互联网 · 只读分享", "Internet · read-only share")
         case .chipDownloadable:  return ("可下载", "Downloadable")
         case .chipReadonly:      return ("只读", "Read-only")
         case .chipCanUpload:     return ("可上传", "Can upload")
@@ -490,7 +504,7 @@ enum L: CaseIterable {
 // 语序、复数、数字位置中英各异，故不入 key→value 表，由函数按 lang 拼装。
 enum LStr {
     static func remoteKeychainFailed(_ reason: String, _ lang: Lang) -> String {
-        lang == .zh ? "无法保存设备凭证：\(reason)" : "Could not save the device credential: \(reason)"
+        lang == .zh ? "无法访问设备凭证：\(reason)" : "Could not access the device credential: \(reason)"
     }
 
     static func remoteRequestFailed(_ reason: String, _ lang: Lang) -> String {
@@ -687,6 +701,9 @@ enum LStr {
             ("batchDownload", "批量下载", "Batch download"),
             ("selectAll", "全选 / 取消全选", "Select / clear all"),
             ("downloadSelected", "下载 ZIP", "Download ZIP"),
+            ("clearSelection", "取消选择", "Clear selection"),
+            ("selectionLimit", "每次最多 {n} 项", "Up to {n} files per download"),
+            ("selectUpToN", "选择前 {n} 项", "Select first {n}"),
             ("selectedN", "已选 {n} 项", "{n} selected"),
             ("cancel", "取消", "Cancel"),
             ("downloadFailed", "下载失败，请重试", "Download failed. Try again."),
