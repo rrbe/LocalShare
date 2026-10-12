@@ -6,9 +6,10 @@ import Foundation
 // （MarkedJS.source），页面加载后 fetch 同 URL 的 ?raw=1 取原文解析；
 // 原始 HTML 块/行内标签一律转义展示（own-files 威胁面小，仍默认不执行）。
 enum MarkdownViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool, canReceiveText: Bool = false, lang: Lang) -> String {
+    static func html(fileName: String, requestPath: String = "/", crumbs: String?, canUpload: Bool,
+                     canReceiveText: Bool = false, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
+            fileName: fileName, requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: #"<article class="card md" id="md"><p class="ld">\#(L.webLoading(lang))</p></article>"#,
             css: css, scripts: [MarkedJS.source, rendererConfig, boot], canReceiveText: canReceiveText)
     }

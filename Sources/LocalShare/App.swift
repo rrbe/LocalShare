@@ -115,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        AppState.shared?.stop()
+    }
+
     // 关窗不退出：菜单栏图标常驻，服务继续广播；退出走菜单栏「退出」或 ⌘Q。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false

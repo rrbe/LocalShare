@@ -8,6 +8,15 @@ struct SettingsScreen: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var updater: UpdaterController
     @State private var portText = ""
+    @State private var remoteServerText = ""
+    @State private var remoteKeyText = ""
+    @State private var remoteFeedback: RemoteFeedback?
+    @State private var remotePairTask: Task<Void, Never>?
+
+    private enum RemoteFeedback: Equatable {
+        case saved, pairing, paired, failed(String)
+    }
+
     var body: some View {
         // portText 初始为空、onAppear 才填入当前端口；首帧若按空串校验会闪出「无效 + 放弃/应用」行再弹回。
         // 空串一律视作「当前生效端口」，让首帧与落定后一致，消除进入设置页时的这层闪烁。
@@ -16,7 +25,7 @@ struct SettingsScreen: View {
         let pv = validatePort(effectivePort, lang)
         let pColor = pv.state == .ok ? t.ok : (pv.state == .occupied ? t.warn : t.danger)
         let changed = !portText.isEmpty && (Int(portText) ?? -1) != Int(state.configuredPort)
-        let ps = permSummary(state.permission, lang)
+        let ps = permSummary(state.effectivePermission, lang)
         let tailscaleDesc = state.tailscaleAccessEnabled && state.tailscaleStatus == nil
             ? L.tailscaleDescMissing(lang) : nil
         return ScreenFrame(t: t) {
@@ -36,9 +45,16 @@ struct SettingsScreen: View {
         }
         .onAppear {
             portText = String(state.configuredPort)
+            remoteServerText = state.remoteSettings.serverAddress
+            remoteKeyText = state.remoteEnrollmentKey
             state.refreshCLIStatus()
         }
-        .onDisappear { state.endSettingsLayout() }
+        .onChange(of: remoteServerText) { _ in remoteFeedback = nil }
+        .onChange(of: remoteKeyText) { _ in remoteFeedback = nil }
+        .onDisappear {
+            remotePairTask?.cancel()
+            state.endSettingsLayout()
+        }
     }
 
     // MARK: - 经典设置侧栏
@@ -194,6 +210,57 @@ struct SettingsScreen: View {
                     }
                 }
             }
+
+            eyebrow(L.sectionRemote(lang))
+            remoteAccessSettings(lang)
+        }
+    }
+
+    private func remoteAccessSettings(_ lang: Lang) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            groupBox {
+                remoteField(title: L.remoteServerAddress(lang), text: $remoteServerText)
+                remoteField(title: L.remoteEnrollmentKey(lang), text: $remoteKeyText, top: true, secure: true,
+                            placeholder: state.remotePaired ? L.remotePairedPlaceholder(lang) : "",
+                            disabled: state.remotePaired)
+                if !state.remotePaired {
+                    Text(L.remotePairHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
+                        .padding(.vertical, 10)
+                }
+                HStack {
+                    if let remoteFeedback, remoteFeedback != .saved {
+                        Image(systemName: remoteFeedbackIcon(remoteFeedback))
+                            .foregroundStyle(remoteFeedbackColor(remoteFeedback))
+                        Text(remoteFeedbackText(remoteFeedback, lang))
+                            .font(.sans(11.5, .semibold))
+                            .foregroundStyle(remoteFeedbackColor(remoteFeedback))
+                    }
+                    Spacer(minLength: 0)
+                    if !state.remotePaired {
+                        GhostButton(t: t, title: L.remotePair(lang), systemImage: "key.horizontal") {
+                            testRemotePairing()
+                        }
+                        .disabled(remoteFeedback == .pairing)
+                        .opacity(remoteFeedback == .pairing ? 0.55 : 1)
+                    }
+                    GhostButton(t: t,
+                                title: remoteFeedback == .saved ? L.remoteSaved(lang) : L.remoteSave(lang),
+                                systemImage: remoteFeedback == .saved ? "checkmark.circle.fill" : "checkmark") {
+                        saveRemoteSettings()
+                    }
+                    if state.remotePaired {
+                        Button {
+                            state.forgetRemoteDevice()
+                            remoteKeyText = ""
+                            remoteFeedback = nil
+                        } label: {
+                            Text(L.remoteForget(lang)).font(.sans(12.5, .semibold)).foregroundStyle(t.danger)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
         }
     }
 
@@ -207,11 +274,15 @@ struct SettingsScreen: View {
                     state.setAccessCodeEnabled(!state.accessCodeEnabled)
                 }
                 permRow(name: L.permUploadName(lang),
-                        desc: state.canToggleUpload ? nil : L.permUploadDescOff(lang),
-                        locked: !state.canToggleUpload, on: state.permission.add, top: true) {
+                        desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang)
+                                                       : (state.canToggleUpload ? nil : L.permUploadDescOff(lang)),
+                        locked: !state.canToggleUpload || state.remoteAccessEnabled,
+                        on: state.effectivePermission.add, top: true) {
                     state.setUploadAllowed(!state.permission.add)
                 }
-                permRow(name: L.recvInboxTitle(lang), locked: false, on: state.textInboxEnabled, top: true) {
+                permRow(name: L.recvInboxTitle(lang),
+                        desc: state.remoteAccessEnabled ? L.remoteReadOnly(lang) : nil,
+                        locked: state.remoteAccessEnabled, on: state.textInboxEnabled && !state.remoteAccessEnabled, top: true) {
                     state.setTextInboxEnabled(!state.textInboxEnabled)
                 }
             }
@@ -432,5 +503,79 @@ struct SettingsScreen: View {
         guard pv.state != .invalid, changed, let p = Int(portText) else { return }
         state.applyPort(in_port_t(p))
         state.goShare()
+    }
+
+    private func remoteField(title: String, text: Binding<String>, top: Bool = false,
+                             width: CGFloat = 190, numbersOnly: Bool = false, secure: Bool = false,
+                             placeholder: String = "", disabled: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            Text(title).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
+            Spacer(minLength: 8)
+            Group {
+                if secure {
+                    SecureField(placeholder, text: text)
+                } else {
+                    TextField(placeholder, text: text)
+                }
+            }
+                .textFieldStyle(.plain)
+                .font(.mono(11.5))
+                .frame(width: width)
+                .padding(.horizontal, 9).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(t.field))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(t.line, lineWidth: 1))
+                .disabled(disabled)
+                .onChange(of: text.wrappedValue) { value in
+                    if numbersOnly { text.wrappedValue = String(value.filter(\.isNumber).prefix(5)) }
+                }
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .top) { if top { Rectangle().fill(t.line).frame(height: 1) } }
+    }
+
+    private func saveRemoteSettings() {
+        state.saveRemoteSettings(RemoteSettings(serverAddress: remoteServerText), enrollmentKey: remoteKeyText)
+        remoteFeedback = .saved
+    }
+
+    private func testRemotePairing() {
+        remotePairTask?.cancel()
+        state.saveRemoteSettings(RemoteSettings(serverAddress: remoteServerText), enrollmentKey: remoteKeyText)
+        remoteFeedback = .pairing
+        remotePairTask = Task { @MainActor in
+            let error = await state.pairRemote(enrollmentKey: remoteKeyText)
+            guard !Task.isCancelled else { return }
+            if let error {
+                remoteFeedback = .failed(error)
+            } else {
+                remoteKeyText = ""
+                remoteFeedback = .paired
+            }
+        }
+    }
+
+    private func remoteFeedbackText(_ feedback: RemoteFeedback, _ lang: Lang) -> String {
+        switch feedback {
+        case .saved: return L.remoteSaved(lang)
+        case .pairing: return L.remotePairing(lang)
+        case .paired: return L.remotePairSucceeded(lang)
+        case .failed(let message): return message
+        }
+    }
+
+    private func remoteFeedbackIcon(_ feedback: RemoteFeedback) -> String {
+        switch feedback {
+        case .saved, .paired: return "checkmark.circle.fill"
+        case .pairing: return "ellipsis.circle"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func remoteFeedbackColor(_ feedback: RemoteFeedback) -> Color {
+        switch feedback {
+        case .saved, .paired: return t.ok
+        case .pairing: return t.inkMute
+        case .failed: return t.danger
+        }
     }
 }

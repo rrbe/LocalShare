@@ -152,7 +152,10 @@ struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                if state.isRunning, state.hasText || state.textInboxEnabled, state.qrImage != nil {
+                if state.remoteAccessEnabled {
+                    Text(L.remoteTextUnavailable(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
+                        .multilineTextAlignment(.center)
+                } else if state.isRunning, state.hasText || state.textInboxEnabled, state.qrImage != nil {
                     qrCard
                 } else if !state.hasNetwork {
                     noNetworkHint
@@ -165,7 +168,7 @@ struct TextScreen: View {
                 if state.textInboxEnabled || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
                 // 正在传递（发文本或收文本）才出「停止」：一步撤文本+关接收+停服务+回选择页，
                 // 对齐文件票据的「停止」。只是编辑没发、也没开接收时无可停，靠 ← 返回即可。
-                if state.isRunning && (state.hasText || state.textInboxEnabled) {
+                if state.isRunning && !state.remoteAccessEnabled && (state.hasText || state.textInboxEnabled) {
                     HStack {
                         Spacer()
                         DangerButton(t: t, title: L.stop(state.lang)) { state.stopTextTransfer() }
@@ -203,8 +206,8 @@ struct TextScreen: View {
                           systemImage: "paperplane.fill", fullWidth: true) {
                 state.setSharedText(draft)
             }
-            .disabled(blank || unchanged)
-            .opacity(blank || unchanged ? 0.5 : 1)
+            .disabled(blank || unchanged || state.remoteAccessEnabled)
+            .opacity(blank || unchanged || state.remoteAccessEnabled ? 0.5 : 1)
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(t.surface))
@@ -260,7 +263,7 @@ struct TextScreen: View {
         return HStack(spacing: 12) {
             Text(L.recvInboxTitle(lang)).font(.sans(13, .semibold)).foregroundStyle(t.ink)
             Spacer(minLength: 8)
-            ToggleSwitch(t: t, isOn: state.textInboxEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
+            ToggleSwitch(t: t, isOn: state.textInboxEnabled && !state.remoteAccessEnabled, locked: state.remoteAccessEnabled) { state.setTextInboxEnabled(!state.textInboxEnabled) }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))

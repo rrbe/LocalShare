@@ -69,7 +69,7 @@ base="http://127.0.0.1:$PORT"
 echo "── 文本+文件：虚拟根列出文本行（指向 /ls/text）"
 L=$(curl -s -H 'Accept: text/html' -b "ls_token=$TOK" "$base/")
 echo "$L" | grep -q 'class="row txtentry' && ok "含文本行" || bad "缺文本行"
-echo "$L" | grep -q 'href="/ls/text"' && ok "文本行链到 /ls/text" || bad "文本行未链到 /ls/text"
+echo "$L" | grep -q 'href="ls/text"' && ok "文本行相对链接解析到 /ls/text" || bad "文本行未使用相对 ls/text 链接"
 echo "$L" | grep -q 'snippet preview line' && ok "显示首行预览" || bad "缺预览"
 S=$(curl -s -o /dev/null -w '%{http_code}' "$base/ls/text?t=$TOK&raw=1")
 [ "$S" = "200" ] && ok "/ls/text 仍可取文本" || bad "/ls/text 应 200 实为 $S"

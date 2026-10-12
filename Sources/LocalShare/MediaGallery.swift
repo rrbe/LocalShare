@@ -49,6 +49,8 @@ enum MediaGallery {
       if(!list || !list.querySelector('[data-kind]'))return;
       const rows=Array.from(list.querySelectorAll('[data-kind]'));
       const t=LS_I18N;
+      const root=new URL(LS_ROOT||'./',location.href);
+      const sharePath=a=>'/'+new URL(a.href).pathname.slice(root.pathname.length);
       function button(label,parent,cls){const b=document.createElement('button');b.type='button';b.textContent=label;if(cls)b.className=cls;parent.appendChild(b);return b;}
       const bar=document.createElement('div');bar.className='viewbar';
       document.querySelector('.toolbar').after(bar);
@@ -60,7 +62,7 @@ enum MediaGallery {
         b.className='view-toggle';b.title=b.textContent;b.setAttribute('aria-label',b.textContent);
         b.innerHTML='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+icon+'</svg>';
       });
-      const batch=button(t.batchDownload,bar,'batch-toggle');
+      const batch=button(t.batchDownload,bar,'batch-toggle');batch.hidden=!LS_BATCH_DOWNLOAD;
       const selection=document.createElement('div');selection.className='selectionbar';selection.hidden=true;bar.after(selection);
       const selectAll=button(t.selectAll,selection),download=button(t.downloadSelected,selection,'download-selected');
       const count=document.createElement('span');count.className='selected-count';count.setAttribute('aria-live','polite');selection.appendChild(count);
@@ -86,7 +88,7 @@ enum MediaGallery {
           const thumb=document.createElement('span');thumb.className='thumb';thumb.setAttribute('aria-hidden','true');
           const media=document.createElement('img');
           const href=a.getAttribute('href');
-          media.dataset.src=/\.svg$/i.test(href)?href:'/ls/thumbnail?path='+encodeURIComponent(decodeURIComponent(href));
+          media.dataset.src=/\.svg$/i.test(href)?href:LS_ROOT+'ls/thumbnail?path='+encodeURIComponent(decodeURIComponent(sharePath(a)));
           media.alt='';media.loading='lazy';media.decoding='async';
           if(r.dataset.type==='video'){const badge=document.createElement('span');badge.className='video-badge';badge.textContent='▶';thumb.appendChild(badge);}
           media.addEventListener('error',()=>thumb.classList.add('failed'));
@@ -112,8 +114,8 @@ enum MediaGallery {
       const frame=document.createElement('iframe');frame.name='ls-download';frame.hidden=true;document.body.appendChild(frame);
       frame.addEventListener('load',()=>{if(frame.contentDocument&&frame.contentDocument.body.textContent.trim())count.textContent=t.downloadFailed;});
       download.onclick=()=>{
-        const form=document.createElement('form');form.method='POST';form.action='/ls/download'+location.search;form.target=frame.name;
-        const input=document.createElement('input');input.type='hidden';input.name='paths';input.value=JSON.stringify(visible().filter(r=>selected.has(r)).map(r=>r.querySelector('a').getAttribute('href')));
+        const form=document.createElement('form');form.method='POST';form.action=LS_ROOT+'ls/download'+location.search;form.target=frame.name;
+        const input=document.createElement('input');input.type='hidden';input.name='paths';input.value=JSON.stringify(visible().filter(r=>selected.has(r)).map(r=>sharePath(r.querySelector('a'))));
         form.appendChild(input);document.body.appendChild(form);form.submit();form.remove();
       };
       const dialog=document.createElement('dialog');dialog.className='gallery';dialog.setAttribute('aria-labelledby','gallery-title');

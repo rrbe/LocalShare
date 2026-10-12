@@ -44,7 +44,7 @@ echo "── GET /ls/text（cookie，无共享文本）退化成发送表单"
 P=$(curl -s -H 'Accept: text/html' -b "ls_token=$TOK" "$base/ls/text")
 echo "$P" | grep -q 'id="sendta"' && ok "含输入框" || bad "缺输入框 textarea"
 echo "$P" | grep -q 'id="sendbtn"' && ok "含发送按钮" || bad "缺发送按钮"
-echo "$P" | grep -q "/ls/text" && ok "脚本投递到 /ls/text" || bad "未见 /ls/text 投递"
+echo "$P" | grep -Fq "fetch(LS_ROOT+'ls/text'" && ok "脚本投递到挂载前缀下的 ls/text" || bad "未见挂载前缀下的 ls/text 投递"
 
 echo "── 旧 /ls/send 302 兼容跳 /ls/text"
 H=$(curl -s -D - -o /dev/null -b "ls_token=$TOK" "$base/ls/send")

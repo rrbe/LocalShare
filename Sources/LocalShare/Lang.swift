@@ -97,13 +97,18 @@ enum L: CaseIterable {
     case noNetwork, noNetworkHint
 
     // 设置 —— 小节标题
-    case sectionNetwork, sectionPermission, sectionAppearance, sectionLanguage, sectionAppearanceLanguage, sectionMain
+    case sectionNetwork, sectionRemote, sectionPermission, sectionAppearance, sectionLanguage, sectionAppearanceLanguage, sectionMain
     case sectionUpdate, sectionCLI, sectionRecent
     case shareSettings, shareHistory, currentColon
 
     // 设置 —— 网络
     case thisMachine, portOk, portOccupied, portInvalid, portChangeHint
     case tailscaleTitle, tailscaleDescMissing
+
+    // 设置 —— 远程访问
+    case remoteServerAddress, remoteEnrollmentKey, remotePairedPlaceholder, remoteSave, remoteSaved
+    case remotePair, remotePairing, remotePairSucceeded
+    case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
@@ -112,6 +117,12 @@ enum L: CaseIterable {
     case permReadName, permUploadName, permUploadDescOff
     case accessCodeTitle, accessCodeDesc, accessCodeLabel
     case permInfoWritable, plaintextWarning
+
+    // 远程访问
+    case remoteAccess, remoteAccessDesc, remoteConfigHint
+    case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly, remoteTextUnavailable, scanCaptionRemote
+    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected
+    case remoteLocalUnavailable, remoteInvalidRequest, remoteServerError
 
     // 设置 —— 外观
     case appearanceFollow, appearanceLight, appearanceDark
@@ -251,6 +262,7 @@ enum L: CaseIterable {
                                        "Connect this Mac to the same Wi-Fi /\nwired network as the target device, then refresh.")
 
         case .sectionNetwork:    return ("网络", "Network")
+        case .sectionRemote:     return ("远程访问", "Remote Access")
         case .sectionPermission: return ("访问权限", "Access")
         case .sectionAppearance: return ("外观", "Appearance")
         case .sectionLanguage:   return ("语言", "Language")
@@ -271,6 +283,20 @@ enum L: CaseIterable {
         case .tailscaleTitle: return ("允许 Tailscale 访问", "Allow Tailscale Access")
         case .tailscaleDescMissing: return ("未检测到 Tailscale", "Tailscale not detected")
 
+        case .remoteServerAddress: return ("服务器地址", "Server Address")
+        case .remoteEnrollmentKey: return ("配对码", "Enrollment Key")
+        case .remotePairedPlaceholder: return ("已配对", "Paired")
+        case .remoteSave:         return ("保存", "Save")
+        case .remoteSaved:        return ("已保存", "Saved")
+        case .remotePair:         return ("配对", "Pair")
+        case .remotePairing:      return ("正在配对…", "Pairing…")
+        case .remotePairSucceeded: return ("配对成功", "Pairing succeeded")
+        case .remoteConnect:      return ("连接", "Connect")
+        case .remoteDisconnect:   return ("断开", "Disconnect")
+        case .remoteForget:       return ("忘记服务器", "Forget Server")
+        case .remotePairHint:     return ("一次性配对码由服务器管理员提供",
+                                          "Get a one-time enrollment key from the server administrator")
+
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
         case .portTooLowMsg:    return ("需 ≥ 1024 · 1023 以下为系统保留端口", "Must be ≥ 1024 · ports below 1024 are reserved")
@@ -287,6 +313,26 @@ enum L: CaseIterable {
                                          "Visitors can upload files to this folder · Share only with people you trust")
         case .plaintextWarning:  return ("局域网传输未加密 · 请勿在公共 Wi-Fi 分享敏感内容",
                                          "LAN transfers are unencrypted · Don't share sensitive content on public Wi-Fi")
+
+        case .remoteAccess:      return ("远程访问", "Remote Access")
+        case .remoteAccessDesc:  return ("跨网络只读浏览", "Read-only browsing across networks")
+        case .remoteConfigHint:  return ("在设置 → 网络中填写服务器地址和配对码",
+                                          "Enter the server address and enrollment key in Settings → Network")
+        case .remoteConnecting:   return ("连接中", "Connecting")
+        case .remoteOnline:       return ("在线", "Online")
+        case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
+        case .remoteReadOnly:     return ("远程访问仅支持只读", "Remote access is read-only")
+        case .remoteTextUnavailable: return ("断开远程访问后可传递文本", "Disconnect remote access to transfer text")
+        case .scanCaptionRemote: return ("扫码远程访问", "Scan for remote access")
+        case .remoteEnrollmentRequired: return ("请先填写配对码", "Enter an enrollment key first")
+        case .remoteInvalidCredentials: return ("服务器地址或设备凭证无效",
+                                                "The Server address or device credential is invalid.")
+        case .remoteEnrollmentRejected: return ("服务器拒绝了配对请求",
+                                                "The Server rejected the enrollment request.")
+        case .remoteLocalUnavailable: return ("本机分享未运行。", "The local share is not running.")
+        case .remoteInvalidRequest: return ("远程请求路径无效。", "The remote request path is invalid.")
+        case .remoteServerError: return ("LocalShare Server 无法完成请求。",
+                                        "LocalShare Server could not complete the request.")
 
         case .appearanceFollow: return ("跟随系统", "System")
         case .appearanceLight:  return ("浅色", "Light")
@@ -443,6 +489,14 @@ enum L: CaseIterable {
 
 // 语序、复数、数字位置中英各异，故不入 key→value 表，由函数按 lang 拼装。
 enum LStr {
+    static func remoteKeychainFailed(_ reason: String, _ lang: Lang) -> String {
+        lang == .zh ? "无法保存设备凭证：\(reason)" : "Could not save the device credential: \(reason)"
+    }
+
+    static func remoteRequestFailed(_ reason: String, _ lang: Lang) -> String {
+        lang == .zh ? "读取本机分享失败：\(reason)" : "Could not read the local share: \(reason)"
+    }
+
     // "3 项" / "3 items"（目录元信息、计数、describeShared 共用）
     static func itemCount(_ n: Int, _ lang: Lang) -> String {
         lang == .zh ? "\(n) 项" : "\(n) item\(n == 1 ? "" : "s")"

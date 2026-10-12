@@ -6,9 +6,10 @@ import Foundation
 // 全量遍历键与原始值，命中以「完整路径 + 值」平铺列出（上限 500），清空即回树。
 // 长字符串截断 200 字符、点击展开全文。解析失败给「查看原文」出口。
 enum JsonViewer {
-    static func html(fileName: String, crumbs: String?, canUpload: Bool, canReceiveText: Bool = false, lang: Lang) -> String {
+    static func html(fileName: String, requestPath: String = "/", crumbs: String?, canUpload: Bool,
+                     canReceiveText: Bool = false, lang: Lang) -> String {
         PreviewPage.html(
-            fileName: fileName, crumbs: crumbs, canUpload: canUpload, lang: lang,
+            fileName: fileName, requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
             <div class="card">
               <div class="vbar">
