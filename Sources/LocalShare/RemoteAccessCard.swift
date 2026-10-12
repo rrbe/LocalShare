@@ -55,7 +55,11 @@ struct RemoteAccessCard: View {
                     state.setRemoteTextInboxEnabled(!state.remoteTextInboxEnabled)
                 }
             }
-            Text(L.remotePrivacy(state.lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+            HStack {
+                Text(L.remotePrivacy(state.lang)).font(.sans(11)).foregroundStyle(t.inkMute)
+                Spacer(minLength: 8)
+                RemoteGuideLink(t: t, lang: state.lang)
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
@@ -80,4 +84,15 @@ struct RemoteAccessCard: View {
         }
     }
 
+}
+
+struct RemoteGuideLink: View {
+    let t: Theme
+    let lang: Lang
+
+    var body: some View {
+        Link(L.remoteGuide(lang), destination: URL(string: "https://github.com/rrbe/LocalShare/blob/master/website/server/connect-client.md")!)
+            .font(.sans(11)).foregroundStyle(t.accent)
+            .buttonStyle(.plain)
+    }
 }

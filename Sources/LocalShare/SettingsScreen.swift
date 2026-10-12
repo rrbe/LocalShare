@@ -224,7 +224,11 @@ struct SettingsScreen: View {
                 }
             }
 
-            eyebrow(L.sectionRemote(lang))
+            HStack(alignment: .firstTextBaseline) {
+                eyebrow(L.sectionRemote(lang))
+                Spacer()
+                RemoteGuideLink(t: t, lang: lang)
+            }
             remoteAccessSettings(lang)
         }
     }

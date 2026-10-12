@@ -653,10 +653,10 @@ final class AppState: ObservableObject {
         fs.remoteTextInboxEnabled = remoteAccessEnabled && remoteTextInboxEnabled
         fs.uploadEnabled = permission.add && canToggleUpload
         fs.textInboxEnabled = textInboxEnabled
-        fs.onUpload = { url in   // socket 线程 → 主线程
+        fs.onUpload = { [weak self] url in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceived(url) }
         }
-        fs.onReceiveText = { rt in   // socket 线程 → 主线程
+        fs.onReceiveText = { [weak self] rt in   // socket 线程 → 主线程
             Task { @MainActor [weak self] in self?.recordReceivedText(rt) }
         }
         let prefer = [configuredPort] + fallbackPorts.filter { $0 != configuredPort }

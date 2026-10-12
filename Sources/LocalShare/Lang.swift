@@ -109,7 +109,7 @@ enum L: CaseIterable {
     case remoteServerAddress, remoteEnrollmentKey, remotePairedPlaceholder, remoteSave, remoteSaved
     case remotePair, remotePairing, remotePairSucceeded
     case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
-    case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy
+    case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy, remoteGuide
     case remoteProtocolMismatch, remoteLimitReached, remoteTLSFailed, remoteConnectionFailed
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
@@ -292,6 +292,7 @@ enum L: CaseIterable {
         case .localReceiveText: return ("允许局域网收文本", "Receive Text on the Local Network")
         case .remoteReceiveText: return ("允许通过互联网收文本", "Receive Text over the Internet")
         case .remotePrivacy: return ("中继服务可读取分享内容", "The relay can read shared content")
+        case .remoteGuide: return ("使用说明", "User Guide")
         case .remoteProtocolMismatch: return ("服务器版本不匹配，请更新服务器", "Server version mismatch. Update the server.")
         case .remoteLimitReached: return ("服务额度已用完，请稍后再试", "Service limit reached. Try again later.")
         case .remoteTLSFailed: return ("无法建立安全连接，请检查服务器的 HTTPS 配置", "A secure connection could not be established. Check the server's HTTPS configuration.")
