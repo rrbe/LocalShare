@@ -326,7 +326,7 @@ ContentView 的文件页只按 `hasNetwork` 判断是否显示 ShareScreen，而
 - `DOCS_BASE=/LocalShare pnpm docs:build`、冻结依赖安装、`git diff --check` 通过；CI 增加文档构建 job。未推送，所以没有本轮远端 CI 结果。
 - 通用 macOS App 构建、签名与依赖门禁通过；最终包内二进制的中继链路 27 项通过，Release CLI 带/不带 --port 均通过。两个架构的 Mach-O 最低系统版本为 macOS 13。未安装到 `/Applications`。正常打包曾遇到 curl 下载超时，通过 GitHub CLI 下载官方 appcast 后，用临时构建脚本引用该元数据并完成原有门禁；已校验临时脚本仅替换 ROOT 和 appcast 输入，仓库 build.sh 未修改。原生工具多次返回 `cgWindowNotFound`，本轮应用列表也没有可用的 LocalShare/Finder 窗口，未宣称原生界面验收通过。
 
-部署候选位于本机及 qcloud 的 `/tmp/localshare-qcloud-20261012/`，包含静态 Linux amd64 程序、SHA-256、systemd、独立 Nginx vhost、ACME 入口、续期 hook 和回滚说明。qcloud 上候选程序的校验及临时回环 healthz 通过；unit 和 Nginx 语法通过。Nginx 语法预检临时引用现有证书，并不代表新子域名证书有效。
+部署候选已准备，包含静态 Linux amd64 程序、校验文件、systemd、独立 Nginx vhost、ACME 入口、续期 hook 和回滚说明。目标服务器上的候选程序校验及临时回环 healthz 通过；unit 和 Nginx 语法通过。Nginx 语法预检临时引用现有证书，并不代表新子域名证书有效。
 
 新增证据：Debug/Release 中无效 TLS 证书被拒绝，未发布分享、未消耗配对码或创建设备。HTTP 307 配对重定向不会把凭据发送到其他服务器；429 配额与 401 凭据失效均为明确终止态。转发头限额收紧到 4 KiB，最大文本和转义元数据经真实 WebSocket 验证，超限返回 431 而不影响设备连接。
 
@@ -336,7 +336,7 @@ ContentView 的文件页只按 `hasNetwork` 判断是否显示 ShareScreen，而
 
 AppState 专项直接执行实际应用状态入口：已有配对标记和保存草稿时冷启动仍不发布，手动分享才启本机服务；远程连接中、认证失败及断开后保留局域网上传和收文本；文本编辑保留已发布链接，更换及清除发送新的 share_id，停止后重新选择内容不会自动发布远程分享。真实 FileServer 验证旧 token 拒绝和已清除文件不可读。WebSocket 服务端为协议夹具，凭据仅使用临时回环地址，偏好在独立测试宿主内保存及恢复；这些证据与现有真实 Keychain 复用、Go 旧链接失效及全链路测试组合，不代替默认服务的公网或原生界面验收。
 
-正式升级暂缓（2026-10-12 用户决定）：`share.fairydog.net` 当前指向 EdgeOne CNAME，候选方案为改用 qcloud 的 A 记录并申请独立证书，尚未执行。现有主站、TLS 文件、binary、unit、状态与 DNS 尚未修改。保留 `/var/lib/localshare/state.json`；公网 WSS、真实跨网络浏览器及续期完成前，不将整份计划标为交付完成。
+正式升级暂缓（2026-10-12）：候选方案涉及 DNS 配置和独立证书，尚未执行。现有主站、TLS 文件、binary、unit、状态与 DNS 尚未修改。保留 `/var/lib/localshare/state.json`；公网 WSS、真实跨网络浏览器及续期完成前，不将整份计划标为交付完成。
 
 
 ### 原生验收恢复后的补充记录
@@ -368,17 +368,17 @@ AppState 专项直接执行实际应用状态入口：已有配对标记和保�
 
 正常网络枚举已恢复，当前源码 Debug 全量 105 项通过；通用 App 重新构建、签名与依赖门禁通过，当前包的 `--headless --port` 文件内容检查通过。来源字段补齐后的完整链路 27 项和权限 19 项通过，文档构建和 diff 检查通过。临时原生 App、中继/代理进程与本轮两项测试设备凭据均已清理。
 
-qcloud 中继候选已更新为含可信来源字段的静态 Linux amd64 程序，SHA-256 为 `53a5961ea9c4cd130435c55c6b98b9aea8bcea2e495ea6ee8c7f230a2a578c22`；远端校验与临时回环 healthz 通过。线上服务仍 active，安装程序 SHA-256 仍为 `1c25ba6aa784fbd49548096b267477403352d6d914e1153e218f2c17e666aa32`，未应用候选。`share.fairydog.net` 仍指向 EdgeOne CNAME，HTTPS 健康检查因主机名与证书不匹配失败，未跳过校验。
+中继候选已更新为含可信来源字段的静态 Linux amd64 程序；远端校验与临时回环 healthz 通过。线上服务仍 active，未应用候选。生产 HTTPS 健康检查因主机名与证书不匹配失败，未跳过校验。
 
-2026-10-12 用户明确回复“暂不部署”，并对带宽与正式额度回复“暂不做，我手动处理”。因此暂停线上升级，不再执行 DNS、证书、生产程序或 systemd 配置变更；正式额度由用户手动确定。部署候选保留在 `/tmp/localshare-qcloud-20261012/README.md`，其中的速率与并发额度仍为预设值。主站、生产 binary/unit、设备状态与 DNS 保持原状。生产 TLS、续期、真实新装与跨网络验收继续保持未勾选，整份计划尚未完成线上交付。后续用户要求推送已完成的工作，本轮代码、测试与文档统一提交到 stack 顶层 `docs/remote-sharing-site`，由 PR #47 承载集成修改。
+2026-10-12 线上升级与正式额度配置暂停，DNS、证书、生产程序和 systemd 配置变更均未执行。部署候选中的速率与并发额度仍为预设值。主站、生产 binary/unit、设备状态与 DNS 保持原状。生产 TLS、续期、真实新装与跨网络验收继续保持未勾选，整份计划尚未完成线上交付。本轮代码、测试与文档统一提交到 stack 顶层 `docs/remote-sharing-site`，由 PR #47 承载集成修改。
 
 ### 手动部署工作与 CDN 的区别
 
-CDN 是可选的部署层。当前 qcloud 候选使用独立子域名直接访问 Nginx，由 Nginx 终止 HTTPS/WSS，再转发到回环中继；使用这一方式无需配置 CDN。2026-10-12 再次查询，`share.fairydog.net` 仍指向 EdgeOne CNAME。若保留 EdgeOne，则需额外完成下面第三列，现有候选没有包含 EdgeOne 专用配置或验收。
+CDN 是可选的部署层。可以使用独立子域名直接访问 Nginx，由 Nginx 终止 HTTPS/WSS，再转发到回环中继。若使用 EdgeOne，则需额外完成下面第三列；现有候选未包含 EdgeOne 专用配置或验收。表中使用 `share.example.com` 和文档保留地址 `203.0.113.10`，部署时替换为自己的域名和地址。
 
-| 工作 | 直接访问 qcloud 的候选方案 | 保留 EdgeOne 需要额外处理 |
+| 工作 | 直接访问源站的方案 | 使用 EdgeOne 需要额外处理 |
 | --- | --- | --- |
-| 域名与 DNS | 使用 `share.fairydog.net`，A 指向 `81.71.95.2`；清理冲突的同名记录 | 保留 EdgeOne CNAME，源站填 qcloud IP，避免将加速域名作为自身源站 |
+| 域名与 DNS | 使用 `share.example.com`，A 指向 `203.0.113.10`；清理冲突的同名记录 | 使用 EdgeOne CNAME，源站填服务器公网 IP，避免将加速域名作为自身源站 |
 | 证书与加密 | Nginx 安装覆盖该子域名的有效证书，公网使用 HTTPS/WSS | EdgeOne 边缘证书也要覆盖该子域名；回源使用 HTTPS，并验证源站证书及 Host/SNI 匹配 |
 | 程序与状态 | 校验并安装 Linux 二进制；专用用户运行，保留 `/var/lib/localshare/state.json` | 中继本身安装方式相同 |
 | 服务配置 | systemd 监听 `127.0.0.1:18080`，设置 HTTPS public-url 和 `--behind-proxy`；Client/Server 一起升级到 v2 | public-url 仍使用访问者所用的公开域名，不写 CDN 节点或源站 IP |

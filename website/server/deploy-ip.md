@@ -9,7 +9,7 @@ description: 无需域名，使用 Let’s Encrypt IP 证书，让 LocalShare Se
 
 <div class="flow">LocalShare / 浏览器  ── HTTPS ──▶  公网 IP:443  ──▶  Server</div>
 
-下文的 `203.0.113.10` 是示例，全部替换为服务器的固定公网 IPv4。先完成[程序安装](./deployment#_1-安装-server)。
+下文的 `203.0.113.10` 是专用于文档的保留地址，部署时全部替换为服务器的固定公网 IPv4。先完成[程序安装](./deployment#_1-安装-server)。
 
 ## 1. 准备端口与 Certbot
 

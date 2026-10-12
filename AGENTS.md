@@ -9,6 +9,10 @@ Related documents:
 - Architecture: `docs/ARCHITECTURE.md`
 - Visual design system: `DESIGN.md`
 
+## Documentation Privacy
+
+Use documentation-reserved IP addresses (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`), `example.com` domains, and demo identities in examples and screenshots. Keep real origin IPs, SSH host aliases, personal paths, credentials, and private deployment details out of all documentation and PR descriptions. The public service URL may be documented as a product endpoint.
+
 ## Common Commands
 
 ```bash
