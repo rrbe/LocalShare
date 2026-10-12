@@ -1,6 +1,6 @@
 ---
 title: 连接 LocalShare Client
-description: 使用 Enrollment Key 配对 Client，并开始远程只读分享。
+description: 使用 Enrollment Key 配对 Client，并开始远程文件和文本分享。
 ---
 
 # 连接 LocalShare Client
@@ -14,11 +14,11 @@ Server 部署完成后，只需用 Enrollment Key 完成一次设备配对。之
 - `curl <server-address>/healthz` 返回 200
 - Server address 是不含额外路径和 query 的基地址
 - 已运行 `localshare-server key create` 并取得尚未使用的 Enrollment Key
-- LocalShare Client 已选择要分享的文件或文件夹
+- LocalShare Client 已选择文件、发送文本或开启远程收文本
 
 ## 1. 配置远程访问
 
-在 LocalShare Client 中打开“设置 → 网络 → 远程访问”，填写：
+在 LocalShare Client 中打开“设置 → 网络 → 使用自托管服务器”，填写：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -29,7 +29,7 @@ Server 部署完成后，只需用 Enrollment Key 完成一次设备配对。之
 
 ## 2. 发布当前分享
 
-回到文件分享票据并点击「连接」。连接成功后，票据会显示 Server 生成的远程访问地址。
+回到文件或文本分享页并点击「连接」。连接成功后，票据会显示 Server 生成的远程访问地址。
 
 <div class="flow">选择分享内容  ──▶  连接  ──▶  获得远程地址  ──▶  发给访问者</div>
 
@@ -44,7 +44,7 @@ Server 部署完成后，只需用 Enrollment Key 完成一次设备配对。之
 - 更换分享内容：立即轮换本地访问令牌，远程分享也会使用新的身份
 
 ::: warning 远程访问范围
-远程地址只开放文件和目录的只读浏览，支持媒体方格预览和单文件下载，不支持批量下载、访客上传或 Text Transfer。连接期间，局域网访客上传和文本传递也会暂停，断开后恢复原有设置。
+远程文件只读，支持媒体预览和单文件下载。文本可读取；接收需单独开启「允许通过互联网收文本」。局域网权限保持原设置。公网使用 HTTPS/WSS，中继可读取内容；Mac 必须在线。
 
 不要把 Enrollment Key、Device Token 或 Share Token 公开发送给无关人员。
 :::
@@ -54,7 +54,7 @@ Server 部署完成后，只需用 Enrollment Key 完成一次设备配对。之
 按以下顺序检查：
 
 1. `curl <server-address>/healthz` 是否返回 200。
-2. Server address 是否为正确的 HTTP 或 HTTPS 基地址。
+2. Server address 是否为正确的 HTTPS 基地址（HTTP 仅限回环测试）。
 3. Enrollment Key 是否已被使用；如果是，重新创建一个 key。
 4. `device list` 是否能看到已经配对的设备。
 5. Client 是否已选择分享内容；空分享时「连接」不可用。

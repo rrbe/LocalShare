@@ -10,7 +10,7 @@ import Foundation
 enum TextViewer {
     // text：要展示/复制的原文；crumbs：与文件共存于虚拟根时显示「分享内容 / 文本」，纯文本分享传 nil。
     static func html(text: String, requestPath: String = "/ls/text", crumbs: String?, canUpload: Bool,
-                     canReceiveText: Bool = false, lang: Lang) -> String {
+                     canReceiveText: Bool = false, lang: Lang, remoteMode: Bool = false) -> String {
         PreviewPage.html(
             fileName: L.webText(lang), requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: """
@@ -24,7 +24,7 @@ enum TextViewer {
             </article>
             """,
             css: css, scripts: ["var LS_TEXT=\"\(LStr.jsEscape(text))\";", boot],
-            rawLabel: L.webViewRawText(lang), canReceiveText: canReceiveText)
+            rawLabel: L.webViewRawText(lang), canReceiveText: canReceiveText, remoteMode: remoteMode)
     }
 
     private static let css = """

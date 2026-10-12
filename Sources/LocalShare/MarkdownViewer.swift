@@ -7,11 +7,11 @@ import Foundation
 // 原始 HTML 块/行内标签一律转义展示（own-files 威胁面小，仍默认不执行）。
 enum MarkdownViewer {
     static func html(fileName: String, requestPath: String = "/", crumbs: String?, canUpload: Bool,
-                     canReceiveText: Bool = false, lang: Lang) -> String {
+                     canReceiveText: Bool = false, lang: Lang, remoteMode: Bool = false) -> String {
         PreviewPage.html(
             fileName: fileName, requestPath: requestPath, crumbs: crumbs, canUpload: canUpload, lang: lang,
             body: #"<article class="card md" id="md"><p class="ld">\#(L.webLoading(lang))</p></article>"#,
-            css: css, scripts: [MarkedJS.source, rendererConfig, boot], canReceiveText: canReceiveText)
+            css: css, scripts: [MarkedJS.source, rendererConfig, boot], canReceiveText: canReceiveText, remoteMode: remoteMode)
     }
 
     private static let css = """

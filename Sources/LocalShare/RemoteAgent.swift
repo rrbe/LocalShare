@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class RemoteAgent: NSObject {
-    private static let pairedServerKey = "remotePairedServerAddress"
+    private static let pairedServerKey = "remotePairedServerAddresses"
 
     enum Status: Equatable {
         case disconnected
@@ -14,17 +14,28 @@ final class RemoteAgent: NSObject {
     private var serverURL: URL?
     private var localBaseURL: URL?
     private var localToken = ""
+    private var localRelayToken = ""
+    private var receivingText = false
     private var cachedDeviceToken: String?
     private var cachedCredentialServer: String?
     private var shouldConnect = false
+    private var connectionID = UUID()
+    private var connectionTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 1
     private var retryTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession?
     private var localRequests: [String: RemoteLocalRequest] = [:]
+    private var acknowledgments: [String: CheckedContinuation<Void, Error>] = [:]
     private var localRequestLanguages: [String: Lang] = [:]
     private var lang: Lang = .systemDefault
+    private let credentialReader: @Sendable (String) throws -> String?
+
+    init(credentialReader: @escaping @Sendable (String) throws -> String? = { try RemoteKeychain.value(for: $0) }) {
+        self.credentialReader = credentialReader
+        super.init()
+    }
 
     private(set) var status: Status = .disconnected
     private(set) var lastError: String?
@@ -38,22 +49,28 @@ final class RemoteAgent: NSObject {
 
     func isPaired(for serverURL: URL?) -> Bool {
         guard let serverURL else { return false }
-        return UserDefaults.standard.string(forKey: Self.pairedServerKey) == serverURL.absoluteString
+        return (UserDefaults.standard.stringArray(forKey: Self.pairedServerKey) ?? []).contains(serverURL.absoluteString)
     }
 
     func connect(serverURL: URL, enrollmentKey: String, localBaseURL: URL, localToken: String,
-                 deviceName: String, lang: Lang, persistCredential: Bool = true) {
+                 deviceName: String, lang: Lang, persistCredential: Bool = true,
+                 localRelayToken: String = "", receivingText: Bool = false, automaticRegistration: Bool = false) {
+        connectionTask?.cancel()
+        connectionID = UUID()
+        let attempt = connectionID
         shouldConnect = true
         self.lang = lang
         self.serverURL = serverURL
         self.localBaseURL = localBaseURL
         self.localToken = localToken
+        self.localRelayToken = localRelayToken
+        self.receivingText = receivingText
         retryTask?.cancel()
         retryTask = nil
         closeSocket()
         setStatus(.connecting, error: nil)
 
-        Task { @MainActor [weak self] in
+        connectionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 if !enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -61,28 +78,38 @@ final class RemoteAgent: NSObject {
                                         deviceName: deviceName, lang: lang,
                                         persistCredential: persistCredential)
                 }
-                guard cachedDeviceToken(for: serverURL) != nil else {
+                if automaticRegistration, try await cachedDeviceToken(for: serverURL) == nil {
+                    try await self.pair(serverURL: serverURL, enrollmentKey: "", deviceName: deviceName,
+                                        lang: lang, persistCredential: persistCredential, automaticRegistration: true)
+                }
+                guard try await cachedDeviceToken(for: serverURL) != nil else {
                     throw RemoteDisplayError(message: L.remoteEnrollmentRequired(lang))
                 }
+                try Task.checkCancellation()
+                guard self.shouldConnect, self.connectionID == attempt else { return }
                 self.openSocket()
             } catch {
+                guard self.connectionID == attempt, !Task.isCancelled else { return }
                 self.shouldConnect = false
-                self.setStatus(.disconnected, error: error.localizedDescription)
+                self.setStatus(.disconnected, error: Self.displayMessage(for: error, lang: lang))
             }
         }
     }
 
     func pair(serverURL: URL, enrollmentKey: String, deviceName: String,
-              lang: Lang, persistCredential: Bool = true) async throws {
+              lang: Lang, persistCredential: Bool = true, automaticRegistration: Bool = false) async throws {
+        let attempt = connectionID
         let key = enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
+        guard !key.isEmpty || automaticRegistration else {
             throw RemoteDisplayError(message: L.remoteEnrollmentRequired(lang))
         }
         let credentials = try await Self.enroll(serverURL: serverURL, key: key,
-                                                deviceName: deviceName, lang: lang)
+                                                deviceName: deviceName, lang: lang, automaticRegistration: automaticRegistration)
+        try Task.checkCancellation()
+        guard connectionID == attempt else { throw CancellationError() }
         if persistCredential {
             do {
-                try RemoteKeychain.set(credentials.deviceToken, for: RemoteKeychain.deviceToken)
+                try RemoteKeychain.set(credentials.deviceToken, for: RemoteKeychain.deviceAccount(for: serverURL))
             } catch let failure as RemoteKeychain.Failure {
                 throw RemoteDisplayError(message: LStr.remoteKeychainFailed(failure.reason, lang))
             }
@@ -90,11 +117,16 @@ final class RemoteAgent: NSObject {
         cachedDeviceToken = credentials.deviceToken
         cachedCredentialServer = serverURL.absoluteString
         if persistCredential {
-            UserDefaults.standard.set(serverURL.absoluteString, forKey: Self.pairedServerKey)
+            var addresses = UserDefaults.standard.stringArray(forKey: Self.pairedServerKey) ?? []
+            if !addresses.contains(serverURL.absoluteString) { addresses.append(serverURL.absoluteString) }
+            UserDefaults.standard.set(addresses, forKey: Self.pairedServerKey)
         }
     }
 
     func disconnect() {
+        connectionID = UUID()
+        connectionTask?.cancel()
+        connectionTask = nil
         shouldConnect = false
         retryTask?.cancel()
         retryTask = nil
@@ -106,51 +138,71 @@ final class RemoteAgent: NSObject {
         setStatus(.disconnected, error: nil)
     }
 
-    func forgetDevice() throws {
+    func forgetDevice(for serverURL: URL?) throws {
         disconnect()
-        try RemoteKeychain.removeAll()
+        guard let serverURL else { return }
+        try RemoteKeychain.remove(for: RemoteKeychain.deviceAccount(for: serverURL))
         cachedDeviceToken = nil
         cachedCredentialServer = nil
-        UserDefaults.standard.removeObject(forKey: Self.pairedServerKey)
+        let addresses = (UserDefaults.standard.stringArray(forKey: Self.pairedServerKey) ?? []).filter { $0 != serverURL.absoluteString }
+        UserDefaults.standard.set(addresses, forKey: Self.pairedServerKey)
     }
 
     func updateLocalShare(baseURL: URL, token: String) {
+        let changed = localToken != token
         localBaseURL = baseURL
         localToken = token
-        guard status == .connected else { return }
-        send(RemoteWireMessage(type: "share.start", protocolVersion: 1, shareID: token, deviceName: nil))
+        guard status == .connected, changed else { return }
+        shareBaseURL = nil
+        onShareURLChange?(nil)
+        cancelLocalRequests()
+        send(RemoteWireMessage(type: "share.start", protocolVersion: RemoteWireMessage.version, shareID: token, deviceName: nil, textInbox: receivingText))
+    }
+
+    func updateReceivingText(_ enabled: Bool) {
+        receivingText = enabled
+        if status == .connected {
+            send(RemoteWireMessage(type: "share.update", shareID: localToken, textInbox: enabled))
+        }
     }
 
     private func openSocket() {
-        guard let serverURL,
-              let token = cachedDeviceToken(for: serverURL),
+        guard shouldConnect, let serverURL,
+              cachedCredentialServer == serverURL.absoluteString, let token = cachedDeviceToken,
               let endpoint = agentURL(for: serverURL) else {
             shouldConnect = false
             setStatus(.disconnected, error: L.remoteInvalidCredentials(lang))
             return
         }
+        // Let failed attempts return to our retry scheduler instead of waiting inside URLSession.
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.waitsForConnectivity = true
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: OperationQueue())
         var request = URLRequest(url: endpoint)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         self.session = session
         let task = session.webSocketTask(with: request)
         webSocket = task
+        task.maximumMessageSize = 128 << 10
         task.resume()
     }
 
-    private func cachedDeviceToken(for serverURL: URL) -> String? {
+    private func cachedDeviceToken(for serverURL: URL) async throws -> String? {
         let address = serverURL.absoluteString
         if cachedCredentialServer == address, let cachedDeviceToken {
             return cachedDeviceToken
         }
-        if UserDefaults.standard.string(forKey: Self.pairedServerKey) != address {
-            // Compatibility for credentials created before the paired-server marker existed.
-            guard RemoteKeychain.value(for: RemoteKeychain.serverAddress) == address else { return nil }
-            UserDefaults.standard.set(address, forKey: Self.pairedServerKey)
+        let attempt = connectionID
+        let reader = credentialReader
+        let account = RemoteKeychain.deviceAccount(for: serverURL)
+        let stored: String?
+        do {
+            stored = try await Task.detached { try reader(account) }.value
+        } catch let failure as RemoteKeychain.Failure {
+            throw RemoteDisplayError(message: LStr.remoteKeychainFailed(failure.reason, lang))
         }
-        guard let token = RemoteKeychain.value(for: RemoteKeychain.deviceToken), !token.isEmpty else { return nil }
+        try Task.checkCancellation()
+        guard connectionID == attempt else { throw CancellationError() }
+        guard let token = stored, !token.isEmpty else { return nil }
         cachedDeviceToken = token
         cachedCredentialServer = address
         return token
@@ -185,7 +237,7 @@ final class RemoteAgent: NSObject {
                   let message = try? JSONDecoder().decode(RemoteWireMessage.self, from: data) else { return }
             handle(message)
         case .data:
-            // V1 only streams file bytes from the Mac to the server.
+            // File data flows from the Mac to the relay; text request bodies use JSON.
             break
         @unknown default:
             break
@@ -195,6 +247,11 @@ final class RemoteAgent: NSObject {
     private func handle(_ message: RemoteWireMessage) {
         switch message.type {
         case "hello":
+            guard message.protocolVersion == RemoteWireMessage.version else {
+                shouldConnect = false
+                connectionEnded(RemoteDisplayError(message: L.remoteProtocolMismatch(lang)))
+                return
+            }
             if let url = shareBaseURL { onShareURLChange?(url) }
         case "share.ready":
             shareBaseURL = message.shareURL
@@ -202,9 +259,12 @@ final class RemoteAgent: NSObject {
         case "request.begin":
             guard let id = message.requestID, let method = message.method, let path = message.path else { return }
             startLocalRequest(id: id, shareID: message.shareID, method: method,
-                              path: path, headers: message.headers ?? [:])
+                              path: path, headers: message.headers ?? [:], body: message.body,
+                              clientIP: message.clientIP)
         case "request.cancel":
             if let id = message.requestID { cancelLocalRequest(id) }
+        case "response.ack":
+            if let id = message.requestID { acknowledgments.removeValue(forKey: id)?.resume() }
         case "error":
             lastError = L.remoteServerError(lang)
             onStateChange?(status, lastError)
@@ -214,16 +274,23 @@ final class RemoteAgent: NSObject {
     }
 
     private func startLocalRequest(id: String, shareID: String?, method: String,
-                                   path: String, headers: [String: String]) {
+                                   path: String, headers: [String: String], body: Data?, clientIP: String?) {
         guard RemoteShareGate.accepts(shareID, currentToken: localToken) else {
             send(RemoteWireMessage(type: "response.begin", requestID: id,
                                    headers: ["Content-Length": "0"], status: 410))
             send(RemoteWireMessage(type: "response.end", requestID: id))
             return
         }
-        guard method == "GET" || method == "HEAD" else {
+        guard RemoteRequestPolicy.accepts(method: method, path: path, receivingText: receivingText),
+              (body?.count ?? 0) <= FileServer.textInboxLimit else {
             send(RemoteWireMessage(type: "response.begin", requestID: id,
                                    headers: ["Content-Length": "0", "Allow": "GET, HEAD"], status: 405))
+            send(RemoteWireMessage(type: "response.end", requestID: id))
+            return
+        }
+        guard let clientIP, RemoteRequestPolicy.isValidClientIP(clientIP) else {
+            send(RemoteWireMessage(type: "response.begin", requestID: id,
+                                   headers: ["Content-Length": "0"], status: 400))
             send(RemoteWireMessage(type: "response.end", requestID: id))
             return
         }
@@ -240,24 +307,28 @@ final class RemoteAgent: NSObject {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        for (key, value) in headers where ["Accept", "Accept-Language", "If-Modified-Since", "If-None-Match", "Range", "User-Agent"].contains(key) {
+        request.httpBody = body
+        request.setValue(localRelayToken, forHTTPHeaderField: "X-LocalShare-Relay")
+        request.setValue(clientIP, forHTTPHeaderField: RemoteRequestPolicy.clientIPHeader)
+        for (key, value) in headers where ["Accept", "Accept-Language", "If-Modified-Since", "If-None-Match", "Range", "User-Agent", "Content-Type"].contains(key) {
             request.setValue(value, forHTTPHeaderField: key)
         }
         let local = RemoteLocalRequest(id: id, request: request) { [weak self] event in
-            Task { @MainActor [weak self] in self?.handleLocalEvent(id: id, event: event) }
+            guard let self else { throw CancellationError() }
+            try await self.handleLocalEvent(id: id, event: event)
         }
         localRequests[id] = local
         localRequestLanguages[id] = requestLang
         local.start()
     }
 
-    private func handleLocalEvent(id: String, event: RemoteLocalEvent) {
-        guard localRequests[id] != nil else { return }
+    private func handleLocalEvent(id: String, event: RemoteLocalEvent) async throws {
+        guard localRequests[id] != nil else { throw CancellationError() }
         switch event {
         case .headers(let status, let headers):
             send(RemoteWireMessage(type: "response.begin", requestID: id, headers: headers, status: status))
         case .data(let data):
-            sendDataResponse(id, data: data)
+            try await sendDataResponse(id, data: data)
         case .finished(let error):
             if let error, (error as NSError).code != NSURLErrorCancelled {
                 let requestLang = localRequestLanguages[id] ?? lang
@@ -271,13 +342,14 @@ final class RemoteAgent: NSObject {
         }
     }
 
-    private func sendDataResponse(_ requestID: String, data: Data) {
-        guard let webSocket else { return }
-        webSocket.send(.data(Self.encodeData(requestID, data))) { [weak self] error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let error { self.connectionEnded(error, from: webSocket) }
-                else { self.localRequests[requestID]?.resumeAfterChunk() }
+    private func sendDataResponse(_ requestID: String, data: Data) async throws {
+        guard let webSocket else { throw CancellationError() }
+        try await withCheckedThrowingContinuation { continuation in
+            acknowledgments[requestID] = continuation
+            webSocket.send(.data(Self.encodeData(requestID, data))) { [weak self] error in
+                if let error {
+                    Task { @MainActor [weak self] in self?.connectionEnded(error, from: webSocket) }
+                }
             }
         }
     }
@@ -292,11 +364,14 @@ final class RemoteAgent: NSObject {
     }
 
     private func cancelLocalRequest(_ id: String) {
+        acknowledgments.removeValue(forKey: id)?.resume(throwing: CancellationError())
         localRequests.removeValue(forKey: id)?.cancel()
         localRequestLanguages.removeValue(forKey: id)
     }
 
     private func cancelLocalRequests() {
+        for continuation in acknowledgments.values { continuation.resume(throwing: CancellationError()) }
+        acknowledgments.removeAll()
         for request in localRequests.values { request.cancel() }
         localRequests.removeAll()
         localRequestLanguages.removeAll()
@@ -308,7 +383,7 @@ final class RemoteAgent: NSObject {
         closeSocket()
         shareBaseURL = nil
         onShareURLChange?(nil)
-        let message = error.localizedDescription
+        let message = Self.displayMessage(for: error, lang: lang)
         lastError = message
         guard shouldConnect else {
             setStatus(.disconnected, error: message)
@@ -346,16 +421,35 @@ final class RemoteAgent: NSObject {
         onStateChange?(value, error)
     }
 
+    static func displayMessage(for error: Error, lang: Lang) -> String {
+        let failure = error as NSError
+        if failure.domain == NSPOSIXErrorDomain { return L.remoteConnectionFailed(lang) }
+        guard failure.domain == NSURLErrorDomain else { return error.localizedDescription }
+        switch URLError.Code(rawValue: failure.code) {
+        case .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
+             .clientCertificateRejected, .clientCertificateRequired:
+            return L.remoteTLSFailed(lang)
+        default:
+            return L.remoteConnectionFailed(lang)
+        }
+    }
+
     private static func enroll(serverURL: URL, key: String, deviceName: String,
-                               lang: Lang) async throws -> RemoteEnrollmentResponse {
-        let endpoint = serverURL.appendingPathComponent("api/v1/enroll")
+                               lang: Lang, automaticRegistration: Bool) async throws -> RemoteEnrollmentResponse {
+        let endpoint = serverURL.appendingPathComponent(automaticRegistration ? "api/v1/register" : "api/v1/enroll")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
             RemoteWireMessage(type: "enroll", deviceName: deviceName, enrollmentKey: key)
         )
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = URLSession(configuration: .ephemeral, delegate: RemoteEnrollmentDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(for: request)
+        if let code = (response as? HTTPURLResponse)?.statusCode, [429, 503].contains(code) {
+            throw RemoteDisplayError(message: L.remoteLimitReached(lang))
+        }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw RemoteDisplayError(message: L.remoteEnrollmentRejected(lang))
         }
@@ -368,24 +462,28 @@ final class RemoteAgent: NSObject {
 }
 
 extension RemoteAgent: URLSessionWebSocketDelegate {
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
+                                willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                                completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                                 didOpenWithProtocol protocol: String?) {
         Task { @MainActor [weak self] in
-            guard let self, self.webSocket === webSocketTask else { return }
+            guard let self, self.shouldConnect, self.webSocket === webSocketTask else { return }
             self.retryDelay = 1
             self.setStatus(.connected, error: nil)
-            self.send(RemoteWireMessage(type: "hello", protocolVersion: 1,
+            self.send(RemoteWireMessage(type: "hello", protocolVersion: RemoteWireMessage.version,
                                         deviceName: Host.current().localizedName ?? "Mac"))
             if self.localBaseURL != nil {
-                self.send(RemoteWireMessage(type: "share.start", protocolVersion: 1,
-                                            shareID: self.localToken))
+                self.send(RemoteWireMessage(type: "share.start", protocolVersion: RemoteWireMessage.version,
+                                            shareID: self.localToken, textInbox: self.receivingText))
             }
             self.heartbeatTask?.cancel()
             self.heartbeatTask = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { return }
                     guard let self, self.webSocket === webSocketTask else { return }
-                    webSocketTask.sendPing { error in
+                    webSocketTask.sendPing { [weak self] error in
                         if let error {
                             Task { @MainActor [weak self] in self?.connectionEnded(error, from: webSocketTask) }
                         }
@@ -399,6 +497,17 @@ extension RemoteAgent: URLSessionWebSocketDelegate {
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
                                 didCompleteWithError error: Error?) {
         guard let error, let webSocketTask = task as? URLSessionWebSocketTask else { return }
-        Task { @MainActor [weak self] in self?.connectionEnded(error, from: webSocketTask) }
+        let rejected = (task.response as? HTTPURLResponse)?.statusCode == 401
+        Task { @MainActor [weak self] in
+            guard let self, self.webSocket === webSocketTask else { return }
+            if rejected { self.shouldConnect = false }
+            self.connectionEnded(rejected ? RemoteDisplayError(message: L.remoteInvalidCredentials(self.lang)) : error, from: webSocketTask)
+        }
     }
+}
+
+private final class RemoteEnrollmentDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }

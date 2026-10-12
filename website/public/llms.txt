@@ -1,6 +1,6 @@
 # LocalShare
 
-> LocalShare is a native macOS app for sharing files and text to browsers on the same network, with optional read-only remote access through a self-hosted LocalShare Server.
+> LocalShare is a native macOS app for sharing files and text to browsers on the same network, with optional internet sharing through a built-in or self-hosted LocalShare Server.
 
 The macOS Client serves selected content directly. In remote mode, the Client opens an authenticated WebSocket to LocalShare Server; the Server relays requests and streams without storing shared files.
 
@@ -9,10 +9,10 @@ The macOS Client serves selected content directly. In remote mode, the Client op
 - [Documentation overview](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/index.md): Product overview and local versus remote sharing model.
 - [Client quick start](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/getting-started.md): Install and start a local share.
 - [File sharing](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/file-sharing.md): File, folder, preview, upload, and access-boundary behavior.
-- [Text transfer](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/text-transfer.md): Bidirectional text transfer on the local network.
+- [Text transfer](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/text-transfer.md): File and text sharing with independent LAN and internet reception permissions.
 - [Server overview](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/index.md): Server responsibilities and remote request path.
 - [Server deployment](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deployment.md): Binary installation, TLS, systemd, and management commands.
-- [Connect Client](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/connect-client.md): Pair a Client and publish a remote read-only share.
+- [Connect Client](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/connect-client.md): Pair a Client and publish a remote file or text share.
 
 ## Agent workflows
 

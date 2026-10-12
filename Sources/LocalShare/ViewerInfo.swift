@@ -1,7 +1,7 @@
 import Foundation
 
 // 一名在线访客的明细（仅在分享者本机窗口展示，绝不外泄给网页端）。
-// name 是反查到的设备名，查不到为空串；ip 始终是完整 IPv4。
+// name 是反查到的设备名，查不到为空串；ip 始终是完整 IP，远程来源不反查设备名。
 struct ViewerInfo: Identifiable {
     let ip: String
     let name: String        // 反查到的设备名，查不到为空串

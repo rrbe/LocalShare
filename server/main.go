@@ -13,20 +13,24 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/coder/websocket"
 )
 
-const protocolVersion = 1
-const maxWebSocketMessageSize = 8 << 20
+const protocolVersion = 2
+const maxWebSocketMessageSize = 128 << 10
+const maxRelayChunkSize = 64 << 10
 const defaultRelayIdleTimeout = 60 * time.Second
 const webSocketWriteTimeout = 10 * time.Second
 const defaultStateDir = "/var/lib/localshare"
@@ -257,12 +261,15 @@ type wireMessage struct {
 	Method     string            `json:"method,omitempty"`
 	Path       string            `json:"path,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
+	ClientIP   string            `json:"client_ip,omitempty"`
 	Status     int               `json:"status,omitempty"`
 	Error      string            `json:"error,omitempty"`
 	ShareURL   string            `json:"share_url,omitempty"`
 	ShareID    string            `json:"share_id,omitempty"`
 	DeviceName string            `json:"device_name,omitempty"`
 	Enrollment string            `json:"enrollment_key,omitempty"`
+	Body       []byte            `json:"body,omitempty"`
+	TextInbox  bool              `json:"text_inbox,omitempty"`
 }
 
 type relayMessage struct {
@@ -274,8 +281,10 @@ type relayMessage struct {
 }
 
 type pendingRequest struct {
-	ch   chan relayMessage
-	done chan struct{}
+	ch     chan relayMessage
+	done   <-chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type agent struct {
@@ -288,10 +297,11 @@ type agent struct {
 }
 
 type share struct {
-	token    string
-	shareID  string
-	deviceID string
-	agent    *agent
+	token     string
+	shareID   string
+	deviceID  string
+	agent     *agent
+	textInbox bool
 }
 
 type hub struct {
@@ -301,12 +311,24 @@ type hub struct {
 	agents             map[string]*agent
 	shares             map[string]*share
 	requestIdleTimeout time.Duration
+	limits             serverLimits
+	registrationOpen   bool
+	behindProxy        bool
+	registrations      map[string]*registrationWindow
+	connections        map[string]*registrationWindow
+	rejectedRequests   uint64
+	failures           map[string]uint64
+	usage              map[string]*deviceUsage
+	inFlight           int
+	bandwidth          bandwidthBucket
+	relayedBytes       uint64
 }
 
 func newHub(store *stateStore, publicURL string) *hub {
 	return &hub{
 		store: store, publicURL: strings.TrimRight(publicURL, "/"), agents: map[string]*agent{},
 		shares: map[string]*share{}, requestIdleTimeout: defaultRelayIdleTimeout,
+		limits: defaultLimits(), registrations: map[string]*registrationWindow{}, connections: map[string]*registrationWindow{}, failures: map[string]uint64{}, usage: map[string]*deviceUsage{},
 	}
 }
 
@@ -316,7 +338,69 @@ func normalizePublicURL(value string) (string, error) {
 		u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return "", errors.New("--public-url must be an http(s) base URL without path or query")
 	}
+	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		return "", errors.New("public URLs require HTTPS; HTTP is only allowed on loopback")
+	}
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func (h *hub) registerHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.registrationOpen {
+		http.NotFound(w, r)
+		return
+	}
+	if !h.allowRegistration(r) {
+		w.Header().Set("Retry-After", "3600")
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "registration limit reached"})
+		return
+	}
+	var request wireMessage
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil ||
+		!validDeviceName(request.DeviceName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid device name"})
+		return
+	}
+	id, token, err := h.store.registerDevice(request.DeviceName, h.limits.maxDevices)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "device registration unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"device_id": id, "device_token": token})
+}
+
+func validDeviceName(name string) bool {
+	return strings.TrimSpace(name) != "" && len(name) <= 128 && !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+func (s *stateStore) registerDevice(name string, limit int) (string, string, error) {
+	id, err := randomToken("device_")
+	if err != nil {
+		return "", "", err
+	}
+	token, err := randomToken("ls_device_")
+	if err != nil {
+		return "", "", err
+	}
+	err = s.update(func(current *state) error {
+		if len(current.Devices) >= limit {
+			return errors.New("device capacity reached")
+		}
+		current.Devices = append(current.Devices, device{ID: id, Name: name, TokenHash: tokenHash(token), CreatedAt: time.Now().UTC()})
+		return nil
+	})
+	return id, token, err
 }
 
 func (h *hub) enrollHandler(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +409,11 @@ func (h *hub) enrollHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request wireMessage
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&request); err != nil || request.Enrollment == "" {
+	if !h.allowRegistration(r) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "enrollment limit reached"})
+		return
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil || request.Enrollment == "" || !validDeviceName(request.DeviceName) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid enrollment request"})
 		return
 	}
@@ -338,6 +426,10 @@ func (h *hub) enrollHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *hub) agentHandler(w http.ResponseWriter, r *http.Request) {
+	if !h.allowConnection(r) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "connection limit reached"})
+		return
+	}
 	token := bearerToken(r.Header.Get("Authorization"))
 	device, valid, err := h.store.deviceForToken(token)
 	if err != nil {
@@ -345,6 +437,7 @@ func (h *hub) agentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !valid {
+		h.recordFailure("device_auth")
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid device token"})
 		return
 	}
@@ -355,11 +448,13 @@ func (h *hub) agentHandler(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(maxWebSocketMessageSize)
 	a := &agent{hub: h, device: device, conn: conn, pending: map[string]*pendingRequest{}}
 	h.mu.Lock()
-	if old := h.agents[device.ID]; old != nil {
-		_ = old.close(websocket.StatusGoingAway, "replaced")
-	}
+	old := h.agents[device.ID]
 	h.agents[device.ID] = a
 	h.mu.Unlock()
+	if old != nil {
+		h.removeAgent(old)
+		_ = old.conn.CloseNow()
+	}
 	defer h.removeAgent(a)
 	_ = a.send(wireMessage{Type: "hello", Protocol: protocolVersion})
 	a.readLoop(r.Context())
@@ -375,12 +470,15 @@ func (h *hub) removeAgent(a *agent) {
 			delete(h.shares, token)
 		}
 	}
+	if usage := h.usage[a.device.ID]; usage != nil && usage.requests == 0 && h.agents[a.device.ID] == nil {
+		delete(h.usage, a.device.ID)
+	}
 	h.mu.Unlock()
 	a.failPending()
 }
 
 func (h *hub) startShare(a *agent, shareID string) (string, error) {
-	if shareID == "" {
+	if shareID == "" || len(shareID) > 128 {
 		return "", errors.New("share id is required")
 	}
 	token, err := randomToken("share_")
@@ -388,6 +486,12 @@ func (h *hub) startShare(a *agent, shareID string) (string, error) {
 		return "", err
 	}
 	h.mu.Lock()
+	for _, item := range h.shares {
+		if item.agent == a && item.shareID == shareID {
+			h.mu.Unlock()
+			return h.publicURL + "/share/" + item.token + "/", nil
+		}
+	}
 	for oldToken, item := range h.shares {
 		if item.agent == a {
 			delete(h.shares, oldToken)
@@ -395,21 +499,23 @@ func (h *hub) startShare(a *agent, shareID string) (string, error) {
 	}
 	h.shares[token] = &share{token: token, shareID: shareID, deviceID: a.device.ID, agent: a}
 	h.mu.Unlock()
+	a.failPending()
 	return h.publicURL + "/share/" + token + "/", nil
 }
 
 func (h *hub) stopShare(a *agent) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	for token, item := range h.shares {
 		if item.agent == a {
 			delete(h.shares, token)
 		}
 	}
+	h.mu.Unlock()
+	a.failPending()
 }
 
 func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -444,19 +550,55 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	item := h.shares[token]
+	textInbox := item != nil && item.textInbox
 	h.mu.Unlock()
 	if item == nil {
 		http.NotFound(w, r)
 		return
 	}
+	headers := forwardedRequestHeaders(r)
+	headerBytes := 0
+	for key, value := range headers {
+		headerBytes += len(key) + len(value)
+	}
+	// JSON escaping may expand headers sixfold and URL encoding may triple the URI.
+	// Together with a base64 64 KiB text body this must fit the 128 KiB frame limit.
+	if len(r.RequestURI) > 4096 || headerBytes > 4096 {
+		http.Error(w, "request metadata too large", http.StatusRequestHeaderFieldsTooLarge)
+		return
+	}
+	var body []byte
+	var err error
+	if r.Method == http.MethodPost {
+		if parts[1] != "ls/text" {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !textInbox {
+			http.Error(w, "text receiving disabled", http.StatusForbidden)
+			return
+		}
+		body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err != nil {
+			http.Error(w, "text exceeds 64 KiB", http.StatusRequestEntityTooLarge)
+			return
+		}
+	}
+	if !h.acquireRequest(item.deviceID) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "request limit reached", http.StatusTooManyRequests)
+		return
+	}
+	defer h.releaseRequest(item.deviceID)
 	requestID, err := randomToken("req_")
 	if err != nil {
 		http.Error(w, "request unavailable", http.StatusInternalServerError)
 		return
 	}
-	messages := item.agent.beginRequest(wireMessage{
+	messages := item.agent.beginRequest(r.Context(), wireMessage{
 		Type: "request.begin", RequestID: requestID, Method: r.Method, Path: localPath,
-		Headers: forwardedRequestHeaders(r), ShareID: item.shareID,
+		Headers: headers, ShareID: item.shareID,
+		Body: body, ClientIP: h.clientIP(r),
 	})
 	defer item.agent.finishRequest(requestID)
 	idleTimer := time.NewTimer(h.requestIdleTimeout)
@@ -471,6 +613,18 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 		idleTimer.Reset(h.requestIdleTimeout)
 	}
 	started := false
+	controller := http.NewResponseController(w)
+	cancelDone := make(chan struct{})
+	stopCancel := context.AfterFunc(messages.ctx, func() {
+		_ = controller.SetWriteDeadline(time.Now())
+		close(cancelDone)
+	})
+	defer func() {
+		if !stopCancel() {
+			<-cancelDone
+		}
+		_ = controller.SetWriteDeadline(time.Time{})
+	}()
 	for {
 		select {
 		case <-r.Context().Done():
@@ -491,25 +645,38 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				started = true
 				copyResponseHeaders(w, message.headers, token)
-				if message.status == 0 {
-					message.status = http.StatusOK
-				}
+				_ = controller.SetWriteDeadline(time.Now().Add(h.requestIdleTimeout))
 				w.WriteHeader(message.status)
 			case "data":
 				if !started {
 					http.Error(w, "invalid agent response", http.StatusBadGateway)
 					return
 				}
-				if _, err := w.Write(message.data); err != nil {
+				if err := h.waitBandwidth(messages.ctx, item.deviceID, len(message.data)); err != nil {
 					item.agent.cancelRequest(requestID)
+					panic(http.ErrAbortHandler)
+				}
+				_ = controller.SetWriteDeadline(time.Now().Add(h.requestIdleTimeout))
+				if _, err := w.Write(message.data); err != nil {
+					h.recordFailure("relay_write")
+					item.agent.cancelRequest(requestID)
+					panic(http.ErrAbortHandler)
+				}
+				if err := controller.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					h.recordFailure("relay_write")
+					item.agent.cancelRequest(requestID)
+					panic(http.ErrAbortHandler)
+				}
+				if err := item.agent.send(wireMessage{Type: "response.ack", RequestID: requestID}); err != nil {
 					return
 				}
-				if flusher, ok := w.(http.Flusher); ok {
-					flusher.Flush()
-				}
 			case "error":
+				h.recordFailure("agent_response")
 				if !started {
 					http.Error(w, message.err.Error(), http.StatusBadGateway)
+				}
+				if started {
+					panic(http.ErrAbortHandler)
 				}
 				return
 			case "end":
@@ -522,11 +689,18 @@ func (h *hub) shareHandler(w http.ResponseWriter, r *http.Request) {
 			if !started {
 				http.Error(w, "agent unavailable", http.StatusBadGateway)
 			}
+			if started {
+				panic(http.ErrAbortHandler)
+			}
 			return
 		case <-idleTimer.C:
+			h.recordFailure("relay_timeout")
 			item.agent.cancelRequest(requestID)
 			if !started {
 				w.WriteHeader(http.StatusGatewayTimeout)
+			}
+			if started {
+				panic(http.ErrAbortHandler)
 			}
 			return
 		}
@@ -541,9 +715,11 @@ func (a *agent) readLoop(ctx context.Context) {
 		}
 		if typ == websocket.MessageBinary {
 			id, data, ok := decodeData(payload)
-			if ok {
-				a.deliver(id, relayMessage{kind: "data", data: data})
+			if !ok || len(data) > maxRelayChunkSize {
+				_ = a.close(websocket.StatusPolicyViolation, "invalid data frame")
+				return
 			}
+			a.deliver(id, relayMessage{kind: "data", data: data})
 			continue
 		}
 		var message wireMessage
@@ -552,15 +728,38 @@ func (a *agent) readLoop(ctx context.Context) {
 		}
 		switch message.Type {
 		case "share.start":
+			if message.Protocol != protocolVersion {
+				_ = a.close(websocket.StatusPolicyViolation, "unsupported protocol")
+				return
+			}
 			shareURL, err := a.hub.startShare(a, message.ShareID)
 			if err != nil {
 				_ = a.send(wireMessage{Type: "error", Error: err.Error()})
 			} else {
+				a.hub.mu.Lock()
+				for _, item := range a.hub.shares {
+					if item.agent == a {
+						item.textInbox = message.TextInbox
+					}
+				}
+				a.hub.mu.Unlock()
 				_ = a.send(wireMessage{Type: "share.ready", ShareURL: shareURL})
 			}
 		case "share.stop":
 			a.hub.stopShare(a)
+		case "share.update":
+			a.hub.mu.Lock()
+			for _, item := range a.hub.shares {
+				if item.agent == a && item.shareID == message.ShareID {
+					item.textInbox = message.TextInbox
+				}
+			}
+			a.hub.mu.Unlock()
 		case "response.begin":
+			if message.Status < 200 || message.Status > 599 {
+				a.deliver(message.RequestID, relayMessage{kind: "error", err: errors.New("invalid response status")})
+				continue
+			}
 			a.deliver(message.RequestID, relayMessage{kind: "headers", status: message.Status, headers: message.Headers})
 		case "response.end":
 			a.deliver(message.RequestID, relayMessage{kind: "end"})
@@ -586,8 +785,9 @@ func (a *agent) close(code websocket.StatusCode, reason string) error {
 	return a.conn.Close(code, reason)
 }
 
-func (a *agent) beginRequest(request wireMessage) *pendingRequest {
-	pending := &pendingRequest{ch: make(chan relayMessage, 1), done: make(chan struct{})}
+func (a *agent) beginRequest(ctx context.Context, request wireMessage) *pendingRequest {
+	ctx, cancel := context.WithCancel(ctx)
+	pending := &pendingRequest{ch: make(chan relayMessage, 4), done: ctx.Done(), ctx: ctx, cancel: cancel}
 	a.pendingMu.Lock()
 	a.pending[request.RequestID] = pending
 	a.pendingMu.Unlock()
@@ -601,7 +801,7 @@ func (a *agent) finishRequest(requestID string) {
 	a.pendingMu.Lock()
 	if pending := a.pending[requestID]; pending != nil {
 		delete(a.pending, requestID)
-		close(pending.done)
+		pending.cancel()
 	}
 	a.pendingMu.Unlock()
 }
@@ -618,6 +818,10 @@ func (a *agent) deliver(requestID string, message relayMessage) {
 		select {
 		case pending.ch <- message:
 		case <-pending.done:
+		default:
+			// A peer exceeding the one-chunk window must not block the shared reader.
+			a.finishRequest(requestID)
+			go a.cancelRequest(requestID)
 		}
 	}
 }
@@ -627,12 +831,12 @@ func (a *agent) failPending() {
 	defer a.pendingMu.Unlock()
 	for id, pending := range a.pending {
 		delete(a.pending, id)
-		close(pending.done)
+		pending.cancel()
 	}
 }
 
 func forwardedRequestHeaders(r *http.Request) map[string]string {
-	allowed := []string{"Accept", "Accept-Language", "If-Modified-Since", "If-None-Match", "Range", "User-Agent"}
+	allowed := []string{"Accept", "Accept-Language", "If-Modified-Since", "If-None-Match", "Range", "User-Agent", "Content-Type"}
 	result := make(map[string]string)
 	for _, name := range allowed {
 		if value := r.Header.Get(name); value != "" {
@@ -704,6 +908,15 @@ func runServe(args []string) error {
 	stateDir := flags.String("state-dir", defaultStateDir, "state directory")
 	tlsCert := flags.String("tls-cert", "", "TLS certificate PEM file (required for an https public URL)")
 	tlsKey := flags.String("tls-key", "", "TLS private key PEM file (required for an https public URL)")
+	behindProxy := flags.Bool("behind-proxy", false, "TLS terminates at a reverse proxy on this host; listen must be loopback")
+	registration := flags.Bool("registration", false, "allow rate-limited automatic device registration")
+	limits := defaultLimits()
+	flags.IntVar(&limits.maxDevices, "max-devices", limits.maxDevices, "maximum automatically registered device records")
+	flags.IntVar(&limits.deviceRequests, "device-requests", limits.deviceRequests, "maximum requests per device")
+	flags.IntVar(&limits.totalRequests, "total-requests", limits.totalRequests, "maximum requests across all devices")
+	flags.IntVar(&limits.registrationsPerHour, "registrations-per-hour", limits.registrationsPerHour, "registration attempts per client IP per hour")
+	flags.Int64Var(&limits.deviceBytesPerSecond, "device-bytes-per-second", limits.deviceBytesPerSecond, "per-device transfer rate")
+	flags.Int64Var(&limits.totalBytesPerSecond, "total-bytes-per-second", limits.totalBytesPerSecond, "service transfer rate")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -715,10 +928,26 @@ func runServe(args []string) error {
 		return err
 	}
 	useTLS := strings.HasPrefix(baseURL, "https://")
+	if !useTLS {
+		host, _, err := net.SplitHostPort(*listen)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("HTTP development servers must listen on a loopback IP")
+		}
+	}
+	if *behindProxy {
+		host, _, err := net.SplitHostPort(*listen)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || !useTLS || *tlsCert != "" || *tlsKey != "" {
+			return errors.New("--behind-proxy requires a loopback listen address, an HTTPS public URL and no TLS files")
+		}
+	}
+	if limits.maxDevices < 1 || limits.deviceRequests < 1 || limits.totalRequests < 1 || limits.registrationsPerHour < 1 ||
+		limits.deviceBytesPerSecond < 64<<10 || limits.totalBytesPerSecond < 64<<10 {
+		return errors.New("limits must be positive; transfer rates must be at least 65536 bytes/s")
+	}
 	if (*tlsCert == "") != (*tlsKey == "") {
 		return errors.New("--tls-cert and --tls-key must be provided together")
 	}
-	if useTLS && (*tlsCert == "" || *tlsKey == "") {
+	if useTLS && !*behindProxy && (*tlsCert == "" || *tlsKey == "") {
 		return errors.New("https --public-url requires --tls-cert and --tls-key")
 	}
 	if !useTLS && (*tlsCert != "" || *tlsKey != "") {
@@ -729,9 +958,31 @@ func runServe(args []string) error {
 		return err
 	}
 	h := newHub(store, baseURL)
-	server := &http.Server{Addr: *listen, Handler: newHTTPHandler(h), ReadHeaderTimeout: 10 * time.Second}
+	h.behindProxy = *behindProxy
+	h.registrationOpen = *registration
+	h.limits = limits
+	server := &http.Server{Addr: *listen, Handler: newHTTPHandler(h), ConnState: limitHTTPConnections(256), ReadTimeout: 15 * time.Second, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go h.monitorDevices(ctx)
+	go func() {
+		<-ctx.Done()
+		h.mu.Lock()
+		agents := make([]*agent, 0, len(h.agents))
+		for _, a := range h.agents {
+			agents = append(agents, a)
+		}
+		h.mu.Unlock()
+		for _, a := range agents {
+			h.removeAgent(a)
+			_ = a.conn.CloseNow()
+		}
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
+	}()
 	log.Printf("localshare-server listening on %s, public URL %s", *listen, baseURL)
-	if useTLS {
+	if useTLS && !*behindProxy {
 		return server.ListenAndServeTLS(*tlsCert, *tlsKey)
 	}
 	return server.ListenAndServe()
@@ -740,12 +991,65 @@ func runServe(args []string) error {
 func newHTTPHandler(h *hub) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		h.mu.Lock()
+		failures := make(map[string]uint64, len(h.failures))
+		for category, count := range h.failures {
+			failures[category] = count
+		}
+		stats := map[string]any{"failures": failures, "status": "ok", "connected_devices": len(h.agents), "in_flight": h.inFlight, "relayed_bytes": h.relayedBytes, "rejected_requests": h.rejectedRequests}
+		h.mu.Unlock()
+		writeJSON(w, http.StatusOK, stats)
 	})
+	mux.HandleFunc("/api/v1/register", h.registerHandler)
 	mux.HandleFunc("/api/v1/enroll", h.enrollHandler)
 	mux.HandleFunc("/api/v1/agent", h.agentHandler)
 	mux.HandleFunc("/share/", h.shareHandler)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.behindProxy && r.URL.Path != "/healthz" && r.Header.Get("X-Forwarded-Proto") != "https" {
+			http.Error(w, "HTTPS required", http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func (h *hub) monitorDevices(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.disconnectRevoked()
+		}
+	}
+}
+
+func (h *hub) disconnectRevoked() {
+	current, err := h.store.load()
+	if err != nil {
+		return
+	}
+	valid := make(map[string]bool)
+	for _, d := range current.Devices {
+		if !d.Revoked {
+			valid[d.ID] = true
+		}
+	}
+	h.mu.Lock()
+	var revoked []*agent
+	for id, a := range h.agents {
+		if !valid[id] {
+			revoked = append(revoked, a)
+		}
+	}
+	h.mu.Unlock()
+	for _, a := range revoked {
+		h.recordFailure("device_revoked")
+		h.removeAgent(a)
+		_ = a.conn.CloseNow()
+	}
 }
 
 func runKey(args []string) error {
@@ -802,8 +1106,8 @@ func revokeEnrollmentKey(store *stateStore, id string) error {
 }
 
 func runDevice(args []string) error {
-	if len(args) == 0 || (args[0] != "list" && args[0] != "revoke") || (args[0] == "revoke" && len(args) < 2) {
-		return errors.New("device command requires list or revoke <id>")
+	if len(args) == 0 || (args[0] != "list" && args[0] != "revoke" && args[0] != "prune") || (args[0] == "revoke" && len(args) < 2) {
+		return errors.New("device command requires list, revoke <id>, or prune")
 	}
 	flags := flag.NewFlagSet("device", flag.ContinueOnError)
 	stateDir := flags.String("state-dir", defaultStateDir, "state directory")
@@ -814,6 +1118,28 @@ func runDevice(args []string) error {
 	store, err := newStateStore(*stateDir)
 	if err != nil {
 		return err
+	}
+	if args[0] == "prune" {
+		if len(positional) != 0 {
+			return errors.New("device prune does not accept an id")
+		}
+		return store.update(func(current *state) error {
+			devices := current.Devices[:0]
+			for _, d := range current.Devices {
+				if !d.Revoked {
+					devices = append(devices, d)
+				}
+			}
+			current.Devices = devices
+			keys := current.EnrollmentKeys[:0]
+			for _, k := range current.EnrollmentKeys {
+				if !k.Used {
+					keys = append(keys, k)
+				}
+			}
+			current.EnrollmentKeys = keys
+			return nil
+		})
 	}
 	if args[0] == "list" {
 		if len(positional) != 0 {
@@ -831,13 +1157,17 @@ func runDevice(args []string) error {
 	if len(positional) != 1 {
 		return errors.New("device revoke requires an id")
 	}
-	return store.revokeDevice(positional[0])
+	if err := store.revokeDevice(positional[0]); err != nil {
+		return err
+	}
+	fmt.Println("device revoked; running servers stop active access within 1 second")
+	return nil
 }
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: localshare-server serve --public-url <url> [--listen :8080] [--state-dir dir] [--tls-cert file --tls-key file]")
 	fmt.Fprintln(os.Stderr, "       localshare-server key create|list|revoke [--name name] [--state-dir dir]")
-	fmt.Fprintln(os.Stderr, "       localshare-server device list|revoke [--state-dir dir] [<id>]")
+	fmt.Fprintln(os.Stderr, "       localshare-server device list|revoke|prune [--state-dir dir] [<id>]")
 }
 
 func main() {

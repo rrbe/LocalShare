@@ -21,7 +21,7 @@ enum DirectoryListing {
     // 真实目录页：枚举目录 → 目录在前/名称序 → 交给渲染核心（href 基路径 = 请求路径）。
     // canUpload：单文件夹分享且开了访客上传时为 true，页面出上传按钮 + 整页拖拽，措辞联动「可读写」。
     static func html(directory: URL, requestPath: String, rootName: String, canUpload: Bool = false,
-                     canReceiveText: Bool = false, canBatchDownload: Bool = true, lang: Lang) -> String {
+                     canReceiveText: Bool = false, canBatchDownload: Bool = true, textPreview: String? = nil, lang: Lang, remoteMode: Bool = false) -> String {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(
             at: directory,
@@ -37,7 +37,7 @@ enum DirectoryListing {
 
         let entries = sorted.map { (name: $0.lastPathComponent, url: $0, isDir: isDirectory($0)) }
         return render(entries: entries, requestPath: requestPath, rootName: rootName,
-                      canUpload: canUpload, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: nil, lang: lang)
+                      canUpload: canUpload, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: textPreview, lang: lang, remoteMode: remoteMode)
     }
 
     // 多选虚拟根页：选中项无共同磁盘根，直接给定 (显示名=key, 真实 url, 是否目录) 列表渲染。
@@ -45,20 +45,20 @@ enum DirectoryListing {
     // textPreview 非 nil：在文件项之上钉一个指向 /ls/text 的「文本」行（首行预览）——文本与文件共存、
     // 或纯文本分享（items 为空）时由 FileServer 传入；它不参与搜索/排序/筛选（同「返回上一级」行）。
     static func html(items: [(name: String, url: URL, isDir: Bool)], rootName: String,
-                     textPreview: String? = nil, canReceiveText: Bool = false, canBatchDownload: Bool = true, lang: Lang) -> String {
+                     textPreview: String? = nil, canReceiveText: Bool = false, canBatchDownload: Bool = true, lang: Lang, remoteMode: Bool = false) -> String {
         let sorted = items.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
         return render(entries: sorted, requestPath: "/", rootName: rootName,
-                      canUpload: false, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: textPreview, lang: lang)
+                      canUpload: false, canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, textPreview: textPreview, lang: lang, remoteMode: remoteMode)
     }
 
     // 渲染核心：给定条目(显示名 + 真实 url + 是否目录) + href 基路径 + 请求路径 + 根名，产出整页。
     // 类型/扩展名按「真实文件名」判定（url.lastPathComponent），与显示名 key 解耦。
     private static func render(entries: [(name: String, url: URL, isDir: Bool)],
                                requestPath: String, rootName: String, canUpload: Bool,
-                               canReceiveText: Bool, canBatchDownload: Bool, textPreview: String?, lang: Lang) -> String {
+                               canReceiveText: Bool, canBatchDownload: Bool, textPreview: String?, lang: Lang, remoteMode: Bool) -> String {
         let fm = FileManager.default
         var rows = ""
         var folderCount = 0
@@ -88,7 +88,7 @@ enum DirectoryListing {
         return page(title: title, crumbs: crumbs, chips: chips, rows: rows,
                     isEmpty: entries.isEmpty, total: total, canUpload: canUpload,
                     canReceiveText: canReceiveText, canBatchDownload: canBatchDownload, backHref: parentHref(of: requestPath),
-                    textPreview: textPreview, rootPrefix: rootRelativePrefix(requestPath: requestPath), lang: lang)
+                    textPreview: textPreview, rootPrefix: rootRelativePrefix(requestPath: requestPath), lang: lang, remoteMode: remoteMode)
     }
 
     // MARK: - 片段
@@ -142,17 +142,19 @@ enum DirectoryListing {
     }
 
     // 面包屑：根(站名) / seg / …，末段当前不可点。Markdown 预览页（FileServer.contentResponse）复用。
-    static func breadcrumb(requestPath: String, rootName: String) -> String {
+    static func breadcrumb(requestPath: String, rootName: String, navigationPath: String? = nil) -> String {
         let segs = requestPath.split(separator: "/").map(String.init)
+        // Reserved text URLs display one label while linking from /ls/text's actual depth.
+        let linkPath = navigationPath ?? requestPath
         var html = segs.isEmpty
             ? "<span class=\"cur\">\(htmlText(rootName))</span>"
-            : "<a href=\"\(htmlAttr(relativeDirectoryHref(from: requestPath, targetDepth: 0)))\">\(htmlText(rootName))</a>"
+            : "<a href=\"\(htmlAttr(relativeDirectoryHref(from: linkPath, targetDepth: 0)))\">\(htmlText(rootName))</a>"
         for (i, seg) in segs.enumerated() {
             html += "<span class=\"sep\">/</span>"
             if i == segs.count - 1 {
                 html += "<span class=\"cur\">\(htmlText(seg))</span>"
             } else {
-                let href = relativeDirectoryHref(from: requestPath, targetDepth: i + 1)
+                let href = relativeDirectoryHref(from: linkPath, targetDepth: i + 1)
                 html += "<a href=\"\(htmlAttr(href))\">\(htmlText(seg))</a>"
             }
         }
@@ -161,9 +163,9 @@ enum DirectoryListing {
 
     private static func page(title: String, crumbs: String, chips: String, rows: String,
                              isEmpty: Bool, total: Int, canUpload: Bool, canReceiveText: Bool, canBatchDownload: Bool,
-                             backHref: String?, textPreview: String?, rootPrefix: String, lang: Lang) -> String {
+                             backHref: String?, textPreview: String?, rootPrefix: String, lang: Lang, remoteMode: Bool) -> String {
         // 措辞统一经 PermSummary 派生（同 GUI）：网页端可能出现「上传」与「可收文本」两类写能力
-        let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang)
+        let ps = permSummary(Permission(add: canUpload, recvText: canReceiveText), lang, remoteMode: remoteMode)
         let uploadButton = canUpload ? """
         <button class="upbtn" id="upbtn"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4 7l4-3.5L12 7"/></svg><span class="lbl">\(L.webUpload(lang))</span></button><input type="file" id="fi" multiple hidden>
         """ : ""

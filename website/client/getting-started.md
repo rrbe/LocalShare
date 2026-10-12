@@ -5,7 +5,7 @@ description: 安装 LocalShare Client，并通过二维码或链接开始第一�
 
 # 快速开始
 
-LocalShare Client 运行在 macOS 13 或更高版本。访问者不需要安装应用，只需要与 Mac 位于同一局域网并使用现代浏览器。
+LocalShare Client 运行在 macOS 13 或更高版本。访问者不需要安装应用，局域网访问需与 Mac 位于同一网络；开启互联网分享后，访问者可跨网络使用浏览器。
 
 ## 1. 安装 Client
 
@@ -33,6 +33,12 @@ xattr -dr com.apple.quarantine /Applications/LocalShare.app
 局域网分享使用 HTTP，不提供传输加密。机场、咖啡厅等不可信网络中不建议分享敏感内容；跨网络访问建议使用配置了 HTTPS 的 LocalShare Server。
 :::
 
+## 跨网络分享
+
+选择文件或发送文本后，点击「互联网分享 → 连接」。首次启用自动注册默认服务，连接成功后二维码和链接指向公网地址。将链接发给访问者即可，Mac 需保持在线。断开使公网链接失效，局域网分享继续按原设置运行；停止分享会关闭全部访问。
+
+默认服务为 `https://share.fairydog.net`，公网连接使用 HTTPS/WSS。中继可读取分享内容。远程文件只读；「允许通过互联网收文本」默认关闭。自托管用户可在「设置 → 网络 → 使用自托管服务器」填写地址和管理员配对码。
+
 ## 命令行使用
 
 在“设置 → 命令行工具”中安装 `localshare` 后，可以直接从终端发起分享：
@@ -49,4 +55,4 @@ localshare --headless ./dist
 
 - 了解[文件分享](./file-sharing)支持的内容和访问规则
 - 使用[文本传递](./text-transfer)在 Mac 与手机之间复制文字
-- 需要远程访问时，部署 [LocalShare Server](../server/)
+- 管理自己的中继时，部署 [LocalShare Server](../server/)

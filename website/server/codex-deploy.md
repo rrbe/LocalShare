@@ -7,9 +7,9 @@ description: 复制一段提示，让 Codex 按 LocalShare 官方 Skill 部署�
 
 如果 Codex 正运行在目标 Linux 服务器上，可以把下面这段话直接发给它。Codex 会读取 LocalShare 官方部署 Skill，检查服务器环境，只在缺少必要信息或遇到已有部署时向你确认。
 
-<CopyPrompt text="请在当前这台 Linux 服务器上部署 LocalShare Server；先读取并遵循官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md；检查系统架构、sudo、端口、公开地址、TLS 和已有服务，只在缺少必要信息、需要修改防火墙或可能覆盖现有部署时向我确认；完成二进制校验、systemd 配置和健康检查后，生成一个一次性 Enrollment Key，并汇总远程地址、服务状态和 Client 的下一步配置。" />
+<CopyPrompt text="请在当前这台 Linux 服务器上部署 LocalShare Server；先读取并遵循官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md；检查系统架构、sudo、端口、公开地址、TLS 和已有服务，公网使用 HTTPS/WSS，检查直接 TLS 或已有本机 HTTPS 代理；只在缺少必要信息、需要改 DNS/证书/防火墙或可能覆盖现有部署时向我确认；完成二进制校验、systemd 配置和健康检查后，生成一个一次性 Enrollment Key，并汇总远程地址、服务状态和 Client 的下一步配置。" />
 
-这段提示不会预设域名或证书路径。生产部署所需的公开地址、HTTPS 方式等信息无法从服务器可靠推断时，Codex 会继续询问。
+这段提示不会预设域名或证书路径。生产部署所需的公开地址、HTTPS 终止方式、证书续期和额度等信息无法从服务器可靠推断时，Codex 会继续询问。
 
 ## 为什么使用 Skill
 

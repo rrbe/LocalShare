@@ -11,8 +11,10 @@ import Foundation
 //   LS_TEXT     分享一段文本（可单独，也可与 LS_FOLDER(S) 共存）；纯文本时 URL 直指 /ls/text
 //   LS_RECV     置 1 开启收文本（收件箱）；无任何分享内容时 URL 直指 /ls/text（收发合一，退化成纯发送页）
 //   LS_RECV_LOG 收到文本时把原文追加进该文件（以 0x01 分隔），供冒烟测回读校验
-//   LS_REMOTE   置 1 启用远程只读策略；默认不启动远程 Agent
-//   LS_REMOTE_SERVER / LS_REMOTE_KEY 与 LS_REMOTE 一起使用，连接真实 Server（端到端冒烟专用，凭证只存内存）
+//   LS_REMOTE   置 1 启动远程 Agent；局域网权限不变
+//   LS_REMOTE_AUTH 内部转发请求的身份令牌（冒烟专用，默认随机）
+//   LS_REMOTE_RECV 置 1 开启远程收文本，默认关闭
+//   LS_REMOTE_SERVER / LS_REMOTE_KEY 连接自托管 Server；LS_REMOTE_REGISTER=1 测试自动注册，凭证只存内存
 //   LS_ACCESS_CODE 短访问码（选填）；设置后无 token 的浏览器导航显示 /ls/join 加入页
 //   LS_TAILSCALE 置 1 放行来自 Tailscale 100.64/10 的请求（默认拒绝）
 enum HeadlessServer {
@@ -31,7 +33,7 @@ enum HeadlessServer {
             paths = multi.split(whereSeparator: { $0 == ":" || $0 == "\n" }).map(String.init)
         } else if let single = env["LS_FOLDER"] {
             paths = [single]
-        } else if text != nil || recvOn {
+        } else if text != nil || recvOn || env["LS_REMOTE_RECV"] == "1" {
             paths = []   // 纯文本分享 / 只收文本：无文件项
         } else {
             FileHandle.standardError.write(Data((L.hsEnvMissing(Lang.systemDefault) + "\n").utf8))
@@ -39,14 +41,15 @@ enum HeadlessServer {
         }
 
         let urls = paths.map { URL(fileURLWithPath: $0) }
-        let server = FileServer(share: makeShare(urls, hasText: text != nil), token: token)
-        server.remoteAccessEnabled = remoteOn
+        let server = FileServer(share: makeShare(urls, hasText: text != nil), token: token,
+                                remoteRequestToken: env["LS_REMOTE_AUTH"] ?? Token.generate())
+        server.remoteTextInboxEnabled = env["LS_REMOTE_RECV"] == "1"
         server.accessCode = env["LS_ACCESS_CODE"].flatMap { $0.isEmpty ? nil : $0 }
         server.tailscaleAccessEnabled = env["LS_TAILSCALE"] == "1"
-        server.uploadEnabled = env["LS_UPLOAD"] == "1" && !remoteOn
+        server.uploadEnabled = env["LS_UPLOAD"] == "1"
         server.listenAddress = env["LS_BIND"]   // nil → 全部接口（默认）
         server.sharedText = text
-        server.textInboxEnabled = recvOn && !remoteOn
+        server.textInboxEnabled = recvOn
         if let logPath = env["LS_RECV_LOG"] {
             server.onReceiveText = { rt in   // socket 线程：把原文追加进日志文件，供冒烟测回读
                 let chunk = Data((rt.text + "\u{1}").utf8)
@@ -61,12 +64,12 @@ enum HeadlessServer {
             let bound = try server.start(preferredPorts: [port])
             // 传递文本（发文本 / 只收文本）一律直指 /ls/text（收发合一，口径同 GUI 的 AppState.makeURL）。
             let path: String
-            if urls.isEmpty, text != nil || recvOn { path = "/ls/text" }
+            if urls.isEmpty, text != nil || recvOn || server.remoteTextInboxEnabled { path = "/ls/text" }
             else { path = "/" }
             print("LS_URL http://127.0.0.1:\(bound)\(path)?t=\(token)")
             if remoteOn,
                let address = env["LS_REMOTE_SERVER"], let serverURL = URL(string: address),
-               let enrollmentKey = env["LS_REMOTE_KEY"], !enrollmentKey.isEmpty {
+               env["LS_REMOTE_KEY"]?.isEmpty == false || env["LS_REMOTE_REGISTER"] == "1" {
                 Task { @MainActor in
                     let agent = RemoteAgent()
                     smokeRemoteAgent = agent
@@ -77,10 +80,11 @@ enum HeadlessServer {
                     agent.onShareURLChange = { url in
                         if let url { print("LS_REMOTE_URL \(url)"); fflush(stdout) }
                     }
-                    agent.connect(serverURL: serverURL, enrollmentKey: enrollmentKey,
+                    agent.connect(serverURL: serverURL, enrollmentKey: env["LS_REMOTE_KEY"] ?? "",
                                   localBaseURL: URL(string: "http://127.0.0.1:\(bound)")!,
                                   localToken: token, deviceName: "Headless Smoke",
-                                  lang: Lang.systemDefault, persistCredential: false)
+                                  lang: Lang.systemDefault, persistCredential: false, localRelayToken: server.remoteRequestToken,
+                                  receivingText: server.remoteTextInboxEnabled, automaticRegistration: env["LS_REMOTE_REGISTER"] == "1")
                 }
             }
             fflush(stdout)
@@ -132,14 +136,13 @@ enum HeadlessServer {
     }
 
     // 路径集合 → 分享形态：单项判文件/文件夹，多项走虚拟根。
-    // 有文本时一律走虚拟根（口径同 GUI 的 AppState.currentShare）：纯文本 → 空虚拟根 .multiple([])；
-    // 文本+文件 → 文件项的虚拟根（文本经 server.sharedText 单独挂上，不进 items）。
+    // 文本经 /ls/text 提供；文件夹路径不随附带文本变化。
     private static func makeShare(_ urls: [URL], hasText: Bool) -> FileServer.Share {
         if urls.isEmpty { return .multiple([]) }   // 纯文本 / 只收文本：空虚拟根
-        if hasText { return .multiple(FileServer.Share.makeItems(urls)) }
         if urls.count > 1 { return .multiple(FileServer.Share.makeItems(urls)) }
         var isDir: ObjCBool = false
         FileManager.default.fileExists(atPath: urls[0].path, isDirectory: &isDir)
-        return isDir.boolValue ? .directory(urls[0]) : .file(urls[0])
+        if isDir.boolValue { return .directory(urls[0]) }
+        return hasText ? .multiple(FileServer.Share.makeItems(urls)) : .file(urls[0])
     }
 }

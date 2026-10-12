@@ -10,7 +10,9 @@ struct ShareScreen: View {
     @State private var showText = false       // 文本编辑弹层（编辑当前分享的文本）
     private func editText() { showText = true }
     var body: some View {
-        let ps = permSummary(state.effectivePermission, state.lang)
+        let remoteMode = state.remoteURL != nil
+        let ps = permSummary(remoteMode ? Permission() : state.effectivePermission,
+                             state.lang, remoteMode: remoteMode)
         ScreenFrame(t: t) {
             // 二级页头部，与传递文本页同款：← 返回主页 + 标题 +齿轮。运行态/地址在票据正文（QR 说明 +
             // CopyPill）已具，头部不再堆 StatusPill，避免与正文重复、并与 TextScreen 一致。
@@ -24,9 +26,9 @@ struct ShareScreen: View {
         } content: {
             VStack(spacing: 16) {
                 ticket(ps)
-                if state.isRunning && !state.sharedItems.isEmpty { remoteCard }
+                RemoteAccessCard(t: t)
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
-                if state.hasText && !state.isTextOnly && !state.remoteAccessEnabled { attachedTextCard }
+                if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
                 actions
                 if state.interfaces.count > 1 { interfacePicker }
@@ -48,75 +50,6 @@ struct ShareScreen: View {
             else { AnyView(folderStub(ps)) }
         } pass: {
             qrPass
-        }
-    }
-
-    private var remoteCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                GlobeLineIcon(color: t.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L.remoteAccess(state.lang)).font(.sans(13.5, .semibold)).foregroundStyle(t.ink)
-                    if !state.remoteAccessEnabled {
-                        Text(L.remoteAccessDesc(state.lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)
-                    }
-                }
-                Spacer(minLength: 8)
-                if state.remoteAccessEnabled {
-                    GhostButton(t: t, title: L.remoteDisconnect(state.lang), systemImage: "xmark.circle") {
-                        state.disconnectRemote()
-                    }
-                } else {
-                    GhostButton(t: t, title: L.remoteConnect(state.lang), systemImage: "link") {
-                        state.connectRemote(enrollmentKey: state.remoteEnrollmentKey)
-                    }
-                    .disabled(!state.canEnableRemote)
-                }
-            }
-            if state.remoteAccessEnabled {
-                HStack(spacing: 7) {
-                    Text(state.remoteSettings.serverAddress)
-                        .font(.mono(11.5))
-                        .foregroundStyle(t.inkMute)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Circle().fill(remoteStatusColor).frame(width: 7, height: 7)
-                    Text(remoteStatusText).font(.sans(11.5, .semibold)).foregroundStyle(t.inkMute)
-                }
-                if let error = state.remoteError, !error.isEmpty {
-                    Text(error).font(.sans(11)).foregroundStyle(t.danger).lineLimit(2)
-                }
-            } else if let error = state.remoteError, !error.isEmpty {
-                Text(error)
-                    .font(.sans(11.5)).foregroundStyle(t.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if !state.remoteSettings.isValid {
-                Text(L.remoteConfigHint(state.lang))
-                    .font(.sans(11.5)).foregroundStyle(t.inkMute)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(t.surface))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
-    }
-
-    private var remoteStatusText: String {
-        switch state.remoteStatus {
-        case .connecting: return L.remoteConnecting(state.lang)
-        case .connected: return L.remoteOnline(state.lang)
-        case .reconnecting: return L.remoteOffline(state.lang)
-        case .disconnected: return L.remoteConfigHint(state.lang)
-        }
-    }
-
-    private var remoteStatusColor: Color {
-        switch state.remoteStatus {
-        case .connected: return t.ok
-        case .reconnecting: return t.danger
-        case .connecting: return t.warn
-        case .disconnected: return t.inkFaint
         }
     }
 
@@ -238,8 +171,12 @@ struct ShareScreen: View {
                     PermChip(t: t, text: c, hot: ps.writable && i > 0)
                 }
                 Spacer()
-                Button { state.openSettings() } label: {
-                    Text(L.changePerm(state.lang)).font(.sans(11)).foregroundStyle(t.accent)
+                Button {
+                    state.selectedSettingsCategory = .permission
+                    state.openSettings()
+                } label: {
+                    Text(state.remoteURL != nil ? L.changeLocalPerm(state.lang) : L.changePerm(state.lang))
+                        .font(.sans(11)).foregroundStyle(t.accent)
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal, 18).padding(.bottom, 14)

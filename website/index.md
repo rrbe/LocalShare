@@ -36,8 +36,8 @@ import mainScreenshot from "./images/screenshot-main-page.png"
 
 <div class="flow">远程浏览器  ──▶  LocalShare Server  ◀── WebSocket ──  LocalShare Client</div>
 
-::: info 远程访问始终只读
-通过 LocalShare Server 访问时，不开放访客上传和浏览器向 Mac 发送文本的能力。本地局域网分享仍可按需启用这些功能。
+::: info 互联网访问范围
+远程文件只读，文本支持读取和独立的可选接收。局域网权限不受影响，Mac 需在线，中继可读取内容。
 :::
 
 ## 主要能力
@@ -46,7 +46,7 @@ import mainScreenshot from "./images/screenshot-main-page.png"
 - 浏览 HTML、PDF、视频与图片，并预览 Markdown、JSON 和 CSV
 - 在 Mac 与局域网浏览器之间双向传递文本
 - 可选访客上传、在线访客显示和命令行分享
-- 通过自托管 Server 提供纯浏览器远程只读访问
+- 通过默认服务或自托管 Server 提供浏览器文件和文本分享
 
 ## 从这里开始
 

@@ -16,7 +16,7 @@ metadata:
 ## 确认部署边界
 
 - 只操作用户明确指定的主机。用户说“当前服务器”时操作当前 Linux 主机；未指定远程目标时不要猜测 SSH 主机。
-- 开始写入前确定公开基地址、监听端口，以及使用 HTTP 还是 Server 直接终止 TLS。公开基地址不能带额外 path 或 query。
+- 开始写入前确定公开基地址、监听端口，以及使用 Server 直接终止 TLS 还是已有本机 HTTPS 代理。公开基地址必须使用 HTTPS，不能带额外 path 或 query。HTTP 仅用于回环开发测试。
 - HTTPS 需要域名匹配的证书和私钥路径。不要自行申请证书、配置反向代理或修改 DNS，除非用户明确要求。
 - 修改防火墙、覆盖已有 systemd unit、替换已有二进制或调整已有 TLS 文件前，先展示检测结果并取得确认。
 - Enrollment Key、Device Token 和 Share Token 不得写入公开日志或代码仓库。
@@ -61,6 +61,8 @@ Server 默认使用 `/var/lib/localshare`；只有用户明确选择其他目录
 /usr/local/bin/localshare-server serve --listen :<port> --public-url <public-base-url>
 ```
 
+已有本机 HTTPS 代理时使用 `--listen 127.0.0.1:<port> --public-url https://<domain> --behind-proxy`，检查代理覆盖 X-Real-IP 与 X-Forwarded-Proto、支持 WebSocket、关闭响应缓存/缓冲，并避免访问日志记录分享 token。
+
 Server 直接终止 TLS 时追加 `--tls-cert <certificate-path> --tls-key <private-key-path>`，并确认 `localshare` 用户可以读取这两个文件。
 
 Service 至少使用：
@@ -91,7 +93,7 @@ WantedBy=multi-user.target
 ## 验证并生成配对 key
 
 1. 确认 `systemctl is-active localshare-server` 返回 `active`。
-2. 请求 `<public-base-url>/healthz`，必须返回 HTTP 200 和包含 `{"status":"ok"}` 的 JSON。
+2. 请求 `<public-base-url>/healthz`，必须返回 HTTP 200，JSON 的 status 为 ok（同时包含聚合资源计数）。
 3. 如果失败，查看 `journalctl -u localshare-server --no-pager -n 100`，修复真实原因后重新验证；不要在健康检查失败时生成 key 或宣布完成。
 4. 健康检查通过后运行：
 
@@ -101,6 +103,14 @@ WantedBy=multi-user.target
    ```
 
 5. 把一次性 Enrollment Key 只返回给用户，并提醒在 macOS Client 的“设置 → 远程访问”中填写公开地址和 key。
+
+## 注册、升级和撤销
+
+- 自托管默认关闭自动注册；只有明确运营公共服务时追加 `--registration`，同时确认注册频率、设备容量、请求并发和传输速率参数。
+- Client 和 Server 协议 v2 必须一起升级。更新后验证文本、远程收文本开关、独立局域网权限和旧链接失效。
+- `device revoke` 在一秒检查周期内停用在线连接、链接和在途请求；`device prune` 清理已撤销设备与已消费配对码。
+- 直接 TLS 证书更新后重启服务；本机代理更新证书后校验并 reload 代理，确认公开 healthz 的有效证书。
+- 中继可读取内容，HTTPS/WSS 不等于端到端加密。公网测试需使用真实跨网络浏览器。
 
 ## 交付结果
 

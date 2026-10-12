@@ -1,11 +1,13 @@
 ---
 title: LocalShare Server
-description: LocalShare Server 是用于跨网络只读分享的自托管控制面和数据中继。
+description: LocalShare Server 是用于跨网络文件和文本分享的自托管控制面和数据中继。
 ---
 
 # LocalShare Server
 
 LocalShare Server 是远程分享的控制面和数据中继。它让外部浏览器访问当前在线的 LocalShare Client，同时保持 Mac 位于防火墙或 NAT 之后。
+
+普通用户可以直接使用 App 内置默认服务。下面的文档面向自托管管理员。公网使用 HTTPS/WSS，Server 可读取内容，分享内容不落盘。
 
 ## 它负责什么
 
@@ -20,7 +22,7 @@ LocalShare Server 是远程分享的控制面和数据中继。它让外部浏�
   </div>
   <div class="feature-card">
     <h3>临时分享</h3>
-    <p>每次连接发布新的 Share Token。断开连接、更换分享内容或 Server 重启后，旧地址都会失效。</p>
+    <p>同一连接的文本更新保持 Share Token。断开连接、更换分享内容或 Server 重启后，旧地址都会失效。</p>
   </div>
   <div class="feature-card">
     <h3>最小持久化</h3>
@@ -51,7 +53,7 @@ Client 主动连接 Server，因此不需要端口转发、SSH 隧道或把 Mac 
 
 - Server 不保存或同步分享内容
 - 远程访问不支持访客上传
-- 远程访问不支持 Text Transfer
+- 文件与文本实时中继；可选远程收文本限于 64 KiB
 - Server 不替代长期对象存储或用户账号系统
 
 准备开始部署时，请继续阅读[安装与部署](./deployment)。
