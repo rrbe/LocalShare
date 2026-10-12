@@ -11,8 +11,11 @@ The macOS Client serves selected content directly. In remote mode, the Client op
 - [File sharing](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/file-sharing.md): File, folder, preview, upload, and access-boundary behavior.
 - [Text transfer](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/client/text-transfer.md): File and text sharing with independent LAN and internet reception permissions.
 - [Server overview](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/index.md): Server responsibilities and remote request path.
-- [Server deployment](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deployment.md): Binary installation, TLS, systemd, and management commands.
-- [Connect Client](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/connect-client.md): Pair a Client and publish a remote file or text share.
+- [Server deployment](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deployment.md): Choose a deployment path, install the binary, pair devices, and maintain the Server.
+- [Public IP only](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-ip.md): Direct HTTPS with an IP certificate and automatic renewal; a domain is optional.
+- [Existing Nginx and Let's Encrypt](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-nginx.md): Local Server behind Nginx with HTTPS, WebSocket forwarding, and certificate renewal.
+- [Existing CDN](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-cdn.md): Direct relay subdomain or CDN origin configuration, WebSocket, caching, and client IP forwarding.
+- [Connect Client](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/connect-client.md): Use the default public service or pair a self-hosted Server once; recipients only need a browser.
 
 ## Agent workflows
 

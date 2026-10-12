@@ -5,18 +5,19 @@ description: 复制一段提示，让 Codex 按 LocalShare 官方 Skill 部署�
 
 # 让 Codex 部署
 
-如果 Codex 正运行在目标 Linux 服务器上，可以把下面这段话直接发给它。Codex 会读取 LocalShare 官方部署 Skill，检查服务器环境，只在缺少必要信息或遇到已有部署时向你确认。
+可以把下面这段话发给 Codex，并指定目标 Linux 服务器。Codex 会先检查环境，给出适合的部署方案，经过你确认后执行。
 
-<CopyPrompt text="请在当前这台 Linux 服务器上部署 LocalShare Server；先读取并遵循官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md；检查系统架构、sudo、端口、公开地址、TLS 和已有服务，公网使用 HTTPS/WSS，检查直接 TLS 或已有本机 HTTPS 代理；只在缺少必要信息、需要改 DNS/证书/防火墙或可能覆盖现有部署时向我确认；完成二进制校验、systemd 配置和健康检查后，生成一个一次性 Enrollment Key，并汇总远程地址、服务状态和 Client 的下一步配置。" />
+<CopyPrompt text="请帮我在指定的 Linux 服务器部署 LocalShare Server。先读取官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md。先做只读检查，确认系统架构、端口、公开 IP、已有 Nginx、证书续期和 CDN，按只有 IP、已有 Nginx + Let’s Encrypt、已有 CDN 三种环境说明适用方案；域名可选，公网使用 HTTPS/WSS。展示拟执行的配置和对现有服务的影响，等我确认方案后再执行。部署时校验二进制，保留已有 state.json，验证 systemd、公开 healthz、证书自动续期及 WebSocket，最后生成一次性配对码并告诉我 Client 应填的服务器地址。若只需方案或本地预览，请停在该范围内。" />
 
-这段提示不会预设域名或证书路径。生产部署所需的公开地址、HTTPS 终止方式、证书续期和额度等信息无法从服务器可靠推断时，Codex 会继续询问。
+三种流程的手动步骤见[安装与部署](./deployment)。只使用 IP 时申请 IP 证书；已有 Nginx 时复用代理和续期；已有 CDN 时确认中继直连还是经过 CDN。
 
 ## 为什么使用 Skill
 
 Skill 适合描述可重复执行的操作流程。LocalShare 的 Skill 固化了以下边界：
 
 - 只在明确的 Linux 主机上部署，不自行选择远程服务器
-- 从 GitHub Release 下载与架构匹配的二进制并校验 SHA-256
+- 先展示具体方案，确认后再修改服务器
+- 从 GitHub Release 下载并校验二进制；尚无 Server 资产时说明源码构建方式
 - 保留 `/var/lib/localshare/state.json`，不让升级破坏已配对设备
 - 检查已有端口和 systemd 服务，避免直接覆盖未知配置
 - 启动后验证 `/healthz`，最后才生成一次性 Enrollment Key

@@ -4,7 +4,7 @@ description: 在 Linux 主机上安装、配置、升级或排查自托管 Local
 license: MIT
 metadata:
   author: rrbe
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # LocalShare Server 部署
@@ -16,9 +16,10 @@ metadata:
 ## 确认部署边界
 
 - 只操作用户明确指定的主机。用户说“当前服务器”时操作当前 Linux 主机；未指定远程目标时不要猜测 SSH 主机。
-- 开始写入前确定公开基地址、监听端口，以及使用 Server 直接终止 TLS 还是已有本机 HTTPS 代理。公开基地址必须使用 HTTPS，不能带额外 path 或 query。HTTP 仅用于回环开发测试。
-- HTTPS 需要域名匹配的证书和私钥路径。不要自行申请证书、配置反向代理或修改 DNS，除非用户明确要求。
-- 修改防火墙、覆盖已有 systemd unit、替换已有二进制或调整已有 TLS 文件前，先展示检测结果并取得确认。
+- 先做只读检查，展示具体部署方案和对现有服务的影响，取得用户确认后再执行；已有确认覆盖的操作不重复询问。用户只要求方案、文档或本地预览时，停在该范围内。
+- 根据现有环境选择：只有 IP 时由 Server 直接提供 HTTPS；已有 Nginx + Let’s Encrypt 时使用本机代理；已有 CDN 时说明中继直连与经过 CDN 两种方式。读取 [安装与部署](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deployment.md) 和对应的 [IP](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-ip.md)、[Nginx](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-nginx.md)、[CDN](https://raw.githubusercontent.com/rrbe/LocalShare/master/website/server/deploy-cdn.md) 步骤。
+- 公开基地址可以是 IP 或域名，必须使用 HTTPS，不能带额外 path 或 query。证书必须覆盖所用 IP 或域名，HTTP 仅用于回环开发测试。
+- 在方案中说明证书申请与自动续期、监听端口、DNS（使用域名时）和需要开放的防火墙端口。保留已有主站配置与设备状态；未包含在已确认方案中的现有服务变更需另行确认。
 - Enrollment Key、Device Token 和 Share Token 不得写入公开日志或代码仓库。
 
 ## 只读预检
@@ -39,7 +40,7 @@ LocalShare-Server-<version>-checksums.txt
 
 在 `mktemp -d` 创建的临时目录中下载文件，用 checksums 文件和 `sha256sum -c` 校验目标二进制。只有校验通过后，才使用 `sudo install -m 0755` 安装到 `/usr/local/bin/localshare-server`。
 
-如果最新 Release 没有对应 Server 资产，停止并说明情况；可以询问用户是否改为从源码构建，但不要静默下载未经发布的构建。
+如果最新 Release 没有对应 Server 资产，在方案中说明需从源码构建，指定与 Client 配套的版本和 Go 1.23+ 工具链。用户已确认源码构建时按安装文档执行；不要将源码构建描述成已发布二进制。
 
 ## 创建运行账户和状态目录
 
@@ -61,9 +62,13 @@ Server 默认使用 `/var/lib/localshare`；只有用户明确选择其他目录
 /usr/local/bin/localshare-server serve --listen :<port> --public-url <public-base-url>
 ```
 
-已有本机 HTTPS 代理时使用 `--listen 127.0.0.1:<port> --public-url https://<domain> --behind-proxy`，检查代理覆盖 X-Real-IP 与 X-Forwarded-Proto、支持 WebSocket、关闭响应缓存/缓冲，并避免访问日志记录分享 token。
+已有本机 HTTPS 代理时使用 `--listen 127.0.0.1:<port> --public-url <https-public-base-url> --behind-proxy`，检查代理覆盖 X-Real-IP 与 X-Forwarded-Proto、支持 WebSocket、关闭响应缓存/缓冲，并避免访问日志记录分享 token。
 
 Server 直接终止 TLS 时追加 `--tls-cert <certificate-path> --tls-key <private-key-path>`，并确认 `localshare` 用户可以读取这两个文件。
+
+只有 IP 时按 `website/server/deploy-ip.md` 使用 Certbot 5.4+ 的 `--ip-address` 和 `shortlived` 证书，配置成功续期后复制证书并重启 Server 的 hook。80 端口需可达且可供 standalone 验证使用。直接监听 443 的 unit 需添加 `AmbientCapabilities=CAP_NET_BIND_SERVICE`。
+
+经过 CDN 时，`--public-url` 使用用户访问的 CDN 域名。按 `website/server/deploy-cdn.md` 配置 HTTPS 回源、Host/SNI、WebSocket、不缓存规则以及可信 CDN 网段的客户端 IP 转发。`/healthz` 成功不能替代实际分享验证。
 
 Service 至少使用：
 
@@ -102,7 +107,8 @@ WantedBy=multi-user.target
      --name <device-name>
    ```
 
-5. 把一次性 Enrollment Key 只返回给用户，并提醒在 macOS Client 的“设置 → 远程访问”中填写公开地址和 key。
+5. 把一次性配对码只返回给用户，并提醒在 macOS Client 的「设置 → 网络 → 使用自托管服务器」中填写公开地址和配对码。
+6. 验证证书自动续期及加载 hook。请用户用另一网络的浏览器打开分享链接、下载文件，并确认断开后旧链接失效；无法进行真实浏览器验证时明确报告尚未验证。
 
 ## 注册、升级和撤销
 

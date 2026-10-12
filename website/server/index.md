@@ -1,20 +1,20 @@
 ---
 title: LocalShare Server
-description: LocalShare Server 是用于跨网络文件和文本分享的自托管控制面和数据中继。
+description: LocalShare Server 为不同网络之间的临时文件和文本分享提供中继，接收者只需要浏览器。
 ---
 
 # LocalShare Server
 
-LocalShare Server 是远程分享的控制面和数据中继。它让外部浏览器访问当前在线的 LocalShare Client，同时保持 Mac 位于防火墙或 NAT 之后。
+LocalShare Server 把远程浏览器的请求转发到 Mac 上的 LocalShare，让不同网络中的人也能打开当前分享。发送端运行 LocalShare，接收端只需浏览器。
 
-普通用户可以直接使用 App 内置默认服务。下面的文档面向自托管管理员。公网使用 HTTPS/WSS，Server 可读取内容，分享内容不落盘。
+普通用户可直接使用 App 内置默认服务；自托管用户在设置中更换服务器地址，首次用配对码连接。公网使用 HTTPS/WSS，中继可读取内容，分享内容不落盘。
 
 ## 它负责什么
 
 <div class="feature-grid">
   <div class="feature-card">
     <h3>设备配对</h3>
-    <p>使用一次性 Enrollment Key 注册 Client，并用保存在 Keychain 中的 Device Token 进行后续认证。</p>
+    <p>默认服务自动完成注册。自托管使用一次性配对码，配对后 App 保存设备凭据，后续无需再次输入。</p>
   </div>
   <div class="feature-card">
     <h3>请求中继</h3>
@@ -25,8 +25,8 @@ LocalShare Server 是远程分享的控制面和数据中继。它让外部浏�
     <p>同一连接的文本更新保持 Share Token。断开连接、更换分享内容或 Server 重启后，旧地址都会失效。</p>
   </div>
   <div class="feature-card">
-    <h3>最小持久化</h3>
-    <p>只保存 Enrollment Key 和 Device Token 的 SHA-256，不保存 Mac 上的文件、目录或明文凭据。</p>
+    <h3>即时转发</h3>
+    <p>访问者打开链接时，内容才从 Mac 传出。中继不保存文件，分享期间 Mac 需要保持在线。</p>
   </div>
 </div>
 
@@ -42,18 +42,16 @@ LocalShare Client ──▶ 本地 FileServer ──▶ 分享内容</div>
 
 Client 主动连接 Server，因此不需要端口转发、SSH 隧道或把 Mac 的 FileServer 暴露到公网。Server 只需要一个可供浏览器和 Client 访问的端口。
 
-## 适用场景
+## 开始使用
 
-- 手机和 Mac 不在同一个 Wi-Fi
-- 希望使用自己的域名与 TLS 证书
-- 需要让外部人员通过浏览器临时只读访问文件
-- 不希望把文件预先上传到云盘或长期存放在中继服务中
+| 你想做什么 | 下一步 |
+| --- | --- |
+| 使用默认公共服务 | [连接 Client](./connect-client#使用默认服务) |
+| 在自己的服务器上运行中继 | [选择部署方式](./deployment) |
+| 让 Codex 帮助准备和执行部署 | [让 Codex 部署](./codex-deploy) |
 
-## 不提供的能力
+自托管可以使用公网 IP，也可以使用域名。已有 Nginx 或 CDN 时有对应的部署说明。
 
-- Server 不保存或同步分享内容
-- 远程访问不支持访客上传
-- 文件与文本实时中继；可选远程收文本限于 64 KiB
-- Server 不替代长期对象存储或用户账号系统
-
-准备开始部署时，请继续阅读[安装与部署](./deployment)。
+::: info 分享范围
+远程文件只读；文本可以查看，也可单独开启远程收文本，单次最多 64 KiB。局域网的上传和收文本权限独立设置。HTTPS/WSS 加密传输链路，中继服务可以读取内容。
+:::

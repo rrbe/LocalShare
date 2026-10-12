@@ -27,7 +27,7 @@ curl --fail --max-time 5 http://127.0.0.1:18080/healthz
 
 ## 生产部署和管理
 
-完整可执行的 TLS、systemd、本机代理、证书续期及资源参数见 [部署说明](../website/server/deployment.md)。状态默认在 `/var/lib/localshare`，升级必须保留 state.json。直接 TLS 与本机代理均支持；代理方式需使用回环监听及 `--behind-proxy`。
+先阅读 [安装与部署](../website/server/deployment.md)，再选择 [只有公网 IP](../website/server/deploy-ip.md)、[已有 Nginx + Let’s Encrypt](../website/server/deploy-nginx.md) 或 [已接入 CDN](../website/server/deploy-cdn.md)。文档包含 systemd、证书续期、配对和验证步骤，域名可选。状态默认在 `/var/lib/localshare`，升级必须保留 state.json；本机代理方式需使用回环监听及 `--behind-proxy`。
 
 ```bash
 localshare-server key create --name macbook

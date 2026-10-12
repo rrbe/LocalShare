@@ -36,7 +36,15 @@ export default defineConfig({
         text: 'LocalShare Server',
         items: [
           { text: 'Server 简介', link: '/server/' },
-          { text: '安装与部署', link: '/server/deployment' },
+          {
+            text: '安装与部署',
+            link: '/server/deployment',
+            items: [
+              { text: '只有公网 IP', link: '/server/deploy-ip' },
+              { text: '已有 Nginx + Let’s Encrypt', link: '/server/deploy-nginx' },
+              { text: '已接入 EdgeOne 等 CDN', link: '/server/deploy-cdn' },
+            ],
+          },
           { text: '让 Codex 部署', link: '/server/codex-deploy' },
           { text: '连接 Client', link: '/server/connect-client' },
         ],

@@ -1,134 +1,113 @@
 ---
 title: 安装与部署
-description: 安装单文件中继，使用 HTTPS/WSS，配置设备与资源权限。
+description: 按现有环境选择：只有公网 IP、已有 Nginx 与证书、已接入 CDN。
 ---
 
 # 安装与部署
 
-LocalShare Server 是纯 Go 单文件程序，要求 Go 1.23+。公网必须使用 HTTPS；可由 Server 直接终止 TLS，也可使用本机反向代理。默认自动注册关闭，自托管由管理员发放配对码。
+自托管需要一台有公网入口的 Linux 服务器，运行一个 LocalShare Server，并提供 HTTPS 地址。**域名可选**；接收者始终只需要浏览器。
 
-## 获取程序
+如果使用 App 内置默认服务，可以直接[开始远程分享](./connect-client)，无需部署。
 
-从 [GitHub Releases](https://github.com/rrbe/LocalShare/releases) 下载匹配 Linux amd64 或 arm64 的二进制和校验文件，按 SHA-256 校验后安装。首次安装：
+## 按现有环境选择
+
+| 你的环境 | 部署方式 | 需要做的工作 |
+| --- | --- | --- |
+| [只有公网 IP](./deploy-ip) | Server 直接提供 HTTPS | 安装程序、申请 IP 证书、配置自动续期 |
+| [已有 Nginx + Let’s Encrypt](./deploy-nginx) | Nginx 提供 HTTPS，转发到本机 Server | 新增一个站点、配置 WebSocket 转发、复用证书续期 |
+| [已接入 EdgeOne 等 CDN](./deploy-cdn) | CDN → Nginx → Server，或中继子域名直连 | 配置回源、WebSocket 和缓存；直连时按 Nginx 方案部署 |
+
+先完成下面的程序安装，再进入对应方案。命令以使用 systemd 的 Ubuntu / Debian 为例。也可以[让 Codex 准备部署方案](./codex-deploy)。
+
+## 1. 安装 Server
+
+Server 是一个独立二进制，运行时无需安装 Go。从 [GitHub Releases](https://github.com/rrbe/LocalShare/releases) 下载对应版本的 Linux 二进制和校验文件。`<version>` 替换为版本号；下面使用 amd64，arm64 机器改用对应文件。
 
 ```bash
-sha256sum -c LocalShare-Server-<version>-checksums.txt
+sha256sum --ignore-missing -c LocalShare-Server-<version>-checksums.txt
 sudo install -m 0755 LocalShare-Server-<version>-linux-amd64 /usr/local/bin/localshare-server
+```
+
+只有校验结果为 `OK` 才继续安装。若 Release 尚未提供 Server 文件，使用下面的源码构建方式。
+
+::: details 从源码构建（需要 Go 1.23+）
+在仓库中选择与 Client 配套的版本，再构建 Linux 程序：
+
+```bash
+git clone https://github.com/rrbe/LocalShare.git
+cd LocalShare/server
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w' -o localshare-server .
+```
+
+把生成的 `localshare-server` 复制到目标服务器，然后安装：
+
+```bash
+sudo install -m 0755 localshare-server /usr/local/bin/localshare-server
+```
+
+arm64 服务器将 `GOARCH` 改为 `arm64`。Client 与 Server 协议需一致，当前为 v2。
+:::
+
+首次安装时，创建运行账户与持久化目录：
+
+```bash
 sudo useradd --system --home /var/lib/localshare --shell /usr/sbin/nologin localshare
 sudo install -d -o localshare -g localshare -m 0700 /var/lib/localshare
 ```
 
-也可从源码构建：
+已有部署跳过账户创建，保留 `/var/lib/localshare/state.json`，其中保存已配对设备的状态。
+
+## 2. 配置 HTTPS 并启动
+
+选择一种方案继续，每页都有对应的 systemd 配置和验证步骤：
+
+- [只有公网 IP](./deploy-ip)
+- [已有 Nginx + Let’s Encrypt](./deploy-nginx)
+- [已接入 EdgeOne 等 CDN](./deploy-cdn)
+
+## 3. 配对与分享
+
+服务启动且公开地址的 `/healthz` 验证通过后，生成一个一次性配对码：
 
 ```bash
-cd server
-go test -race ./...
-go vet ./...
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '-s -w' -o localshare-server .
+sudo -u localshare /usr/local/bin/localshare-server key create --name macbook
 ```
 
-升级前备份二进制和服务配置，保留 `/var/lib/localshare/state.json`。不要重新生成状态文件。Client 与 Server 协议均为 v2，需一起升级。
+在 LocalShare 的「设置 → 网络 → 使用自托管服务器」填入 HTTPS 地址和配对码。之后只需在分享页点击「连接」，将生成的链接发给接收者。详见[连接 Client](./connect-client)。
 
-## 直接终止 TLS
+## 日常维护
 
-准备覆盖 `share.example.com` 的有效证书，并让 localshare 用户能读取证书与私钥；私钥仅授权该服务用户读取。创建 `/etc/systemd/system/localshare-server.service`：
+升级前备份二进制和服务配置，保留状态目录。直接 TLS 模式续期后要重启 Server；Nginx 模式只需重新加载 Nginx。**Server 重启会使当前分享链接失效**，Client 重连后会获得新链接。
 
-```ini
-[Unit]
-Description=LocalShare Server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=localshare
-Group=localshare
-ExecStart=/usr/local/bin/localshare-server serve --listen :18443 --public-url https://share.example.com:18443 --tls-cert /etc/localshare/server.crt --tls-key /etc/localshare/server.key
-Restart=on-failure
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/localshare
-
-[Install]
-WantedBy=multi-user.target
-```
-
-防火墙只开放该 TLS 端口。证书更新后以部署 hook 执行 `systemctl restart localshare-server`，让进程加载新证书。证书续期由部署者已有的 ACME 工具负责。
-
-## 使用本机 HTTPS 代理
-
-已有 Nginx 等代理时，将上面的 ExecStart 替换为：
-
-```ini
-ExecStart=/usr/local/bin/localshare-server serve --listen 127.0.0.1:18080 --public-url https://share.example.com --behind-proxy
-```
-
-`--behind-proxy` 强制回环监听，TLS 在同一台机器的代理处终止。代理需覆盖并重新设置身份头，支持 WebSocket，关闭响应缓存、缓冲与访问日志中的分享路径。Nginx 的 HTTPS server 内可配置：
-
-```nginx
-access_log off;
-client_max_body_size 64k;
-location / {
-    proxy_pass http://127.0.0.1:18080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-Proto https;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_request_buffering off;
-    proxy_read_timeout 65s;
-    proxy_send_timeout 65s;
-}
-```
-
-使用独立的子域名和 server 配置，HTTP 入口跳转到 HTTPS。证书需覆盖该子域名。代理层建议增加连接与请求频率上限；健康检查和分享响应均不缓存。证书续期后先 `nginx -t`，再 `systemctl reload nginx`；回环 Server 无需重启。
-
-## 启动与验证
+::: details 查看状态、撤销设备与调整带宽
+查看运行状态与日志：
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now localshare-server
-sudo systemctl is-active localshare-server
-curl --fail --max-time 10 https://share.example.com/healthz
+sudo systemctl status localshare-server
 sudo journalctl -u localshare-server --no-pager -n 50
 ```
 
-直接 TLS 示例的健康地址应包含 `:18443`。健康 JSON 含 status、connected_devices、in_flight、relayed_bytes 、rejected_requests 和 failures 分类计数；计数在进程重启后归零。relayed_bytes 为限速器获准转发的字节数，不能替代云厂商账单。
-
-## 注册与资源额度
-
-自托管默认关闭自动注册。健康检查通过后生成一次性配对码：
+管理配对码与设备：
 
 ```bash
-sudo -u localshare localshare-server key create --name macbook
+sudo -u localshare /usr/local/bin/localshare-server key list
+sudo -u localshare /usr/local/bin/localshare-server key revoke <key-id>
+sudo -u localshare /usr/local/bin/localshare-server device list
+sudo -u localshare /usr/local/bin/localshare-server device revoke <device-id>
+sudo -u localshare /usr/local/bin/localshare-server device prune
 ```
 
-仅公开默认服务等明确需要自助准入的部署才追加 `--registration`。自动注册生成每设备独立随机凭据，客户端不内置共享密钥。
+撤销设备会终止其在线连接和分享。`prune` 清理已撤销设备与已消费配对码，保留有效设备。
+
+按服务器的带宽套餐调整 `ExecStart` 中的参数：
 
 | 参数 | 默认值 |
 | --- | --- |
-| `--max-devices` | 1,000 个自动注册设备记录 |
-| `--registrations-per-hour` | 每 IP 每小时 5 次注册或配对尝试 |
-| `--device-requests` / `--total-requests` | 8 / 64 个请求 |
-| `--device-bytes-per-second` / `--total-bytes-per-second` | 4194304 / 33554432 |
+| `--device-bytes-per-second` | 4194304（每设备 4 MiB/s） |
+| `--total-bytes-per-second` | 33554432（整体 32 MiB/s） |
+| `--device-requests` / `--total-requests` | 每设备 8 / 整体 64 个请求 |
 
-另有每 IP 每分钟 60 次建连、每设备一个 WebSocket、256 个 HTTP 连接、64 KiB 数据块和 4 消息请求队列。转发头与请求 URI 各限 4 KiB，元数据超限返回 431。超限返回 429，注册容量耗尽返回 503。按带宽套餐调整速率，配合云平台账单告警和代理层准入；服务没有用户账号或月流量计费系统。
+例如整体限制为 1 MiB/s，可追加 `--total-bytes-per-second 1048576`。修改后执行 `systemctl daemon-reload` 和 `systemctl restart localshare-server`。`/healthz` 的累计转发字节数会在重启后归零，实际流量账单以云平台为准。
 
-## 撤销与清理
-
-```bash
-sudo -u localshare localshare-server key list
-sudo -u localshare localshare-server key revoke <key-id>
-sudo -u localshare localshare-server device list
-sudo -u localshare localshare-server device revoke <device-id>
-sudo -u localshare localshare-server device prune
-```
-
-撤销在运行 Server 的一秒检查周期内关闭连接、作废分享链接并取消在途下载；后续连接拒绝。prune 删除已撤销设备和已消费配对码，保留有效设备。离线设备凭据保留以便重连。
-
-设备名称与 token 哈希持久化，内容不落盘；目录权限 0700，状态和锁文件 0600。不要记录明文凭据、分享 URL 或请求内容。中继可读取分享内容；HTTPS/WSS 提供链路加密。
-
-完成后[连接 Client](./connect-client)，再使用不同网络的真实浏览器验证文件、文本和停止分享。
+自托管默认使用配对码。运营供用户自助连接的公共服务时，才追加 `--registration`；设备容量和注册频率等完整参数见 [Server README](https://github.com/rrbe/LocalShare/tree/master/server)。
+:::

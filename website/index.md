@@ -1,6 +1,6 @@
 ---
 title: LocalShare 文档
-description: 通过局域网或自托管 Server，把 Mac 上的文件和文本安全地送到浏览器。
+description: 通过局域网、默认公共服务或自托管 Server，把 Mac 上的文件和文本分享到浏览器。
 ---
 
 <script setup>
@@ -9,7 +9,7 @@ import mainScreenshot from "./images/screenshot-main-page.png"
 
 # 从 Mac 分享到任何浏览器
 
-<p class="doc-lead">LocalShare 是原生 macOS 文件分享工具。选择文件或文件夹后，手机、平板和电脑只需打开链接或扫描二维码，就能在浏览器中查看内容；需要跨网络访问时，可以接入自托管的 LocalShare Server。</p>
+<p class="doc-lead">LocalShare 是原生 macOS 文件分享工具。选择文件或文件夹后，手机、平板和电脑只需打开链接或扫描二维码，就能在浏览器中查看内容。跨网络分享可以使用 App 内置默认服务，也可以连接自己的中继服务器。</p>
 
 <ZoomImage compact :src="mainScreenshot" alt="LocalShare 主界面，显示文件分享和文本传递入口" />
 
@@ -20,9 +20,9 @@ import mainScreenshot from "./images/screenshot-main-page.png"
     <h3>局域网分享</h3>
     <p>无需部署服务。Mac 直接提供访问地址和二维码，适合同一 Wi-Fi 下快速查看文件或传递文本。</p>
   </a>
-  <a class="feature-card" href="./server/">
+  <a class="feature-card" href="./server/connect-client">
     <h3>远程浏览器分享</h3>
-    <p>部署自托管 Server 后，Client 主动建立连接，让不同网络中的浏览器只读访问当前分享。</p>
+    <p>在分享页连接默认服务，将远程链接发给接收者。也可以在设置中换成自托管服务器。</p>
   </a>
 </div>
 
@@ -50,4 +50,4 @@ import mainScreenshot from "./images/screenshot-main-page.png"
 
 ## 从这里开始
 
-第一次使用请阅读[快速开始](./client/getting-started)。如果准备跨网络分享，请先了解 [LocalShare Server](./server/)。
+第一次使用请阅读[快速开始](./client/getting-started)。跨网络访问请阅读[远程分享](./server/connect-client)；准备自托管时，从[安装与部署](./server/deployment)选择适合的方案。
