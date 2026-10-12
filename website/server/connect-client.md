@@ -31,7 +31,7 @@ sudo -u localshare /usr/local/bin/localshare-server key create --name macbook
 
 | 字段 | 内容 |
 | --- | --- |
-| 服务器地址 | HTTPS 基地址，如 `https://203.0.113.10` 或 `https://share.example.com`；自定义端口需一起填写 |
+| 服务器地址 | HTTPS 基地址，如 `https://1.2.3.4` 或 `https://share.example.com`；自定义端口需一起填写 |
 | 配对码 | 上面命令生成的一次性 Enrollment Key |
 
 地址不带额外路径或查询参数。点击「配对」即可保存设备凭据；也可点击「保存」，在分享页首次连接时完成配对。

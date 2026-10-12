@@ -9,7 +9,7 @@ description: 无需域名，使用 Let’s Encrypt IP 证书，让 LocalShare Se
 
 <div class="flow">LocalShare / 浏览器  ── HTTPS ──▶  公网 IP:443  ──▶  Server</div>
 
-下文的 `203.0.113.10` 是专用于文档的保留地址，部署时全部替换为服务器的固定公网 IPv4。先完成[程序安装](./deployment#_1-安装-server)。
+下文以 `1.2.3.4` 为例，部署时换成自己的公网 IP。先完成[程序安装](./deployment#_1-安装-server)。
 
 ## 1. 准备端口与 Certbot
 
@@ -31,7 +31,7 @@ sudo /snap/bin/certbot --version
 ```bash
 sudo /snap/bin/certbot certonly --standalone \
   --preferred-profile shortlived \
-  --ip-address 203.0.113.10 \
+  --ip-address 1.2.3.4 \
   --cert-name localshare
 ```
 
@@ -60,7 +60,7 @@ Wants=network-online.target
 [Service]
 User=localshare
 Group=localshare
-ExecStart=/usr/local/bin/localshare-server serve --listen :443 --public-url https://203.0.113.10 --tls-cert /etc/localshare/server.crt --tls-key /etc/localshare/server.key
+ExecStart=/usr/local/bin/localshare-server serve --listen :443 --public-url https://1.2.3.4 --tls-cert /etc/localshare/server.crt --tls-key /etc/localshare/server.key
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=on-failure
 NoNewPrivileges=true
@@ -78,7 +78,7 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now localshare-server
-curl --fail --max-time 10 https://203.0.113.10/healthz
+curl --fail --max-time 10 https://1.2.3.4/healthz
 ```
 
 从服务器外执行最后一条命令，确认返回 HTTP 200 且 JSON 的 `status` 为 `ok`。
@@ -107,14 +107,14 @@ sudo chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/localshare-server
 ```bash
 systemctl list-timers --all | grep certbot
 sudo /snap/bin/certbot renew --cert-name localshare --dry-run --run-deploy-hooks
-curl --fail --max-time 10 https://203.0.113.10/healthz
+curl --fail --max-time 10 https://1.2.3.4/healthz
 ```
 
 80 端口需保持可达，供后续自动验证。续期 hook 的行为见 [Certbot 文档](https://eff-certbot.readthedocs.io/en/stable/using.html#renewing-certificates)。
 
 ## 5. 在 LocalShare 中使用
 
-[生成配对码](./deployment#_3-配对与分享)，服务器地址填 `https://203.0.113.10`，然后[连接 Client](./connect-client)。接收者直接在浏览器打开分享链接。
+[生成配对码](./deployment#_3-配对与分享)，服务器地址填 `https://1.2.3.4`，然后[连接 Client](./connect-client)。接收者直接在浏览器打开分享链接。
 
 ::: details 进阶：之后换成域名
 把域名的 A 记录指向该公网 IP，再为域名申请证书，将 `--public-url` 改为域名地址并更新证书配置。续期 hook 也需指向新证书。
