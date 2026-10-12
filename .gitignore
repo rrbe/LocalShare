@@ -1,5 +1,6 @@
 .build/
 .swiftpm/
+/server/localshare-server
 dist/
 *.app
 .DS_Store
