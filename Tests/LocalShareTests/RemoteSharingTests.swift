@@ -117,7 +117,8 @@ final class RemoteSharingTests: XCTestCase {
         XCTAssertEqual(String(data: frame.dropFirst(4).dropFirst(5), encoding: .utf8), "hello")
     }
 
-    @MainActor func testRemotePairStatusUsesUserDefaultsMarker() {
+    // Keep MainActor-owned objects inside XCTest's async task context during teardown.
+    @MainActor func testRemotePairStatusUsesUserDefaultsMarker() async {
         let key = "remotePairedServerAddresses"
         let previous = UserDefaults.standard.object(forKey: key)
         defer {

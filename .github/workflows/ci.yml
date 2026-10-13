@@ -16,13 +16,13 @@ on:
 
 jobs:
   docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm docs:build
@@ -30,12 +30,13 @@ jobs:
           DOCS_BASE: /LocalShare
 
   server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.23'
+          cache-dependency-path: server/go.mod
       - name: 测试 LocalShare Server
         working-directory: server
         run: |
@@ -49,6 +50,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.23'
+          cache-dependency-path: server/go.mod
 
       - name: 编译 debug（首次会拉取 Swifter / Sparkle）
         run: swift build

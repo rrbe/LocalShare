@@ -327,7 +327,7 @@ final class FileServer {
 
     // MARK: - 请求处理
 
-    private func handle(_ req: HttpRequest) -> HttpResponse {
+    func handle(_ req: HttpRequest, afterAuthentication: () -> Void = {}) -> HttpResponse {
         // Tailscale 开关是网络边界，必须先于访问码和 token 鉴权；即使拿着有效链接，关闭后也立即拒绝。
         guard Self.allowsClient(address: req.address, tailscaleAccessEnabled: tailscaleAccessEnabled) else {
             return htmlResponse(403, "Forbidden", Self.forbiddenPage(
@@ -381,6 +381,8 @@ final class FileServer {
 
         // 鉴权通过的每个请求都刷新该 IP 的活跃时间（含心跳与下载中的请求）。
         touchPresence(clientAddress, lookupName: !remoteMode)
+        // Allow tests to rotate the share at the authenticated request boundary.
+        afterAuthentication()
 
         // 已经有有效 Cookie 却打开 /ls/join 时直接回当前分享入口，不再重复要求输入短码。
         if req.method == "GET", req.path == "/ls/join" {
