@@ -39,6 +39,7 @@ jobs:
         if: ${{ hashFiles('server/go.mod') != '' }}
         with:
           go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
 
       - name: 编译 LocalShare Server（Linux amd64 / arm64）
         if: ${{ hashFiles('server/go.mod') != '' }}
