@@ -5,6 +5,83 @@ import Swifter
 @testable import LocalShare
 
 final class AppStateRemoteTests: XCTestCase {
+    @MainActor func testCustomServerRegistersAndReusesCredentialsWithBlankKey() async throws {
+        var keychain: SecKeychain?
+        var status = SecKeychainStatus()
+        try XCTSkipIf(SecKeychainCopyDefault(&keychain) != errSecSuccess || keychain == nil,
+                      "login keychain is unavailable")
+        try XCTSkipIf(SecKeychainGetStatus(keychain!, &status) != errSecSuccess ||
+                      status & SecKeychainStatus(kSecUnlockStateStatus) == 0,
+                      "login keychain must be unlocked for credential integration testing")
+        let relay = HttpServer()
+        let lock = NSLock()
+        var registrations = 0
+        relay["/api/v1/register"] = { request in
+            let message = try? JSONDecoder().decode(RemoteWireMessage.self, from: Data(request.body))
+            XCTAssertEqual(message?.enrollmentKey, "")
+            lock.withLock { registrations += 1 }
+            return .ok(.text("{\"device_id\":\"test\",\"device_token\":\"test-token\"}"))
+        }
+        relay["/api/v1/enroll"] = { _ in
+            XCTFail("a blank key must use automatic registration")
+            return .unauthorized
+        }
+        relay["/api/v1/agent"] = websocket(text: { socket, raw in
+            if (try? JSONDecoder().decode(RemoteWireMessage.self, from: Data(raw.utf8)))?.type == "share.start" {
+                socket.writeText("{\"type\":\"share.ready\",\"share_url\":\"http://127.0.0.1/share/test/\"}")
+            }
+        }, connected: { $0.writeText("{\"type\":\"hello\",\"protocol\":2}") })
+        try relay.start(0, forceIPv4: true)
+        defer { relay.stop() }
+        let base = URL(string: "http://127.0.0.1:\(try relay.port())")!
+        try XCTSkipIf(try RemoteKeychain.value(for: RemoteKeychain.deviceAccount(for: base)) != nil,
+                      "test address already has credentials")
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer {
+            state.stop()
+            state.forgetRemoteDevice()
+        }
+        state.saveRemoteSettings(RemoteSettings(serverAddress: base.absoluteString))
+        state.setSharedText("test")
+        _ = try await request(state, path: "/ls/text")
+        state.connectRemote(enrollmentKey: " \n")
+        _ = try await publishedURL(state)
+        XCTAssertEqual(lock.withLock { registrations }, 1)
+        XCTAssertTrue(state.remotePaired)
+
+        state.disconnectRemote()
+        state.connectRemote(enrollmentKey: "")
+        _ = try await publishedURL(state)
+        XCTAssertEqual(lock.withLock { registrations }, 1)
+
+        state.forgetRemoteDevice()
+        let error = await state.pairRemote(enrollmentKey: " ")
+        XCTAssertNil(error)
+        XCTAssertTrue(state.remotePaired)
+        XCTAssertEqual(lock.withLock { registrations }, 2)
+    }
+
+    @MainActor func testCustomServerRequiresKeyWhenAutomaticRegistrationIsClosed() async throws {
+        let relay = HttpServer()
+        relay["/api/v1/register"] = { _ in .notFound }
+        relay["/api/v1/enroll"] = { _ in
+            XCTFail("a blank key must use automatic registration")
+            return .unauthorized
+        }
+        try relay.start(0, forceIPv4: true)
+        defer { relay.stop() }
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer { state.stop() }
+        state.saveRemoteSettings(RemoteSettings(serverAddress: "http://127.0.0.1:\(try relay.port())"))
+        let error = await state.pairRemote(enrollmentKey: "")
+        XCTAssertEqual(error, L.remoteRegistrationClosed(state.lang))
+        XCTAssertFalse(state.remotePaired)
+    }
+
     @MainActor func testColdLaunchRestoresDraftWithoutPublishing() async throws {
         let preferences = Preferences()
         defer { preferences.restore() }

@@ -43,7 +43,7 @@
 
 ### 远程浏览器分享
 
-选择文件或发送文本后，点击「互联网分享 → 连接」，把链接发给访问者。App 内置默认服务 `https://share.fairydog.net`，首次启用自动注册，凭据存入 Keychain；Mac 需保持在线。公网使用 HTTPS/WSS，中继可读取内容。远程文件只读，远程收文本独立且默认关闭，局域网权限不受影响。自托管用户可在「设置 → 网络」填写服务器地址和管理员配对码。详见[互联网分享方案](docs/REMOTE_SHARING_PLAN.md)。
+选择文件或发送文本后，点击「互联网分享 → 连接」，把链接发给访问者。App 内置默认服务 `https://share.fairydog.net`，首次启用自动注册，凭据存入 Keychain；Mac 需保持在线。公网使用 HTTPS/WSS，中继可读取内容。远程文件只读，远程收文本独立且默认关闭，局域网权限不受影响。自托管用户在「设置 → 网络」填写服务器地址；默认需要管理员提供的配对码，Server 通过 `--registration` 开放自动注册后可留空。详见[连接 Client](website/server/connect-client.md)。
 
 ## 终端用法
 

@@ -65,7 +65,16 @@ sudo install -d -o localshare -g localshare -m 0700 /var/lib/localshare
 - [已有 Nginx + Let’s Encrypt](./deploy-nginx)
 - [已接入 EdgeOne 等 CDN](./deploy-cdn)
 
-## 3. 配对与分享
+## 3. 选择设备注册方式
+
+Server 默认使用一次性配对码。是否允许免配对码连接，由 Server 的 `--registration` 参数决定；设置了域名或 HTTPS 地址不会自动开启注册。
+
+| 方式 | Server 配置 | App 操作 |
+| --- | --- | --- |
+| 配对码注册（默认） | 不加 `--registration` | 首次填写管理员提供的配对码 |
+| 自动注册 | 加 `--registration` | 配对码留空，App 自动获取并保存设备凭据 |
+
+### 使用配对码
 
 服务启动且公开地址的 `/healthz` 验证通过后，生成一个一次性配对码：
 
@@ -74,6 +83,25 @@ sudo -u localshare /usr/local/bin/localshare-server key create --name macbook
 ```
 
 在 LocalShare 的「设置 → 网络 → 使用自托管服务器」填入 HTTPS 地址和配对码。之后只需在分享页点击「连接」，将生成的链接发给接收者。详见[连接 Client](./connect-client)。
+
+### 开放自动注册
+
+在 systemd 服务的 `ExecStart` 末尾加上 `--registration`。例如，使用同机 Nginx 的完整启动命令是：
+
+```ini
+ExecStart=/usr/local/bin/localshare-server serve --listen 127.0.0.1:18080 --public-url https://share.example.com --behind-proxy --registration
+```
+
+修改后执行：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart localshare-server
+```
+
+此方式允许访问这个 Server 的 App 自助注册，无需执行 `key create`。自托管用户填写服务器地址，配对码留空，点击「配对」或保存后在分享页点击「连接」。已注册设备会复用保存的凭据。
+
+App 内置默认服务通过自动注册连接；运营默认服务的 Server 也必须加上 `--registration`。使用默认服务的用户无需填写地址或配对码。
 
 ## 日常维护
 
@@ -109,5 +137,5 @@ sudo -u localshare /usr/local/bin/localshare-server device prune
 
 例如整体限制为 1 MiB/s，可追加 `--total-bytes-per-second 1048576`。修改后执行 `systemctl daemon-reload` 和 `systemctl restart localshare-server`。`/healthz` 的累计转发字节数会在重启后归零，实际流量账单以云平台为准。
 
-自托管默认使用配对码。运营供用户自助连接的公共服务时，才追加 `--registration`；设备容量和注册频率等完整参数见 [Server README](https://github.com/rrbe/LocalShare/tree/master/server)。
+设备容量和注册频率等完整参数见 [Server README](https://github.com/rrbe/LocalShare/tree/master/server)。
 :::

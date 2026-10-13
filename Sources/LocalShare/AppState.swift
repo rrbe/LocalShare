@@ -320,14 +320,15 @@ final class AppState: ObservableObject {
                             localBaseURL: localShareBaseURL, localToken: token,
                             deviceName: Host.current().localizedName ?? "Mac", lang: lang,
                             localRelayToken: server?.remoteRequestToken ?? "", receivingText: remoteTextInboxEnabled,
-                            automaticRegistration: remoteSettings.usesDefaultService)
+                            automaticRegistration: enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     func pairRemote(enrollmentKey: String) async -> String? {
         guard let serverURL = remoteSettings.serverURL else { return L.remoteConfigHint(lang) }
         do {
             try await remoteAgent.pair(serverURL: serverURL, enrollmentKey: enrollmentKey,
-                                       deviceName: Host.current().localizedName ?? "Mac", lang: lang)
+                                       deviceName: Host.current().localizedName ?? "Mac", lang: lang,
+                                       automaticRegistration: enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             remotePaired = remoteAgent.isPaired(for: remoteSettings.serverURL)
             remoteEnrollmentKey = ""
             remoteError = nil
@@ -390,7 +391,7 @@ final class AppState: ObservableObject {
         remoteAgent.connect(serverURL: serverURL, enrollmentKey: "", localBaseURL: localShareBaseURL,
                             localToken: token, deviceName: Host.current().localizedName ?? "Mac", lang: lang,
                             localRelayToken: server?.remoteRequestToken ?? "", receivingText: remoteTextInboxEnabled,
-                            automaticRegistration: remoteSettings.usesDefaultService)
+                            automaticRegistration: true)
     }
 
     private func startNetworkMonitoring() {

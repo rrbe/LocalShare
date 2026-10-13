@@ -7,14 +7,14 @@ description: LocalShare Server 为不同网络之间的临时文件和文本分�
 
 LocalShare Server 把远程浏览器的请求转发到 Mac 上的 LocalShare，让不同网络中的人也能打开当前分享。发送端运行 LocalShare，接收端只需浏览器。
 
-普通用户可直接使用 App 内置默认服务；自托管用户在设置中更换服务器地址，首次用配对码连接。公网使用 HTTPS/WSS，中继可读取内容，分享内容不落盘。
+普通用户可直接使用 App 内置默认服务；自托管用户在设置中更换服务器地址，通过配对码或服务器开放的自动注册连接。公网使用 HTTPS/WSS，中继可读取内容，分享内容不落盘。
 
 ## 它负责什么
 
 <div class="feature-grid">
   <div class="feature-card">
     <h3>设备配对</h3>
-    <p>默认服务自动完成注册。自托管使用一次性配对码，配对后 App 保存设备凭据，后续无需再次输入。</p>
+    <p>默认服务自动完成注册。自托管默认使用一次性配对码；Server 开放自动注册后，配对码可留空。App 保存设备凭据，供后续连接使用。</p>
   </div>
   <div class="feature-card">
     <h3>请求中继</h3>

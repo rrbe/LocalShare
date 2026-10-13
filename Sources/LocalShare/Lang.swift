@@ -106,7 +106,7 @@ enum L: CaseIterable {
     case tailscaleTitle, tailscaleDescMissing
 
     // 设置 —— 远程访问
-    case remoteServerAddress, remoteEnrollmentKey, remotePairedPlaceholder, remoteSave, remoteSaved
+    case remoteServerAddress, remoteEnrollmentKey, remoteEnrollmentOptional, remotePairedPlaceholder, remoteSave, remoteSaved
     case remotePair, remotePairing, remotePairSucceeded
     case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
     case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy, remoteGuide
@@ -123,7 +123,7 @@ enum L: CaseIterable {
     // 远程访问
     case remoteAccess, remoteAccessDesc, remoteConfigHint
     case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly, scanCaptionRemote
-    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected
+    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected, remoteRegistrationClosed
     case remoteLocalUnavailable, remoteInvalidRequest, remoteServerError
 
     // 设置 —— 外观
@@ -299,6 +299,7 @@ enum L: CaseIterable {
         case .remoteConnectionFailed: return ("无法连接服务器，请检查网络和服务器状态", "Could not connect to the server. Check your network and the server's status.")
         case .remoteServerAddress: return ("服务器地址", "Server Address")
         case .remoteEnrollmentKey: return ("配对码", "Enrollment Key")
+        case .remoteEnrollmentOptional: return ("可选", "Optional")
         case .remotePairedPlaceholder: return ("已配对", "Paired")
         case .remoteSave:         return ("保存", "Save")
         case .remoteSaved:        return ("已保存", "Saved")
@@ -308,8 +309,8 @@ enum L: CaseIterable {
         case .remoteConnect:      return ("连接", "Connect")
         case .remoteDisconnect:   return ("断开", "Disconnect")
         case .remoteForget:       return ("忘记服务器", "Forget Server")
-        case .remotePairHint:     return ("一次性配对码由服务器管理员提供",
-                                          "Get a one-time enrollment key from the server administrator")
+        case .remotePairHint:     return ("服务器开放自动注册时可留空，否则向管理员获取配对码",
+                                          "Leave blank if the server allows automatic registration; otherwise, ask the administrator for a key")
 
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
@@ -330,8 +331,8 @@ enum L: CaseIterable {
 
         case .remoteAccess:      return ("互联网分享", "Internet Sharing")
         case .remoteAccessDesc:  return ("Mac 需保持在线", "Keep your Mac online")
-        case .remoteConfigHint:  return ("在设置 → 网络中填写服务器地址和配对码",
-                                          "Enter the server address and enrollment key in Settings → Network")
+        case .remoteConfigHint:  return ("在设置 → 网络中选择默认服务或填写服务器地址",
+                                          "Choose the default service or enter a server address in Settings → Network")
         case .remoteConnecting:   return ("连接中", "Connecting")
         case .remoteOnline:       return ("在线", "Online")
         case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
@@ -342,6 +343,8 @@ enum L: CaseIterable {
                                                 "The Server address or device credential is invalid.")
         case .remoteEnrollmentRejected: return ("服务器拒绝了配对请求",
                                                 "The Server rejected the enrollment request.")
+        case .remoteRegistrationClosed: return ("服务器未开放自动注册，请向管理员获取配对码",
+                                                "Automatic registration is disabled. Ask the server administrator for an enrollment key.")
         case .remoteLocalUnavailable: return ("本机分享未运行。", "The local share is not running.")
         case .remoteInvalidRequest: return ("远程请求路径无效。", "The remote request path is invalid.")
         case .remoteServerError: return ("LocalShare Server 无法完成请求。",

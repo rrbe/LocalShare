@@ -43,7 +43,7 @@ The QR code points to something like `http://192.168.x.x:8080/?t=<random-token>`
 
 ### Remote browser sharing
 
-Choose files or send text, then click Internet Sharing → Connect and send the link to a visitor. The built-in service is `https://share.fairydog.net`; first use registers an independent device credential in Keychain. Keep your Mac online. Public connections use HTTPS/WSS, and the relay can read shared content. Remote files are read-only; receiving text over the internet is separate and off by default. LAN permissions remain independent. For self-hosting, enter your Server address and administrator-issued enrollment key in Settings → Network. See the [internet-sharing plan](docs/REMOTE_SHARING_PLAN.md).
+Choose files or send text, then click Internet Sharing → Connect and send the link to a visitor. The built-in service is `https://share.fairydog.net`; first use registers an independent device credential in Keychain. Keep your Mac online. Public connections use HTTPS/WSS, and the relay can read shared content. Remote files are read-only; receiving text over the internet is separate and off by default. LAN permissions remain independent. For self-hosting, enter your Server address in Settings → Network. An administrator-issued enrollment key is required unless the Server enables automatic registration with `--registration`, in which case you can leave it blank. See the [Client connection guide](website/server/connect-client.md).
 
 ## Terminal usage
 

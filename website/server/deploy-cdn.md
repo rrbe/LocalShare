@@ -79,7 +79,7 @@ sudo systemctl reload nginx
 curl --fail --max-time 10 https://share.example.com/healthz
 ```
 
-健康检查返回 200 后，[生成配对码](./deployment#_3-配对与分享)并[连接 Client](./connect-client)，用另一网络的浏览器完成以下验证：
+健康检查返回 200 后，[选择设备注册方式](./deployment#_3-选择设备注册方式)并[连接 Client](./connect-client)，用另一网络的浏览器完成以下验证：
 
 1. 打开分享链接，查看目录并下载一个文件。
 2. 保持连接几分钟，再查看文本或下载文件，确认 WebSocket 持续可用。
