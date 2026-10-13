@@ -5,6 +5,35 @@ import Swifter
 @testable import LocalShare
 
 final class AppStateRemoteTests: XCTestCase {
+    @MainActor func testAccessCodeAddressesKeepAuthenticatedQRCodes() throws {
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer { state.stop() }
+        state.setSharedText("demo")
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        state.setAccessCodeEnabled(true)
+
+        let address = try XCTUnwrap(state.shareAddresses.first { $0.kind == .localIP })
+        XCTAssertEqual(address.url, "http://192.168.1.2:\(state.port)")
+        XCTAssertEqual(address.qrURL, "http://192.168.1.2:\(state.port)/ls/text?t=\(state.token)")
+        XCTAssertEqual(state.primaryURL, address.qrURL)
+        XCTAssertEqual(state.presentedURL, address.url)
+
+        if let hostname = state.shareAddresses.first(where: { $0.kind == .localHostname }) {
+            state.selectShareAddress(.localHostname)
+            XCTAssertEqual(state.primaryURL, hostname.qrURL)
+            XCTAssertEqual(state.presentedURL, hostname.url)
+            XCTAssertTrue(hostname.qrURL.contains("?t=\(state.token)"))
+        }
+        let selected = state.selectedAddressKind
+        state.selectShareAddress(.publicRelay)
+        XCTAssertEqual(state.selectedAddressKind, selected, "unavailable addresses cannot be selected")
+        state.stop()
+        XCTAssertNil(state.primaryURL)
+        XCTAssertTrue(state.shareAddresses.isEmpty)
+    }
+
     @MainActor func testCustomServerRegistersAndReusesCredentialsWithBlankKey() async throws {
         var keychain: SecKeychain?
         var status = SecKeychainStatus()
@@ -51,9 +80,17 @@ final class AppStateRemoteTests: XCTestCase {
         XCTAssertEqual(lock.withLock { registrations }, 1)
         XCTAssertTrue(state.remotePaired)
 
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        let local = try XCTUnwrap(state.shareAddresses.first { $0.kind == .localIP })
+        XCTAssertEqual(state.primaryURL, local.qrURL, "connecting must preserve the current QR entry")
+        state.selectShareAddress(.publicRelay)
+        XCTAssertEqual(state.primaryURL, state.remoteURL)
         state.disconnectRemote()
+        XCTAssertEqual(state.selectedAddressKind, .localIP)
+        XCTAssertEqual(state.primaryURL, local.qrURL)
         state.connectRemote(enrollmentKey: "")
         _ = try await publishedURL(state)
+        XCTAssertEqual(state.primaryURL, local.qrURL, "reconnecting must not switch the QR back to the internet")
         XCTAssertEqual(lock.withLock { registrations }, 1)
 
         state.forgetRemoteDevice()
@@ -256,6 +293,11 @@ final class AppStateRemoteTests: XCTestCase {
         state.connectRemote(enrollmentKey: "test-key")
         let first = try await publishedURL(state)
         XCTAssertEqual(messages.last, state.token)
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        XCTAssertTrue(state.shareAddresses.contains { $0.kind == .localIP })
+        XCTAssertTrue(state.shareAddresses.contains { $0.kind == .publicRelay && $0.url == first })
+        XCTAssertNotEqual(state.primaryURL, first)
+        state.selectShareAddress(.publicRelay)
         XCTAssertEqual(state.primaryURL, first)
 
         let republished = expectation(description: "text edits must keep the published link")
@@ -358,7 +400,7 @@ final class AppStateRemoteTests: XCTestCase {
         private let keys = ["autoStopMinutes", "customAutoStopMinutes", "configuredPort", "remoteServerAddress",
                             "remotePairedServerAddresses", "bindSelectedOnly", "tailscaleAccessEnabled",
                             "textInboxEnabled", "persistSharedText", "lastSharedText", "persistReceivedText",
-                            "receivedTexts", "recentShares", "languagePref"]
+                            "receivedTexts", "recentShares", "languagePref", "accessCodeEnabled"]
         private var saved: [String: Any] = [:]
         private let lang = Lang.current
 

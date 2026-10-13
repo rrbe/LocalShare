@@ -217,9 +217,11 @@ struct SettingsScreen: View {
                 }
                 .padding(.vertical, 12)
 
-                settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDescription) {
-                    ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
-                        state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                if state.tailscaleStatus != nil {
+                    settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDescription) {
+                        ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
+                            state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                        }
                     }
                 }
             }
