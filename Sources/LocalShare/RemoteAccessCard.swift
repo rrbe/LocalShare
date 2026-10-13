@@ -48,11 +48,13 @@ struct RemoteAccessCard: View {
                     .font(.sans(11.5)).foregroundStyle(t.inkMute)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack {
-                Text(L.remoteReceiveText(state.lang)).font(.sans(12.5)).foregroundStyle(t.ink)
-                Spacer()
-                ToggleSwitch(t: t, isOn: state.remoteTextInboxEnabled) {
-                    state.setRemoteTextInboxEnabled(!state.remoteTextInboxEnabled)
+            if state.screen == .text {
+                HStack {
+                    Text(L.remoteReceiveText(state.lang)).font(.sans(12.5)).foregroundStyle(t.ink)
+                    Spacer()
+                    ToggleSwitch(t: t, isOn: state.remoteTextInboxEnabled) {
+                        state.setRemoteTextInboxEnabled(!state.remoteTextInboxEnabled)
+                    }
                 }
             }
             HStack {
