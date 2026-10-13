@@ -82,7 +82,7 @@ Server 默认使用一次性配对码。是否允许免配对码连接，由 Ser
 sudo -u localshare /usr/local/bin/localshare-server key create --name macbook
 ```
 
-在 LocalShare 的「设置 → 网络 → 使用自托管服务器」填入 HTTPS 地址和配对码。之后只需在分享页点击「连接」，将生成的链接发给接收者。详见[连接 Client](./connect-client)。
+在 LocalShare 的「设置 → 网络 → 使用自托管服务器」填入 HTTPS 地址和配对码。之后只需在分享页开启「互联网」开关，将生成的链接发给接收者。详见[连接 Client](./connect-client)。
 
 ### 开放自动注册
 
@@ -99,7 +99,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart localshare-server
 ```
 
-此方式允许访问这个 Server 的 App 自助注册，无需执行 `key create`。自托管用户填写服务器地址，配对码留空，点击「配对」或保存后在分享页点击「连接」。已注册设备会复用保存的凭据。
+此方式允许访问这个 Server 的 App 自助注册，无需执行 `key create`。自托管用户填写服务器地址，配对码留空，点击「配对」或保存后在分享页开启「互联网」开关。已注册设备会复用保存的凭据。
 
 App 内置默认服务通过自动注册连接；运营默认服务的 Server 也必须加上 `--registration`。使用默认服务的用户无需填写地址或配对码。
 
