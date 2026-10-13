@@ -13,7 +13,7 @@
   },
   "pnpm": {
     "overrides": {
-      "vite": "6.4.3"
+      "vite": "6.4.4"
     },
     "onlyBuiltDependencies": [
       "esbuild"
