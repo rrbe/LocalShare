@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0] - 2026-10-14
+
+- Added self-hosted remote sharing so visitors can open files and receive text outside the local network, with Linux amd64 and arm64 server binaries
+- Unified LAN, hostname, Tailscale, and remote sharing addresses with QR code switching and shared access controls
+- Added support for custom servers with optional enrollment keys
+- Clarified sharing guidance and automatic stop times
+- Added a documentation website with client setup and server deployment guides
+
 ## [0.13.0] - 2026-09-13
 
 - Added media grid browsing with image and video thumbnails and in-browser previews
