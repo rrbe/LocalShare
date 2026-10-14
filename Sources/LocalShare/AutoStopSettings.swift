@@ -126,6 +126,6 @@ struct AutoStopDeadline: View {
         formatter.dateStyle = .short
         formatter.timeStyle = .short
         let date = formatter.string(from: deadline)
-        return state.lang == .zh ? "\(date) 关闭分享" : "Stops \(date)"
+        return state.lang == .zh ? "将于 \(date) 自动关闭分享" : "Sharing will stop automatically at \(date)"
     }
 }

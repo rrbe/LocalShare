@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LocalShare · 分享地址设计 Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg:#efeae1; --surface:#fdfbf7; --surface-alt:#f5f0e7; --field:#efe9de;
+      --ink:#2a261d; --muted:#8c8475; --faint:#b4ab99; --line:#e7dfd1;
+      --strong:#dacfbd; --accent:#df4f28; --accent-soft:rgba(223,79,40,.12);
+      --ok:#2f9e57; --danger:#c43c1c; --warn:#b67708;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+      --serif:"Songti SC","Source Serif 4",Georgia,serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    [data-theme="dark"] {
+      color-scheme:dark;
+      --bg:#1b1814; --surface:#262219; --surface-alt:#211e16; --field:#1d1a14;
+      --ink:#f2eee5; --muted:#a59d8c; --faint:#6d675a; --line:#37322a;
+      --strong:#494238; --accent-soft:rgba(223,79,40,.18); --danger:#ef8a6e;
+      --warn:#e0a83a;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:14px var(--sans); }
+    button,select,input { font:inherit; }
+    button { cursor:pointer; color:inherit; }
+    button:disabled { cursor:default; opacity:.45; }
+    button:focus-visible,select:focus-visible,a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    button,select { -webkit-tap-highlight-color:transparent; }
+    .icon { width:18px; height:18px; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+    .workspace { display:flex; justify-content:center; align-items:flex-start; gap:64px; padding:40px 28px; min-height:100dvh; }
+    .inspector { width:260px; flex-shrink:0; padding-top:38px; }
+    .wordmark { font:600 27px var(--serif); letter-spacing:-.6px; }
+    .eyebrow { color:var(--accent); font-size:11px; font-weight:650; margin:12px 0 8px; }
+    .intro { font-size:14px; color:var(--muted); line-height:1.8; margin:0 0 30px; }
+    .control-block { padding:18px 0; border-top:1px solid var(--line); }
+    .control-title { display:block; font-weight:600; font-size:12px; margin-bottom:10px; }
+    .segmented { display:flex; gap:5px; padding:4px; border:1px solid var(--line); border-radius:11px; background:var(--surface-alt); }
+    .segmented button { background:transparent; border:0; border-radius:7px; flex:1; padding:8px 3px; font-size:12px; color:var(--muted); }
+    .segmented button.active { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(40,30,15,.08); font-weight:600; }
+    .demo-field { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:12px 0; font-size:12px; color:var(--muted); }
+    select { color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:7px 8px; }
+    .note { color:var(--muted); font-size:12px; line-height:1.8; margin:10px 0 0; }
+    .note strong { color:var(--ink); font-weight:600; }
+    .reset { display:flex; align-items:center; gap:6px; margin-top:18px; padding:0; color:var(--accent); border:0; background:none; font-size:12px; }
+    .window { width:460px; max-width:100%; height:min(920px,calc(100dvh - 80px)); min-height:570px; background:var(--bg); border:1px solid var(--strong); border-radius:18px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 2px rgba(0,0,0,.10),0 18px 50px rgba(40,30,15,.16); }
+    .chrome { height:33px; flex-shrink:0; display:flex; align-items:center; padding:0 16px; gap:7px; background:var(--surface-alt); }
+    .traffic { width:10px; height:10px; border-radius:50%; background:#ff5f57; }
+    .traffic:nth-child(2) { background:#febc2e; }
+    .traffic:nth-child(3) { background:#28c840; }
+    .chrome-label { flex:1; text-align:center; font-size:10px; color:var(--muted); padding-right:41px; }
+    .app-header { display:flex; align-items:center; gap:12px; padding:12px 20px 14px; flex-shrink:0; }
+    .app-header h1 { font:600 25px var(--serif); margin:0; flex:1; }
+    .icon-button { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+    .icon-button:hover { background:var(--surface-alt); border-color:var(--strong); }
+    .app-scroll { overflow:auto; scrollbar-width:thin; padding:0 20px 20px; flex:1; }
+    .ticket { border-radius:17px; background:var(--surface); overflow:hidden; box-shadow:0 8px 25px rgba(40,30,15,.07); }
+    .file-meta { padding:18px 18px 16px; display:flex; gap:12px; align-items:center; }
+    .folder-glyph { width:44px; height:44px; border-radius:12px; color:var(--accent); background:var(--accent-soft); display:grid; place-items:center; flex-shrink:0; }
+    .folder-glyph .icon { width:24px; height:24px; }
+    .file-name { font:600 20px var(--serif); margin-bottom:4px; }
+    .file-detail { font:11px var(--mono); color:var(--muted); }
+    .permissions { display:flex; gap:5px; margin-top:9px; }
+    .chip { border:1px solid var(--line); border-radius:999px; font-size:10px; color:var(--muted); padding:2px 7px; }
+    .tear { position:relative; border-top:1.5px dashed var(--strong); margin:0 16px; }
+    .tear::before,.tear::after { content:""; position:absolute; width:18px; height:18px; border-radius:50%; top:-10px; background:var(--bg); }
+    .tear::before { left:-25px; } .tear::after { right:-25px; }
+    .access-mode { margin:14px 16px 0; }
+    .access-mode-detail { height:40px; margin:8px 16px 0; display:grid; align-items:center; text-align:center; font:11.5px var(--sans); color:var(--muted); }
+    #share-link-hint { font-size:14px; font-weight:500; color:var(--ink); }
+    .access-code { height:40px; display:flex; align-items:center; justify-content:center; font:12px var(--mono); background:var(--accent-soft); border:1px solid var(--line); border-radius:11px; }
+    .access-mode button.active { background:var(--accent); color:white; box-shadow:none; }
+    .hostname-toggle { position:relative; width:calc(100% - 14px); height:16px; margin:2px 7px 4px; border:0; border-radius:5px; padding:0; color:var(--muted); display:flex; align-items:center; justify-content:center; background:none; overflow:hidden; }
+    .hostname-preview { position:absolute; top:6px; left:9px; right:9px; height:16px; text-align:left; font-size:10px; color:var(--muted); filter:blur(4px); -webkit-mask-image:linear-gradient(#000,transparent); mask-image:linear-gradient(#000,transparent); pointer-events:none; }
+    .hostname-toggle .icon { position:relative; width:12px; height:12px; }
+    .hostname-toggle[aria-expanded="true"] .icon { transform:rotate(180deg); }
+    .relay-title, .relay-divider { flex-shrink:0; }
+    .relay-domain { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+    .relay-verified { flex-shrink:0; display:inline-flex; color:var(--ok); vertical-align:middle; margin-left:4px; }
+    .relay-verified .icon { width:13px; height:13px; }
+    .relay-warning { color:var(--warn); display:flex; align-items:flex-start; gap:5px; line-height:1.5; }
+    .relay-warning .icon { width:13px; height:13px; margin-top:1px; }
+    .group-foot .text-action { flex-shrink:0; }
+    .qr-area { text-align:center; padding:20px 16px 18px; }
+    .qr-box { width:152px; height:152px; display:grid; place-items:center; margin:auto; background:#fff; border-radius:13px; padding:12px; box-shadow:0 6px 20px rgba(40,30,15,.08); }
+    .qr-box img { width:128px; height:128px; image-rendering:pixelated; }
+    .qr-title { font-size:13px; font-weight:600; margin-top:12px; }
+    .qr-scope { font-size:11px; color:var(--muted); margin-top:12px; }
+    .qr-scope strong { color:var(--accent); font-weight:500; }
+    .stopped .qr-box { opacity:.23; }
+    .addresses { margin:0 15px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .network-group + .network-group { border-top:1px solid var(--line); }
+    .group-head { padding:12px 12px 8px; display:flex; align-items:center; gap:8px; }
+    .group-symbol { color:var(--muted); display:flex; }
+    .group-symbol .icon { width:16px; height:16px; }
+    .group-title { font-size:12px; font-weight:650; flex:1; }
+    .group-hint { font-size:10px; color:var(--muted); padding:0 12px 9px 36px; line-height:1.45; }
+    .network-group.inline .group-head { padding-bottom:12px; }
+    .network-group.inline .group-title { flex:0 0 auto; }
+    .group-inline-hint { flex:1; min-width:0; font-size:10px; color:var(--muted); }
+    .state-label { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
+    .dot { width:5px; height:5px; border-radius:50%; background:var(--ok); }
+    .dot.warn { background:var(--warn); } .dot.error { background:var(--danger); }
+    .network-group.off .group-head { padding-bottom:12px; }
+    .network-group.off .group-hint { margin-top:-4px; }
+    .switch { border:0; padding:0; width:36px; height:21px; background:var(--strong); border-radius:999px; position:relative; flex-shrink:0; }
+    .switch::after { content:""; width:17px; height:17px; background:#fff; position:absolute; left:2px; top:2px; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,.13); transition:transform .16s; }
+    .switch.on { background:var(--accent); } .switch.on::after { transform:translateX(15px); }
+    .action-toggle { padding:4px 10px; background:transparent; border:1px solid var(--line); border-radius:7px; color:var(--muted); font-size:10px; min-width:46px; }
+    .action-toggle:hover { border-color:var(--accent); color:var(--accent); }
+    .menu-wrap { position:relative; }
+    .status-toggle { display:flex; align-items:center; gap:5px; border:1px solid var(--line); background:var(--surface-alt); padding:5px 7px; border-radius:7px; font-size:10px; }
+    .status-toggle .icon { width:10px; height:10px; }
+    .menu { position:absolute; right:0; top:31px; width:116px; z-index:5; border-radius:9px; border:1px solid var(--line); background:var(--surface); padding:4px; box-shadow:0 8px 24px rgba(40,30,15,.16); }
+    .menu button { border:0; background:none; width:100%; text-align:left; padding:8px; border-radius:5px; font-size:11px; }
+    .menu button:hover { background:var(--surface-alt); }
+    .address-row { margin:0 7px; padding:8px 7px; border-top:1px solid var(--line); border-radius:0; }
+    .address-row.selected { background:var(--accent-soft); border-radius:7px; border-top-color:transparent; }
+    .address-row + .address-row { margin-top:3px; }
+    .address-row:last-child { margin-bottom:7px; }
+    .row-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+    .row-label { font-size:10px; color:var(--muted); flex:1; }
+    .selected .row-label { color:var(--accent); }
+    .row-tools { display:flex; align-items:center; gap:4px; }
+    .row-select { width:100%; border:0; background:none; text-align:left; padding:0; cursor:pointer; }
+    .row-select .row-label { display:flex; align-items:center; gap:5px; min-height:21px; margin-bottom:5px; padding-right:81px; }
+    .row-tools { position:absolute; right:7px; top:8px; }
+    .address-row { position:relative; }
+    .copy { width:23px; height:21px; border:0; background:none; color:var(--muted); display:grid; place-items:center; border-radius:4px; }
+    .copy .icon { width:14px; height:14px; }
+    .copy:hover { color:var(--accent); background:var(--accent-soft); }
+    .address-value { width:100%; text-align:left; display:block; font:11px var(--mono); color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; padding:0; background:none; line-height:1.6; }
+    .address-value:hover { color:var(--accent); }
+    .group-foot { margin:1px 12px 11px; font-size:10px; color:var(--muted); display:flex; gap:8px; align-items:center; justify-content:space-between; }
+    .text-action { color:var(--accent); border:0; padding:0; font-size:10px; background:none; }
+    .failure { color:var(--danger); }
+    .ticket-footer { display:flex; align-items:center; justify-content:center; gap:6px; color:var(--muted); font:10px var(--mono); padding:16px 8px; }
+    .ticket-footer .icon { width:13px; height:13px; }
+    .app-actions { display:flex; gap:10px; padding:12px 20px 17px; background:var(--bg); flex-shrink:0; }
+    .ghost,.danger { display:flex; align-items:center; justify-content:center; gap:7px; border-radius:11px; height:39px; font-size:13px; font-weight:600; }
+    .ghost { flex:1; border:1px solid var(--line); background:var(--surface); }
+    .danger { border:0; background:var(--danger); color:white; padding:0 19px; box-shadow:0 1px 2px rgba(0,0,0,.18); }
+    .danger.restart { background:var(--accent); }
+    .toast { position:fixed; left:50%; bottom:25px; transform:translateX(-50%); padding:10px 16px; background:var(--ink); color:var(--surface); border-radius:9px; font-size:12px; z-index:30; box-shadow:0 4px 15px rgba(0,0,0,.15); }
+    [hidden] { display:none !important; }
+    dialog { width:350px; max-width:calc(100vw - 36px); background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:15px; padding:22px; box-shadow:0 18px 60px rgba(40,30,15,.2); }
+    dialog::backdrop { background:rgba(35,29,20,.28); }
+    dialog h2 { font:600 20px var(--serif); margin:0 0 12px; }
+    dialog p { color:var(--muted); line-height:1.7; font-size:12px; }
+    dialog .full-url { font:12px/1.8 var(--mono); overflow-wrap:anywhere; color:var(--ink); padding:12px; background:var(--field); border-radius:8px; user-select:all; }
+    dialog .ghost { width:100%; margin-top:16px; }
+    @media(max-width:820px) { .workspace { gap:28px; padding:22px 18px; } .inspector { width:220px; padding-top:16px; } .window { height:calc(100dvh - 44px); } }
+    @media(max-width:660px) {
+      .workspace { display:flex; flex-direction:column; align-items:center; padding:20px 12px; gap:20px; }
+      .inspector { width:460px; max-width:100%; padding:0 8px; }
+      .intro { margin-bottom:12px; } .control-block { padding:12px 0; }
+      .scenario-block,.explanation { display:none; }
+      .window { height:850px; min-height:0; } .app-header,.app-actions { padding-left:14px; padding-right:14px; }
+      .app-scroll { padding-left:12px; padding-right:12px; }
+    }
+    @media(prefers-reduced-motion:reduce) { *,*::after { transition:none !important; } }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+    <symbol id="i-back" viewBox="0 0 18 18"><path d="m11 3-6 6 6 6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 18 18"><path d="M2 5V3.5h5l2 2h7v9H2Z"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 18 18"><path d="M2 7V2h5M11 16h5v-5M2 2l5 5m9 9-5-5"/></symbol>
+    <symbol id="i-open" viewBox="0 0 18 18"><path d="M6 3h9v9M15 3 3 15"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 18 18"><rect x="6" y="5" width="9" height="11" rx="1.5"/><path d="M11 5V2H3v11h3"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 18 18"><path d="M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4"/><path d="M5 5h2v2H5ZM11 5h2v2h-2ZM5 11h2v2H5ZM11 11h2v2h-2Z"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 18 18"><path d="M2 6a11 11 0 0 1 14 0M5 9a6 6 0 0 1 8 0M7.5 12a2.3 2.3 0 0 1 3 0"/><circle cx="9" cy="15" r=".6"/></symbol>
+    <symbol id="i-network" viewBox="0 0 18 18"><circle cx="4" cy="5" r="2"/><circle cx="14" cy="5" r="2"/><circle cx="9" cy="14" r="2"/><path d="m5 7 3 5m5-5-3 5M6 5h6"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7"/><ellipse cx="9" cy="9" rx="3" ry="7"/><path d="M2 9h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 18 18"><path d="m5 7 4 4 4-4"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 18 18"><path d="M3 5h12m-3-3 3 3-3 3M15 13H3m3-3-3 3 3 3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7"/><path d="M9 5v4l3 2"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 18 18"><rect x="4" y="4" width="10" height="10" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-play" viewBox="0 0 18 18"><path d="m6 3 9 6-9 6Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 18 18"><path d="m3 9 4 4 8-8"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 18 18"><path d="M9 2 17 16H1Z"/><path d="M9 7v4m0 2v.2"/></symbol>
+    <symbol id="i-verified" viewBox="0 0 18 18"><path d="m9 1 2 2 3 .3.7 3L17 9l-2.3 2.7-.7 3-3 .3-2 2-2-2-3-.3-.7-3L1 9l2.3-2.7.7-3 3-.3Z"/><path d="m5.5 9 2.3 2.3 4.7-4.6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 18 18"><path d="M7 2h4l.5 2 1.5 1 2-.5 2 3-1.5 1.5v2L17 12l-2 3-2-.5-1.5 1-.5 2H7l-.5-2-1.5-1-2 .5-2-3L2.5 10V8L1 6.5l2-3L5 4l1.5-1Z" transform="translate(0 -1) scale(.94)"/><circle cx="9" cy="9" r="2.5"/></symbol>
+  </defs></svg>
+
+  <main class="workspace">
+    <aside class="inspector" aria-label="Demo 控制台">
+      <div class="wordmark">LocalShare</div>
+      <div class="eyebrow">分享地址 · 交互原型</div>
+      <p class="intro">一个二维码，一张地址列表。<br>按访问范围分组，开关就在旁边。</p>
+      <section class="control-block">
+        <label class="control-title">比较控制方式</label>
+        <div class="segmented" aria-label="控制方式">
+          <button class="active" data-control="switch" aria-pressed="true">开关</button>
+          <button data-control="button" aria-pressed="false">文字按钮</button>
+          <button data-control="menu" aria-pressed="false">状态菜单</button>
+        </div>
+        <p class="note" id="control-note">开关表示是否开放；连接状态单独显示。</p>
+      </section>
+      <section class="control-block scenario-block">
+        <label class="control-title">模拟场景</label>
+        <label class="demo-field">Tailscale<select id="tailscale-scenario"><option value="ready">已检测到</option><option value="missing">未检测到</option></select></label>
+        <label class="demo-field">公网连接<select id="internet-scenario"><option value="success">正常</option><option value="failure">连接失败</option></select></label>
+        <label class="demo-field">外观<select id="theme"><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <button class="reset" id="reset"><svg class="icon"><use href="#i-swap"/></svg>恢复初始状态</button>
+      </section>
+      <section class="control-block explanation">
+        <label class="control-title">可以试试</label>
+        <p class="note">点击<strong>整条地址</strong>，切换扫码入口。<br>开启互联网，观察连接状态。<br>关闭正在扫码的网络，二维码回到局域网。</p>
+        <p class="note">示例地址和连接状态仅用于演示。二维码对应示例网址。</p>
+      </section>
+    </aside>
+
+    <section class="window" aria-label="LocalShare 分享文件预览">
+      <div class="chrome"><span class="traffic"></span><span class="traffic"></span><span class="traffic"></span><span class="chrome-label">LocalShare</span></div>
+      <header class="app-header">
+        <button class="icon-button" id="back" aria-label="返回"><svg class="icon"><use href="#i-back"/></svg></button>
+        <h1>分享文件</h1>
+        <button class="icon-button" id="settings" aria-label="连接设置"><svg class="icon"><use href="#i-settings"/></svg></button>
+      </header>
+      <div class="app-scroll">
+        <article class="ticket" id="ticket">
+          <div class="file-meta">
+            <div class="folder-glyph"><svg class="icon"><use href="#i-folder"/></svg></div>
+            <div><div class="file-name" id="file-name">秋日旅行</div><div class="file-detail" id="file-detail">12 个项目 · 128 MB</div><div class="permissions"><span class="chip">只读</span><span class="chip">可下载</span></div></div>
+          </div>
+          <div class="tear"></div>
+          <div class="segmented access-mode" id="access-mode" aria-label="访问方式"><button id="mode-link" data-access-mode="link" class="active" aria-pressed="true">分享链接</button><button id="mode-code" data-access-mode="code" aria-pressed="false">访问码</button></div>
+          <div class="access-mode-detail" id="access-mode-detail"><div id="access-code" class="access-code" hidden>访问码 · DEM-123</div><div id="share-link-hint">扫码或打开分享链接</div></div>
+          <div class="qr-area">
+            <div class="qr-box"><img id="qr-image" alt="局域网 IP 地址的二维码"></div>
+            <div class="qr-title" id="qr-title" hidden></div>
+            <div class="qr-scope" id="qr-scope"><strong>局域网</strong> · 同一网络</div>
+          </div>
+          <div class="addresses" id="addresses"></div>
+          <div class="ticket-footer"><svg class="icon"><use href="#i-clock"/></svg><span id="deadline">将于 2026/10/14 23:00 自动关闭分享</span></div>
+        </article>
+      </div>
+      <footer class="app-actions">
+        <button class="ghost" id="replace"><svg class="icon"><use href="#i-swap"/></svg>更换</button>
+        <button class="danger" id="stop"><svg class="icon"><use href="#i-stop"/></svg><span>停止</span></button>
+      </footer>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="details"><h2 id="dialog-title"></h2><div id="dialog-content"></div><button class="ghost" id="dialog-close">完成</button></dialog>
+
+  <script>
+    // Valid QR images are embedded below so this demo works without a network connection.
+    const qrImages = {"lan-ip":"data:image/png;base64,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","lan-name":"data:image/png;base64,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","public":"data:image/png;base64,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","ts-ip":"data:image/png;base64,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","ts-name":"data:image/png;base64,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"};
+    const addresses = [
+      { id:'lan-ip', group:'lan', label:'IP 地址', url:'http://192.168.1.2:9899/?t=demo-share' },
+      { id:'lan-name', group:'lan', label:'本机名称', url:'http://demo.local:9899/?t=demo-share' },
+      { id:'ts-name', group:'tailscale', label:'MagicDNS', url:'http://demo.example.ts.net:9899/?t=demo-share' },
+      { id:'ts-ip', group:'tailscale', label:'IP 地址', url:'http://100.64.0.2:9899/?t=demo-share' },
+      { id:'public', group:'internet', label:'使用中继服务', url:'https://share.example.com/share/demo-share/' }
+    ];
+    const groups = {
+      lan:{ title:'局域网', icon:'wifi', hint:'同一网络' },
+      internet:{ title:'互联网', icon:'globe', hint:'公共网络 · Mac 需保持在线' },
+      tailscale:{ title:'Tailscale', icon:'network', hint:'对方需连接 Tailscale' }
+    };
+    const state = { control:'switch', selected:'lan-ip', tailscale:true, internet:false, remote:'off', running:true, accessCode:false, hostnameExpanded:false, detected:true, fail:false, file:0 };
+    let generation = 0, toastTimer;
+    const $ = id => document.getElementById(id);
+    const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+    const isAvailable = group => state.running && (group === 'lan' || (group === 'tailscale' ? state.tailscale && state.detected : state.internet && state.remote === 'online'));
+
+    function toggleControl(group, on) {
+      const title = groups[group].title;
+      const disabled = !state.running || (group === 'tailscale' && !state.detected);
+      if (state.control === 'switch') return `<button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}" aria-label="允许${title}访问" data-toggle="${group}" ${disabled ? 'disabled' : ''}></button>`;
+      if (state.control === 'button') return `<button class="action-toggle" data-toggle="${group}" aria-label="${on ? '关闭' : '开启'}${title}访问" ${disabled ? 'disabled' : ''}>${on ? '关闭' : '开启'}</button>`;
+      return `<div class="menu-wrap"><button class="status-toggle" data-menu="${group}" aria-label="${title}访问选项" aria-expanded="false" ${disabled ? 'disabled' : ''}>${on ? '已开启' : '未开启'}${icon('chevron')}</button><div class="menu" data-menu-panel="${group}" hidden><button data-toggle="${group}">${on ? '关闭' : '开启'}${title}访问</button></div></div>`;
+    }
+    function row(address) {
+      const selected = state.selected === address.id;
+      const value = state.accessCode && address.group !== 'internet' ? new URL(address.url).origin : address.url;
+      return `<div class="address-row ${selected ? 'selected' : ''}">
+        <button class="row-select" data-select="${address.id}" aria-pressed="${selected}" aria-label="${groups[address.group].title}${address.label}：${address.url}">
+          <span class="row-label">${address.group === 'internet' ? `<span class="relay-title">${address.label}</span><span class="relay-divider">|</span><span class="relay-domain" title="${new URL(address.url).hostname}">${new URL(address.url).hostname}</span>${new URL(address.url).hostname === 'share.fairydog.net' ? `<span class="relay-verified" role="img" aria-label="默认服务" title="默认服务">${icon('verified')}</span>` : ''}` : address.label}</span>
+          <span class="address-value" title="${value}">${value}</span>
+        </button>
+        <div class="row-tools">
+          <button class="copy" data-details="${address.id}" aria-label="显示完整${address.label}" title="显示完整地址">${icon('expand')}</button>
+          <button class="copy" data-copy="${address.id}" aria-label="复制${groups[address.group].title}${address.label}" title="复制链接">${icon('copy')}</button>
+          <a class="copy" href="${value}" target="_blank" rel="noopener noreferrer" aria-label="在浏览器打开${address.label}" title="在浏览器打开">${icon('open')}</a>
+        </div>
+      </div>`;
+    }
+    function render() {
+      if (!isAvailable(addresses.find(a => a.id === state.selected).group)) state.selected = 'lan-ip';
+      $('addresses').innerHTML = Object.entries(groups)
+        .filter(([key]) => key !== 'tailscale' || state.detected)
+        .map(([key, group]) => {
+        const on = key === 'lan' ? state.running : state[key];
+        const available = isAvailable(key);
+        const statusText = {connecting:'连接中',online:'在线',failed:'连接失败'}[state.remote];
+        const status = key === 'internet' && on && state.running
+          ? `<span class="state-label" role="img" aria-label="${statusText}" title="${statusText}"><i class="dot ${state.remote === 'connecting' ? 'warn' : state.remote === 'failed' ? 'error' : ''}"></i></span>`
+          : key === 'lan' ? `<span class="state-label">${state.running ? '可用' : '已停止'}</span>` : '';
+        let hint = available ? group.hint : '';
+        let foot = '';
+        if (key === 'internet' && on && state.running) {
+          if (state.remote === 'failed') foot = `<div class="group-foot failure"><span>暂时无法连接中继服务</span><button class="text-action" data-retry>重试</button></div>`;
+          else if (state.remote === 'online') foot = `<div class="group-foot"><span class="relay-warning">${icon('warning')}<span>中继服务可读取分享内容，请使用可信任的中继</span></span><button class="text-action" data-guide>使用说明</button></div>`;
+        }
+        const inline = key === 'internet';
+        return `<section class="network-group ${available ? '' : 'off'} ${inline ? 'inline' : ''}" aria-label="${group.title}地址">
+          <div class="group-head"><span class="group-symbol">${icon(group.icon)}</span><span class="group-title">${group.title}</span>${inline ? `<span class="group-inline-hint">${group.hint}</span>` : ''}${status}${key === 'lan' ? '' : toggleControl(key,on)}</div>
+          ${hint && !inline ? `<div class="group-hint">${hint}</div>` : ''}
+          ${available ? addresses.filter(a => a.group === key && (a.id !== 'lan-name' || state.hostnameExpanded)).map(row).join('') : ''}${key === 'lan' && available ? `<button class="hostname-toggle" data-hostname aria-label="本机名称" aria-expanded="${state.hostnameExpanded}">${state.hostnameExpanded ? '' : '<span class="hostname-preview" aria-hidden="true">本机名称</span>'}${icon('chevron')}</button>` : ''}${foot}
+        </section>`;
+      }).join('');
+      const selected = addresses.find(a => a.id === state.selected);
+      $('qr-image').src = qrImages[selected.id];
+      $('qr-image').alt = `${groups[selected.group].title}${selected.label}的二维码`;
+      $('qr-title').textContent = state.running ? '' : '分享已停止';
+      $('qr-title').hidden = state.running;
+      $('qr-scope').innerHTML = state.running ? `<strong>${groups[selected.group].title}</strong> · ${groups[selected.group].hint}` : '重新分享后可访问';
+      $('ticket').classList.toggle('stopped',!state.running);
+      $('deadline').textContent = state.running ? '将于 2026/10/14 23:00 自动关闭分享' : '所有访问入口已关闭';
+      $('access-mode').hidden = !state.running;
+      for (const [id, selected] of [['mode-link', !state.accessCode], ['mode-code', state.accessCode]]) {
+        $(id).classList.toggle('active', selected); $(id).setAttribute('aria-pressed', String(selected));
+      }
+      $('access-mode-detail').hidden = !state.running;
+      $('access-code').hidden = !state.accessCode;
+      $('share-link-hint').hidden = state.accessCode;
+      $('stop').classList.toggle('restart',!state.running);
+      $('stop').innerHTML = icon(state.running ? 'stop' : 'play') + `<span>${state.running ? '停止' : '重新分享'}</span>`;
+    }
+    function toast(text) {
+      clearTimeout(toastTimer); $('toast').textContent = text; $('toast').hidden = false;
+      toastTimer = setTimeout(() => $('toast').hidden = true,2000);
+    }
+    function connect() {
+      const current = ++generation;
+      state.remote = 'connecting'; render();
+      setTimeout(() => {
+        if (current !== generation || !state.internet || !state.running) return;
+        state.remote = state.fail ? 'failed' : 'online'; render();
+      },1100);
+    }
+    function toggle(group) {
+      if (!state.running || (group === 'tailscale' && !state.detected)) return;
+      state[group] = !state[group];
+      if (group === 'internet') {
+        if (state.internet) connect();
+        else { generation++; state.remote = 'off'; render(); }
+      } else render();
+    }
+    function showDialog(title,content) {
+      $('dialog-title').textContent = title; $('dialog-content').innerHTML = content; $('details').showModal();
+    }
+    $('addresses').addEventListener('click',async event => {
+      const button = event.target.closest('button'); if (!button) return;
+      if (button.hasAttribute('data-toggle')) toggle(button.dataset.toggle);
+      else if (button.hasAttribute('data-hostname')) { state.hostnameExpanded = !state.hostnameExpanded; render(); }
+      else if (button.hasAttribute('data-menu')) {
+        const panel = button.nextElementSibling; const open = panel.hidden;
+        document.querySelectorAll('[data-menu-panel]').forEach(p => p.hidden = true);
+        document.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded','false'));
+        panel.hidden = !open; button.setAttribute('aria-expanded',String(open));
+      } else if (button.hasAttribute('data-select')) { state.selected = button.dataset.select; render(); }
+      else if (button.hasAttribute('data-copy')) {
+        const address = addresses.find(a => a.id === button.dataset.copy);
+        try { await navigator.clipboard.writeText(state.accessCode && address.group !== 'internet' ? new URL(address.url).origin : address.url); toast('链接已复制'); }
+        catch { showDialog('复制链接',`<p>选择下方网址即可手动复制。</p><div class="full-url">${address.url}</div>`); }
+      } else if (button.hasAttribute('data-details')) {
+        const address = addresses.find(a => a.id === button.dataset.details);
+        showDialog(`${groups[address.group].title} · ${address.label}`,`<div class="full-url">${address.url}</div><p>${groups[address.group].hint}</p>`);
+      } else if (button.hasAttribute('data-retry')) connect();
+      else if (button.hasAttribute('data-guide')) showDialog('互联网分享', '<p>连接后，把互联网分享链接发给对方。对方可以用浏览器访问，无需同一网络。</p><p>分享期间 Mac 需保持在线。关闭互联网访问后，局域网和 Tailscale 仍可继续使用。</p>');
+    });
+    document.addEventListener('click',event => {
+      if (event.target.closest('.menu-wrap')) return;
+      document.querySelectorAll('[data-menu-panel]').forEach(p => p.hidden = true);
+      document.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded','false'));
+    });
+    document.addEventListener('keydown',event => {
+      if (event.key === 'Escape') {
+        document.querySelectorAll('[data-menu-panel]').forEach(p => p.hidden = true);
+        document.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded','false'));
+      }
+    });
+    document.querySelectorAll('[data-control]').forEach(button => button.addEventListener('click',() => {
+      state.control = button.dataset.control;
+      document.querySelectorAll('[data-control]').forEach(b => { b.classList.toggle('active',b === button); b.setAttribute('aria-pressed',String(b === button)); });
+      $('control-note').textContent = {switch:'开关表示是否开放；连接状态单独显示。',button:'用明确动作控制访问，点击后变为相反动作。',menu:'把状态和操作合并，开启或关闭需要两次点击。'}[state.control];
+      render();
+    }));
+    $('tailscale-scenario').addEventListener('change',event => { state.detected = event.target.value === 'ready'; render(); });
+    $('internet-scenario').addEventListener('change',event => { state.fail = event.target.value === 'failure'; if (state.internet && state.running) connect(); });
+    $('theme').addEventListener('change',event => document.documentElement.dataset.theme = event.target.value);
+    $('access-mode').addEventListener('click',event => {
+      const button = event.target.closest('[data-access-mode]'); if (!button) return;
+      state.accessCode = button.dataset.accessMode === 'code'; render();
+    });
+    $('stop').addEventListener('click',() => {
+      state.running = !state.running; generation++;
+      if (!state.running) { state.internet = false; state.remote = 'off'; }
+      render();
+    });
+    $('replace').addEventListener('click',() => {
+      state.file = 1 - state.file;
+      $('file-name').textContent = state.file ? '项目资料' : '秋日旅行';
+      $('file-detail').textContent = state.file ? '8 个项目 · 64 MB' : '12 个项目 · 128 MB';
+      toast('已更换示例文件夹');
+    });
+    $('settings').addEventListener('click',() => showDialog('连接设置', '<p>默认服务</p><div class="full-url">https://share.example.com</div><p>服务地址和配对配置在这里管理。分享页只显示可以发给对方的链接。</p>'));
+    $('back').addEventListener('click',() => toast('当前展示分享文件页'));
+    $('dialog-close').addEventListener('click',() => $('details').close());
+    $('details').addEventListener('click',event => { if (event.target === $('details')) { const r = $('details').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('details').close(); } });
+    $('reset').addEventListener('click',() => {
+      generation++; Object.assign(state,{selected:'lan-ip',tailscale:true,internet:false,remote:'off',running:true,accessCode:false,hostnameExpanded:false,detected:true,fail:false,file:0});
+      $('tailscale-scenario').value = 'ready'; $('internet-scenario').value = 'success';
+      $('file-name').textContent = '秋日旅行'; $('file-detail').textContent = '12 个项目 · 128 MB'; render(); toast('已恢复初始状态');
+    });
+    render();
+  </script>
+</body>
+</html>

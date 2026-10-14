@@ -142,6 +142,7 @@ struct TextScreen: View {
     @State private var draft = ""
     var body: some View {
         let lang = state.lang
+        let showQR = state.isRunning && (state.hasText || state.isReceivingText) && state.qrImage != nil
         ScreenFrame(t: t) {
             HStack(spacing: 10) {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(lang)) { state.goShare() }
@@ -152,7 +153,7 @@ struct TextScreen: View {
             }
         } content: {
             VStack(spacing: 16) {
-                if state.isRunning, state.hasText || state.isReceivingText, state.qrImage != nil {
+                if showQR {
                     qrCard
                 } else if !state.hasNetwork {
                     noNetworkHint
@@ -160,7 +161,10 @@ struct TextScreen: View {
                     Text(L.textIdleHint(lang)).font(.sans(12.5)).foregroundStyle(t.inkMute)
                         .multilineTextAlignment(.center)
                 }
-                RemoteAccessCard(t: t)
+                if !showQR {
+                    if state.isRunning { ShareAccessMode(t: t) }
+                    ShareAddressList(t: t)
+                }
                 composeCard
                 receiveRow
                 if state.isReceivingText || !state.receivedTexts.isEmpty { ReceivedTextsCard(t: t) }
@@ -215,27 +219,16 @@ struct TextScreen: View {
     // 二维码恒指 /ls/text；说明随收发状态表达扫码后的动作。
     private var qrCard: some View {
         let lang = state.lang
-        let receiving = state.remoteURL != nil ? state.remoteTextInboxEnabled : state.textInboxEnabled
-        let caption = state.remoteURL != nil ? L.scanCaptionRemote(lang) : (state.hasText
+        let receiving = state.selectedShareAddress?.scope == .publicInternet ? state.remoteTextInboxEnabled : state.textInboxEnabled
+        let caption = state.hasText
             ? (receiving ? L.scanCaptionTransfer(lang) : L.scanCaptionText(lang))
-            : L.scanCaptionSend(lang))
+            : L.scanCaptionSend(lang)
         return VStack(spacing: 0) {
+            ShareAccessMode(t: t).padding(.bottom, 12)
             QRCard(image: state.qrImage, size: 172, dimmed: !state.isRunning).padding(.top, 4)
             Text(caption).font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, lang: lang, value: state.presentedURL ?? "—", compact: true, onOpen: openInBrowser).padding(.top, 10)
-            if let code = state.presentedAccessCode {
-                AccessCodePill(t: t, lang: lang, value: code).padding(.top, 7)
-            }
-            if !state.otherAddresses.isEmpty {
-                OtherAddressesDisclosure(t: t, lang: lang, addresses: state.otherAddresses)
-                    .padding(.top, 7)
-            }
-            if state.remoteURL == nil {
-                AccessModeButton(t: t, lang: lang, usingAccessCode: state.accessCodeEnabled) {
-                    state.setAccessCodeEnabled(!state.accessCodeEnabled)
-                }
-                .padding(.top, 6)
-            }
+            ShareQRScope(t: t).padding(.top, 5)
+            ShareAddressList(t: t).padding(.top, 14)
             AutoStopDeadline(t: t).padding(.top, 8)
         }
         .frame(maxWidth: .infinity)

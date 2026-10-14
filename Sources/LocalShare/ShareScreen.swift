@@ -10,12 +10,12 @@ struct ShareScreen: View {
     @State private var showText = false       // 文本编辑弹层（编辑当前分享的文本）
     private func editText() { showText = true }
     var body: some View {
-        let remoteMode = state.remoteURL != nil
+        let remoteMode = state.selectedShareAddress?.scope == .publicInternet
         let ps = permSummary(remoteMode ? Permission() : state.effectivePermission,
                              state.lang, remoteMode: remoteMode)
         ScreenFrame(t: t) {
             // 二级页头部，与传递文本页同款：← 返回主页 + 标题 +齿轮。运行态/地址在票据正文（QR 说明 +
-            // CopyPill）已具，头部不再堆 StatusPill，避免与正文重复、并与 TextScreen 一致。
+            // 地址列表）已具，头部不再堆 StatusPill，避免与正文重复、并与 TextScreen 一致。
             HStack(spacing: 10) {
                 IconButton(t: t, systemImage: "chevron.left", help: L.back(state.lang)) { state.goShare() }
                 Text(L.shareFileTitle(state.lang)).font(.display(21, .semibold)).foregroundStyle(t.ink)
@@ -26,7 +26,6 @@ struct ShareScreen: View {
         } content: {
             VStack(spacing: 16) {
                 ticket(ps)
-                RemoteAccessCard(t: t)
                 // 文本与文件共存：在票据下补一张「附带文本」小卡（预览 + 编辑）。纯文本分享则文本就是票据本身。
                 if state.hasText && !state.isTextOnly { attachedTextCard }
                 if !state.received.isEmpty { receivedCard }
@@ -175,7 +174,7 @@ struct ShareScreen: View {
                     state.selectedSettingsCategory = .permission
                     state.openSettings()
                 } label: {
-                    Text(state.remoteURL != nil ? L.changeLocalPerm(state.lang) : L.changePerm(state.lang))
+                    Text(state.selectedShareAddress?.scope == .publicInternet ? L.changeLocalPerm(state.lang) : L.changePerm(state.lang))
                         .font(.sans(11)).foregroundStyle(t.accent)
                 }.buttonStyle(.plain)
             }
@@ -204,30 +203,18 @@ struct ShareScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(t.line, lineWidth: 1))
     }
 
-    // 通行区：QR + 说明 + 复制条
+    // 通行区：当前入口的二维码 + 按网络分组的完整地址列表。
     private var qrPass: some View {
         let running = state.isRunning
-        let caption = state.remoteURL != nil ? L.scanCaptionRemote(state.lang)
-            : (state.isTextOnly ? L.scanCaptionText(state.lang) : L.scanCaptionAccess(state.lang))
         return VStack(spacing: 0) {
+            if running { ShareAccessMode(t: t).padding(.top, 14) }
             QRCard(image: state.qrImage, size: 172, dimmed: !running).padding(.top, 22)
-            Text(running ? caption : L.broadcastStopped(state.lang))
-                .font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
-            CopyPill(t: t, lang: state.lang, value: state.presentedURL ?? "—",
-                     compact: true, onOpen: openInBrowser).padding(.top, 10)
-            if let code = state.presentedAccessCode {
-                AccessCodePill(t: t, lang: state.lang, value: code).padding(.top, 7)
+            if !running || state.isTextOnly {
+                Text(running ? L.scanCaptionText(state.lang) : L.broadcastStopped(state.lang))
+                    .font(.sans(13, .semibold)).foregroundStyle(t.ink).padding(.top, 14)
             }
-            if !state.otherAddresses.isEmpty {
-                OtherAddressesDisclosure(t: t, lang: state.lang, addresses: state.otherAddresses)
-                    .padding(.top, 7)
-            }
-            if state.remoteURL == nil {
-                AccessModeButton(t: t, lang: state.lang, usingAccessCode: state.accessCodeEnabled) {
-                    state.setAccessCodeEnabled(!state.accessCodeEnabled)
-                }
-                .padding(.top, 6)
-            }
+            if running { ShareQRScope(t: t).padding(.top, state.isTextOnly ? 5 : 12) }
+            ShareAddressList(t: t).padding(.top, 14)
             AutoStopDeadline(t: t).padding(.top, 8)
             // 在线访客：小绿点 + 摘要文案；点一下展开全部访客明细（设备名 / 完整 IP）。
             // 0 人时整行隐藏（不占位、不留空文案）。

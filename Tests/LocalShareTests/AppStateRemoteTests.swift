@@ -5,6 +5,120 @@ import Swifter
 @testable import LocalShare
 
 final class AppStateRemoteTests: XCTestCase {
+    @MainActor func testAccessCodeAddressesKeepAuthenticatedQRCodes() async throws {
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer { state.stop() }
+        state.setSharedText("demo")
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        state.setAccessCodeEnabled(true)
+
+        let address = try XCTUnwrap(state.shareAddresses.first { $0.kind == .localIP })
+        XCTAssertEqual(address.url, "http://192.168.1.2:\(state.port)")
+        XCTAssertEqual(address.qrURL, "http://192.168.1.2:\(state.port)/ls/text?t=\(state.token)")
+        XCTAssertEqual(state.primaryURL, address.qrURL)
+        XCTAssertEqual(state.presentedURL, address.url)
+
+        if let hostname = state.shareAddresses.first(where: { $0.kind == .localHostname }) {
+            state.selectShareAddress(.localHostname)
+            XCTAssertEqual(state.primaryURL, hostname.qrURL)
+            XCTAssertEqual(state.presentedURL, hostname.url)
+            XCTAssertTrue(hostname.qrURL.contains("?t=\(state.token)"))
+        }
+        let selected = state.selectedAddressKind
+        state.selectShareAddress(.publicRelay)
+        XCTAssertEqual(state.selectedAddressKind, selected, "unavailable addresses cannot be selected")
+        state.stop()
+        XCTAssertNil(state.primaryURL)
+        XCTAssertTrue(state.shareAddresses.isEmpty)
+    }
+
+    @MainActor func testCustomServerRegistersAndReusesCredentialsWithBlankKey() async throws {
+        var keychain: SecKeychain?
+        var status = SecKeychainStatus()
+        try XCTSkipIf(SecKeychainCopyDefault(&keychain) != errSecSuccess || keychain == nil,
+                      "login keychain is unavailable")
+        try XCTSkipIf(SecKeychainGetStatus(keychain!, &status) != errSecSuccess ||
+                      status & SecKeychainStatus(kSecUnlockStateStatus) == 0,
+                      "login keychain must be unlocked for credential integration testing")
+        let relay = HttpServer()
+        let lock = NSLock()
+        var registrations = 0
+        relay["/api/v1/register"] = { request in
+            let message = try? JSONDecoder().decode(RemoteWireMessage.self, from: Data(request.body))
+            XCTAssertEqual(message?.enrollmentKey, "")
+            lock.withLock { registrations += 1 }
+            return .ok(.text("{\"device_id\":\"test\",\"device_token\":\"test-token\"}"))
+        }
+        relay["/api/v1/enroll"] = { _ in
+            XCTFail("a blank key must use automatic registration")
+            return .unauthorized
+        }
+        relay["/api/v1/agent"] = websocket(text: { socket, raw in
+            if (try? JSONDecoder().decode(RemoteWireMessage.self, from: Data(raw.utf8)))?.type == "share.start" {
+                socket.writeText("{\"type\":\"share.ready\",\"share_url\":\"http://127.0.0.1/share/test/\"}")
+            }
+        }, connected: { $0.writeText("{\"type\":\"hello\",\"protocol\":2}") })
+        try relay.start(0, forceIPv4: true)
+        defer { relay.stop() }
+        let base = URL(string: "http://127.0.0.1:\(try relay.port())")!
+        try XCTSkipIf(try RemoteKeychain.value(for: RemoteKeychain.deviceAccount(for: base)) != nil,
+                      "test address already has credentials")
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer {
+            state.stop()
+            state.forgetRemoteDevice()
+        }
+        state.saveRemoteSettings(RemoteSettings(serverAddress: base.absoluteString))
+        state.setSharedText("test")
+        _ = try await request(state, path: "/ls/text")
+        state.connectRemote(enrollmentKey: " \n")
+        _ = try await publishedURL(state)
+        XCTAssertEqual(lock.withLock { registrations }, 1)
+        XCTAssertTrue(state.remotePaired)
+
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        let local = try XCTUnwrap(state.shareAddresses.first { $0.kind == .localIP })
+        XCTAssertEqual(state.primaryURL, local.qrURL, "connecting must preserve the current QR entry")
+        state.selectShareAddress(.publicRelay)
+        XCTAssertEqual(state.primaryURL, state.remoteURL)
+        state.disconnectRemote()
+        XCTAssertEqual(state.selectedAddressKind, .localIP)
+        XCTAssertEqual(state.primaryURL, local.qrURL)
+        state.connectRemote(enrollmentKey: "")
+        _ = try await publishedURL(state)
+        XCTAssertEqual(state.primaryURL, local.qrURL, "reconnecting must not switch the QR back to the internet")
+        XCTAssertEqual(lock.withLock { registrations }, 1)
+
+        state.forgetRemoteDevice()
+        let error = await state.pairRemote(enrollmentKey: " ")
+        XCTAssertNil(error)
+        XCTAssertTrue(state.remotePaired)
+        XCTAssertEqual(lock.withLock { registrations }, 2)
+    }
+
+    @MainActor func testCustomServerRequiresKeyWhenAutomaticRegistrationIsClosed() async throws {
+        let relay = HttpServer()
+        relay["/api/v1/register"] = { _ in .notFound }
+        relay["/api/v1/enroll"] = { _ in
+            XCTFail("a blank key must use automatic registration")
+            return .unauthorized
+        }
+        try relay.start(0, forceIPv4: true)
+        defer { relay.stop() }
+        let preferences = Preferences()
+        defer { preferences.restore() }
+        let state = AppState()
+        defer { state.stop() }
+        state.saveRemoteSettings(RemoteSettings(serverAddress: "http://127.0.0.1:\(try relay.port())"))
+        let error = await state.pairRemote(enrollmentKey: "")
+        XCTAssertEqual(error, L.remoteRegistrationClosed(state.lang))
+        XCTAssertFalse(state.remotePaired)
+    }
+
     @MainActor func testColdLaunchRestoresDraftWithoutPublishing() async throws {
         let preferences = Preferences()
         defer { preferences.restore() }
@@ -179,6 +293,11 @@ final class AppStateRemoteTests: XCTestCase {
         state.connectRemote(enrollmentKey: "test-key")
         let first = try await publishedURL(state)
         XCTAssertEqual(messages.last, state.token)
+        state.selectedInterface = NetworkInterface(name: "en0", ip: "192.168.1.2")
+        XCTAssertTrue(state.shareAddresses.contains { $0.kind == .localIP })
+        XCTAssertTrue(state.shareAddresses.contains { $0.kind == .publicRelay && $0.url == first })
+        XCTAssertNotEqual(state.primaryURL, first)
+        state.selectShareAddress(.publicRelay)
         XCTAssertEqual(state.primaryURL, first)
 
         let republished = expectation(description: "text edits must keep the published link")
@@ -281,7 +400,7 @@ final class AppStateRemoteTests: XCTestCase {
         private let keys = ["autoStopMinutes", "customAutoStopMinutes", "configuredPort", "remoteServerAddress",
                             "remotePairedServerAddresses", "bindSelectedOnly", "tailscaleAccessEnabled",
                             "textInboxEnabled", "persistSharedText", "lastSharedText", "persistReceivedText",
-                            "receivedTexts", "recentShares", "languagePref"]
+                            "receivedTexts", "recentShares", "languagePref", "accessCodeEnabled"]
         private var saved: [String: Any] = [:]
         private let lang = Lang.current
 

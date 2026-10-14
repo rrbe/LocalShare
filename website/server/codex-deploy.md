@@ -7,7 +7,7 @@ description: 复制一段提示，让 Codex 按 LocalShare 官方 Skill 部署�
 
 可以把下面这段话发给 Codex，并指定目标 Linux 服务器。Codex 会先检查环境，给出适合的部署方案，经过你确认后执行。
 
-<CopyPrompt text="请帮我在指定的 Linux 服务器部署 LocalShare Server。先读取官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md。先做只读检查，确认系统架构、端口、公开 IP、已有 Nginx、证书续期和 CDN，按只有 IP、已有 Nginx + Let’s Encrypt、已有 CDN 三种环境说明适用方案；域名可选，公网使用 HTTPS/WSS。展示拟执行的配置和对现有服务的影响，等我确认方案后再执行。部署时校验二进制，保留已有 state.json，验证 systemd、公开 healthz、证书自动续期及 WebSocket，最后生成一次性配对码并告诉我 Client 应填的服务器地址。若只需方案或本地预览，请停在该范围内。" />
+<CopyPrompt text="请帮我在指定的 Linux 服务器部署 LocalShare Server。先读取官方部署 Skill：https://raw.githubusercontent.com/rrbe/LocalShare/master/.agents/skills/localshare-server-deploy/SKILL.md。先做只读检查，确认系统架构、端口、公开 IP、已有 Nginx、证书续期和 CDN，按只有 IP、已有 Nginx + Let’s Encrypt、已有 CDN 三种环境说明适用方案；域名可选，公网使用 HTTPS/WSS。展示拟执行的配置和对现有服务的影响，说明默认使用配对码，也可用 --registration 开放自动注册，等我确认方案后再执行。部署时校验二进制，保留已有 state.json，验证 systemd、公开 healthz、证书自动续期及 WebSocket。采用配对码时生成一次性配对码；采用自动注册时告诉我配对码可留空，并给出 Client 应填的服务器地址。若只需方案或本地预览，请停在该范围内。" />
 
 三种流程的手动步骤见[安装与部署](./deployment)。只使用 IP 时申请 IP 证书；已有 Nginx 时复用代理和续期；已有 CDN 时确认中继直连还是经过 CDN。
 

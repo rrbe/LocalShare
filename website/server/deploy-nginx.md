@@ -123,4 +123,4 @@ sudo certbot renew --cert-name share.example.com --dry-run --run-deploy-hooks
 
 ## 5. 在 LocalShare 中使用
 
-[生成配对码](./deployment#_3-配对与分享)，服务器地址填 `https://share.example.com`，然后[连接 Client](./connect-client)。
+[选择设备注册方式](./deployment#_3-选择设备注册方式)，服务器地址填 `https://share.example.com`，然后[连接 Client](./connect-client)。默认使用配对码；Server 开放自动注册后，配对码可留空。

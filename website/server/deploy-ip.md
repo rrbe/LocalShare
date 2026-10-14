@@ -114,10 +114,10 @@ curl --fail --max-time 10 https://1.2.3.4/healthz
 
 ## 5. 在 LocalShare 中使用
 
-[生成配对码](./deployment#_3-配对与分享)，服务器地址填 `https://1.2.3.4`，然后[连接 Client](./connect-client)。接收者直接在浏览器打开分享链接。
+[选择设备注册方式](./deployment#_3-选择设备注册方式)，服务器地址填 `https://1.2.3.4`，然后[连接 Client](./connect-client)。默认使用配对码；Server 开放自动注册后，配对码可留空。接收者直接在浏览器打开分享链接。
 
 ::: details 进阶：之后换成域名
 把域名的 A 记录指向该公网 IP，再为域名申请证书，将 `--public-url` 改为域名地址并更新证书配置。续期 hook 也需指向新证书。
 
-更换服务器地址后，Client 需用新的配对码连接。若已有 Nginx，可以改用 [Nginx 方案](./deploy-nginx)。
+更换服务器地址后，Client 需重新自动注册或使用新的配对码连接。若已有 Nginx，可以改用 [Nginx 方案](./deploy-nginx)。
 :::

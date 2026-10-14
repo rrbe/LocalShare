@@ -1,9 +1,9 @@
 import Foundation
 
-// 票据里的替代入口保存“完整可打开 URL”，而不是假定都能由 host + 本地 token 拼出。前三种当前
-// 由本机生成；publicRelay 留给未来由中继服务返回不透明公网 URL，当前不会创建或展示。
+// 展示地址与扫码地址分开：访问码模式展示 origin，扫码仍携带完整凭证。
 struct ShareAddress: Identifiable, Equatable {
     enum Kind: String {
+        case localIP
         case localHostname
         case tailscaleMagicDNS
         case tailscaleIP
@@ -19,5 +19,13 @@ struct ShareAddress: Identifiable, Equatable {
     let kind: Kind
     let scope: Scope
     let url: String
+    let qrURL: String
     var id: Kind { kind }
+
+    init(kind: Kind, scope: Scope, url: String, qrURL: String? = nil) {
+        self.kind = kind
+        self.scope = scope
+        self.url = url
+        self.qrURL = qrURL ?? url
+    }
 }

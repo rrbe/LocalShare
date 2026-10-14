@@ -25,15 +25,21 @@ final class AppState: ObservableObject {
     @Published var sharedItems: [URL] = []   // 当前分享的项：0=空、1=单项、N=多选
     @Published var sharedIsFile = false   // 仅单项有意义：true=单个文件，false=单个文件夹
     @Published var sharedDetail: String?  // 人类可读元数据：文件→大小，文件夹/多选→项数
-    @Published var sharedText: String?    // 当前广播的一段文本（nil=未分享文本）；与 sharedItems 正交
+    @Published var sharedText: String? { // 当前广播的一段文本（nil=未分享文本）；与 sharedItems 正交
+        didSet { restoreQRSelection() }
+    }
     @Published var textDraft = ""         // 文本编辑器草稿（重启回填、再次编辑用）；与 sharedText 解耦
     @Published private(set) var autoStopMinutes = ShareAutoStop.defaultMinutes // 0 = never
     @Published private(set) var customAutoStopMinutes = ShareAutoStop.defaultMinutes
     @Published private(set) var autoStopAt: Date?
-    @Published var isRunning = false
+    @Published var isRunning = false {
+        didSet { restoreQRSelection() }
+    }
     @Published var port: in_port_t = 0    // 实际绑定端口（可能因占用回退而异于 configuredPort）
     @Published var interfaces: [NetworkInterface] = []
-    @Published var selectedInterface: NetworkInterface?
+    @Published var selectedInterface: NetworkInterface? {
+        didSet { restoreQRSelection() }
+    }
     @Published var lastError: String?
     @Published var viewerCount = 0        // 最近 45s 内活跃的访客设备数（FileServer 在线感知）
     @Published var viewers: [ViewerInfo] = []   // 在线访客明细（设备名 / 完整 IP），最近活跃在前
@@ -44,7 +50,9 @@ final class AppState: ObservableObject {
     @Published var permission = Permission()        // read 常开；add 可切（仅单文件夹分享）；edit/del 未开放
     @Published var configuredPort: in_port_t = 8080 // 用户期望端口（设置页可改，持久化）
     @Published var recents: [RecentShare] = []      // 最近分享（持久化）
-    @Published var screen: Screen = .share          // 屏幕路由（默认落功能主页）
+    @Published var screen: Screen = .share {       // 屏幕路由（默认落功能主页）
+        didSet { restoreQRSelection() }
+    }
     @Published var wideLayout = false               // 当前窗口是否使用宽屏内容布局（仅会话内）
     @Published var selectedSettingsCategory: SettingsCategory = .network // 设置页分类（仅会话内）
     @Published var appearance: AppearancePref = .system  // 外观：跟随系统 / 浅色 / 深色（持久化）
@@ -54,16 +62,27 @@ final class AppState: ObservableObject {
     @Published var textInboxEnabled = false         // 「允许收文本」闸门（默认关，持久化；不限分享形态）
     @Published var persistReceivedText = false      // 「记住收到的文本」（默认关，持久化）
     @Published var accessCodeEnabled = false        // 电脑间手输入口：网址 + 短码（默认关，持久化）
-    @Published var tailscaleAccessEnabled = false   // Tailscale 入站闸门（默认关，持久化）
-    @Published private(set) var tailscaleStatus: TailscaleStatus?
+    @Published var tailscaleAccessEnabled = false { // Tailscale 入站闸门（默认关，持久化）
+        didSet { restoreQRSelection() }
+    }
+    @Published private(set) var tailscaleStatus: TailscaleStatus? {
+        didSet { restoreQRSelection() }
+    }
+    @Published private(set) var selectedAddressKind: ShareAddress.Kind = .localIP
     @Published var cliStatus: CLIInstaller.Status = .notInstalled  // 命令行工具安装状态
     @Published var remoteSettings = RemoteSettings()
     @Published var remoteEnrollmentKey = ""   // 仅用于首次配对；成功后不落盘
-    @Published private(set) var remoteAccessEnabled = false
-    @Published private(set) var remoteTextInboxEnabled = false
+    @Published private(set) var remoteAccessEnabled = false {
+        didSet { restoreQRSelection() }
+    }
+    @Published private(set) var remoteTextInboxEnabled = false {
+        didSet { restoreQRSelection() }
+    }
     @Published private(set) var remoteStatus: RemoteAgent.Status = .disconnected
     @Published private(set) var remotePaired = false
-    @Published private(set) var remoteShareBaseURL: String?
+    @Published private(set) var remoteShareBaseURL: String? {
+        didSet { restoreQRSelection() }
+    }
     @Published private(set) var remoteError: String?
 
     // GUI 进程仅构造一次，init 末尾自登记；AppDelegate 的 open 事件回调经它触达状态。
@@ -215,26 +234,22 @@ final class AppState: ObservableObject {
         return makeURL(base: base, authenticated: false)
     }
 
-    private var primaryHost: String? {
-        selectedInterface?.ip ?? (tailscaleAccessEnabled ? tailscaleStatus?.ipv4 : nil)
+    var selectedShareAddress: ShareAddress? {
+        shareAddresses.first { $0.kind == selectedAddressKind } ?? shareAddresses.first
     }
 
     var primaryURL: String? {
-        if let remoteURL { return remoteURL }
-        guard isRunning, port != 0, let host = primaryHost else { return nil }
-        return makeURL(host: host)
+        selectedShareAddress?.qrURL
     }
 
     // 票据上的手输入口：默认仍显示/复制完整 token URL；访问码模式只给 origin，浏览器再经 /ls/join
     // 输入短码。二维码始终使用 primaryURL，不因展示模式降低安全性或增加扫码步骤。
     var presentedURL: String? {
-        if let remoteURL { return remoteURL }
-        guard isRunning, port != 0, let host = primaryHost else { return nil }
-        return makePresentedURL(host: host)
+        selectedShareAddress?.url
     }
 
     var presentedAccessCode: String? {
-        isRunning && remoteURL == nil && accessCodeEnabled ? accessCode : nil
+        isRunning && accessCodeEnabled ? accessCode : nil
     }
 
     var qrImage: NSImage? {
@@ -242,26 +257,41 @@ final class AppState: ObservableObject {
         return QRCode.image(for: primaryURL)
     }
 
-    // 主地址之外的入口统一收在折叠区。访问码模式下它们只显示 origin，与主地址共用一枚短码；
-    // 普通模式则保留当前分享路径和 token。Tailscale 两项只在用户显式开放且检测到时出现。
-    var otherAddresses: [ShareAddress] {
-        guard isRunning, port != 0, remoteURL == nil else { return [] }
+    // 三种网络同时列出；启用网络不改变用户选中的二维码入口。
+    var shareAddresses: [ShareAddress] {
+        guard isRunning, port != 0 else { return [] }
         var result: [ShareAddress] = []
-        if selectedInterface != nil, let hostname = NetworkInfo.localHostName(), hostname != primaryHost {
+        if let host = selectedInterface?.ip {
+            result.append(ShareAddress(kind: .localIP, scope: .localNetwork,
+                                       url: makePresentedURL(host: host), qrURL: makeURL(host: host)))
+        }
+        if selectedInterface != nil, let hostname = NetworkInfo.localHostName() {
             result.append(ShareAddress(kind: .localHostname, scope: .localNetwork,
-                                       url: makePresentedURL(host: hostname)))
+                                       url: makePresentedURL(host: hostname), qrURL: makeURL(host: hostname)))
+        }
+        if let remoteURL {
+            result.append(ShareAddress(kind: .publicRelay, scope: .publicInternet, url: remoteURL))
         }
         if tailscaleAccessEnabled, let status = tailscaleStatus {
-            if let dnsName = status.dnsName, dnsName != primaryHost {
+            if let dnsName = status.dnsName {
                 result.append(ShareAddress(kind: .tailscaleMagicDNS, scope: .tailscale,
-                                           url: makePresentedURL(host: dnsName)))
+                                           url: makePresentedURL(host: dnsName), qrURL: makeURL(host: dnsName)))
             }
-            if status.ipv4 != primaryHost {
-                result.append(ShareAddress(kind: .tailscaleIP, scope: .tailscale,
-                                           url: makePresentedURL(host: status.ipv4)))
-            }
+            result.append(ShareAddress(kind: .tailscaleIP, scope: .tailscale,
+                                       url: makePresentedURL(host: status.ipv4), qrURL: makeURL(host: status.ipv4)))
         }
         return result
+    }
+
+    func selectShareAddress(_ kind: ShareAddress.Kind) {
+        guard shareAddresses.contains(where: { $0.kind == kind }) else { return }
+        selectedAddressKind = kind
+    }
+
+    private func restoreQRSelection() {
+        guard !shareAddresses.contains(where: { $0.kind == selectedAddressKind }) else { return }
+        let kind = shareAddresses.first?.kind ?? .localIP
+        if kind != selectedAddressKind { selectedAddressKind = kind }
     }
 
     private func makePresentedURL(host: String) -> String {
@@ -320,14 +350,15 @@ final class AppState: ObservableObject {
                             localBaseURL: localShareBaseURL, localToken: token,
                             deviceName: Host.current().localizedName ?? "Mac", lang: lang,
                             localRelayToken: server?.remoteRequestToken ?? "", receivingText: remoteTextInboxEnabled,
-                            automaticRegistration: remoteSettings.usesDefaultService)
+                            automaticRegistration: enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     func pairRemote(enrollmentKey: String) async -> String? {
         guard let serverURL = remoteSettings.serverURL else { return L.remoteConfigHint(lang) }
         do {
             try await remoteAgent.pair(serverURL: serverURL, enrollmentKey: enrollmentKey,
-                                       deviceName: Host.current().localizedName ?? "Mac", lang: lang)
+                                       deviceName: Host.current().localizedName ?? "Mac", lang: lang,
+                                       automaticRegistration: enrollmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             remotePaired = remoteAgent.isPaired(for: remoteSettings.serverURL)
             remoteEnrollmentKey = ""
             remoteError = nil
@@ -390,7 +421,7 @@ final class AppState: ObservableObject {
         remoteAgent.connect(serverURL: serverURL, enrollmentKey: "", localBaseURL: localShareBaseURL,
                             localToken: token, deviceName: Host.current().localizedName ?? "Mac", lang: lang,
                             localRelayToken: server?.remoteRequestToken ?? "", receivingText: remoteTextInboxEnabled,
-                            automaticRegistration: remoteSettings.usesDefaultService)
+                            automaticRegistration: true)
     }
 
     private func startNetworkMonitoring() {

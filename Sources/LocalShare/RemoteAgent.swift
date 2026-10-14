@@ -447,6 +447,9 @@ final class RemoteAgent: NSObject {
         let session = URLSession(configuration: .ephemeral, delegate: RemoteEnrollmentDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
+        if automaticRegistration, (response as? HTTPURLResponse)?.statusCode == 404 {
+            throw RemoteDisplayError(message: L.remoteRegistrationClosed(lang))
+        }
         if let code = (response as? HTTPURLResponse)?.statusCode, [429, 503].contains(code) {
             throw RemoteDisplayError(message: L.remoteLimitReached(lang))
         }

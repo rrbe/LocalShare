@@ -217,9 +217,11 @@ struct SettingsScreen: View {
                 }
                 .padding(.vertical, 12)
 
-                settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDescription) {
-                    ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
-                        state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                if state.tailscaleStatus != nil {
+                    settingRow(top: true, title: L.tailscaleTitle(lang), desc: tailscaleDescription) {
+                        ToggleSwitch(t: t, isOn: state.tailscaleAccessEnabled) {
+                            state.setTailscaleAccessEnabled(!state.tailscaleAccessEnabled)
+                        }
                     }
                 }
             }
@@ -254,7 +256,7 @@ struct SettingsScreen: View {
                 if remoteCustomServer {
                     remoteField(title: L.remoteServerAddress(lang), text: $remoteServerText)
                     remoteField(title: L.remoteEnrollmentKey(lang), text: $remoteKeyText, top: true, secure: true,
-                            placeholder: remotePaired ? L.remotePairedPlaceholder(lang) : "",
+                            placeholder: remotePaired ? L.remotePairedPlaceholder(lang) : L.remoteEnrollmentOptional(lang),
                             disabled: remotePaired)
                     if !remotePaired {
                         Text(L.remotePairHint(lang)).font(.sans(11.5)).foregroundStyle(t.inkMute)

@@ -88,10 +88,13 @@ enum L: CaseIterable {
     // 分享屏
     case shareFileTitle   // 文件票据二级页标题（与「传递文本」并列）
     case received, changePerm, useAccessCode, useFullURL, broadcastStopped, selectSource
-    case sharingKicker, scanCaptionAccess
+    case sharingKicker
     case revealShareItems, revealInFinder, viewing
     case otherAddresses, tailscaleMagicDNSAddress, tailscaleIPAddress, publicRelayAddress
     case tailscaleNetworkOnly, publicInternet
+    case localNetwork, sameNetwork, localIPAddress, localHostname, internet, internetAccessHint
+    case tailscaleAccessHint, showAddressQR, shareLink
+    case accessEnabled, accessDisabled, shareLinkHint, accessCodeMode, usingRelayService
 
     // 未接入网络
     case noNetwork, noNetworkHint
@@ -106,7 +109,7 @@ enum L: CaseIterable {
     case tailscaleTitle, tailscaleDescMissing
 
     // 设置 —— 远程访问
-    case remoteServerAddress, remoteEnrollmentKey, remotePairedPlaceholder, remoteSave, remoteSaved
+    case remoteServerAddress, remoteEnrollmentKey, remoteEnrollmentOptional, remotePairedPlaceholder, remoteSave, remoteSaved
     case remotePair, remotePairing, remotePairSucceeded
     case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
     case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy, remoteGuide
@@ -123,7 +126,7 @@ enum L: CaseIterable {
     // 远程访问
     case remoteAccess, remoteAccessDesc, remoteConfigHint
     case remoteConnecting, remoteOnline, remoteOffline, remoteReadOnly, scanCaptionRemote
-    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected
+    case remoteEnrollmentRequired, remoteInvalidCredentials, remoteEnrollmentRejected, remoteRegistrationClosed
     case remoteLocalUnavailable, remoteInvalidRequest, remoteServerError
 
     // 设置 —— 外观
@@ -249,7 +252,6 @@ enum L: CaseIterable {
         case .broadcastStopped: return ("已停止广播", "Broadcast stopped")
         case .selectSource:    return ("选择信号源", "Choose source")
         case .sharingKicker:   return ("正在分享", "Sharing")
-        case .scanCaptionAccess: return ("同一 Wi-Fi 扫码访问", "Scan to access on the same Wi-Fi")
         case .revealShareItems: return ("在 Finder 中显示分享项", "Show shared items in Finder")
         case .revealInFinder:  return ("在 Finder 中显示", "Show in Finder")
         case .viewing:         return ("正在浏览", "Viewing")
@@ -259,6 +261,20 @@ enum L: CaseIterable {
         case .publicRelayAddress: return ("公网中继", "Public Relay")
         case .tailscaleNetworkOnly: return ("仅限 Tailscale", "Tailscale only")
         case .publicInternet: return ("可通过公网访问", "Available over the internet")
+        case .localNetwork: return ("局域网", "Local Network")
+        case .sameNetwork: return ("同一网络", "Same network")
+        case .localIPAddress: return ("IP 地址", "IP Address")
+        case .localHostname: return ("本机名称", "Hostname")
+        case .internet: return ("互联网", "Internet")
+        case .internetAccessHint: return ("公共网络 · Mac 需保持在线", "Public network · Keep your Mac online")
+        case .tailscaleAccessHint: return ("对方需连接 Tailscale", "Recipient needs Tailscale")
+        case .showAddressQR: return ("显示二维码", "Show QR Code")
+        case .shareLinkHint: return ("扫码或打开分享链接", "Scan the QR code or open the share link")
+        case .accessCodeMode: return ("访问码", "Access Code")
+        case .usingRelayService: return ("使用中继服务", "Using Relay Service")
+        case .shareLink: return ("分享链接", "Share Link")
+        case .accessEnabled: return ("开启", "On")
+        case .accessDisabled: return ("关闭", "Off")
 
         case .noNetwork:       return ("未发现局域网地址", "No local network address")
         case .noNetworkHint:   return ("局域网访问需要同一 Wi-Fi 或有线网络。",
@@ -291,7 +307,7 @@ enum L: CaseIterable {
         case .remoteUseDefault: return ("使用默认服务", "Use the Default Service")
         case .localReceiveText: return ("允许局域网收文本", "Receive Text on the Local Network")
         case .remoteReceiveText: return ("允许通过互联网收文本", "Receive Text over the Internet")
-        case .remotePrivacy: return ("中继服务可读取分享内容", "The relay can read shared content")
+        case .remotePrivacy: return ("中继服务可读取分享内容，请使用可信任的中继", "The relay can read shared content. Use a relay you trust.")
         case .remoteGuide: return ("使用说明", "User Guide")
         case .remoteProtocolMismatch: return ("服务器版本不匹配，请更新服务器", "Server version mismatch. Update the server.")
         case .remoteLimitReached: return ("服务额度已用完，请稍后再试", "Service limit reached. Try again later.")
@@ -299,6 +315,7 @@ enum L: CaseIterable {
         case .remoteConnectionFailed: return ("无法连接服务器，请检查网络和服务器状态", "Could not connect to the server. Check your network and the server's status.")
         case .remoteServerAddress: return ("服务器地址", "Server Address")
         case .remoteEnrollmentKey: return ("配对码", "Enrollment Key")
+        case .remoteEnrollmentOptional: return ("可选", "Optional")
         case .remotePairedPlaceholder: return ("已配对", "Paired")
         case .remoteSave:         return ("保存", "Save")
         case .remoteSaved:        return ("已保存", "Saved")
@@ -308,8 +325,8 @@ enum L: CaseIterable {
         case .remoteConnect:      return ("连接", "Connect")
         case .remoteDisconnect:   return ("断开", "Disconnect")
         case .remoteForget:       return ("忘记服务器", "Forget Server")
-        case .remotePairHint:     return ("一次性配对码由服务器管理员提供",
-                                          "Get a one-time enrollment key from the server administrator")
+        case .remotePairHint:     return ("服务器开放自动注册时可留空，否则向管理员获取配对码",
+                                          "Leave blank if the server allows automatic registration; otherwise, ask the administrator for a key")
 
         case .portEmptyMsg:     return ("请输入端口号", "Enter a port number")
         case .portNotNumberMsg: return ("端口需为数字", "Port must be a number")
@@ -330,8 +347,8 @@ enum L: CaseIterable {
 
         case .remoteAccess:      return ("互联网分享", "Internet Sharing")
         case .remoteAccessDesc:  return ("Mac 需保持在线", "Keep your Mac online")
-        case .remoteConfigHint:  return ("在设置 → 网络中填写服务器地址和配对码",
-                                          "Enter the server address and enrollment key in Settings → Network")
+        case .remoteConfigHint:  return ("在设置 → 网络中选择默认服务或填写服务器地址",
+                                          "Choose the default service or enter a server address in Settings → Network")
         case .remoteConnecting:   return ("连接中", "Connecting")
         case .remoteOnline:       return ("在线", "Online")
         case .remoteOffline:      return ("已断开 · 将自动重试", "Offline · retrying")
@@ -342,6 +359,8 @@ enum L: CaseIterable {
                                                 "The Server address or device credential is invalid.")
         case .remoteEnrollmentRejected: return ("服务器拒绝了配对请求",
                                                 "The Server rejected the enrollment request.")
+        case .remoteRegistrationClosed: return ("服务器未开放自动注册，请向管理员获取配对码",
+                                                "Automatic registration is disabled. Ask the server administrator for an enrollment key.")
         case .remoteLocalUnavailable: return ("本机分享未运行。", "The local share is not running.")
         case .remoteInvalidRequest: return ("远程请求路径无效。", "The remote request path is invalid.")
         case .remoteServerError: return ("LocalShare Server 无法完成请求。",
@@ -401,12 +420,12 @@ enum L: CaseIterable {
         case .textShareAction:      return ("分享", "Share")
         case .textUpdateAction:     return ("更新", "Update")
         case .sharingTextKicker:    return ("正在分享文本", "Sharing text")
-        case .scanCaptionText:      return ("同一 Wi-Fi 扫码查看文本", "Scan to view text on the same Wi-Fi")
+        case .scanCaptionText:      return ("扫码查看文本", "Scan to view text")
         case .editTextButton:       return ("编辑文本", "Edit Text")
         case .transferText:         return ("传递文本", "Transfer Text")
         case .sendTextKicker:       return ("发送", "Send")
-        case .scanCaptionTransfer:  return ("同一 Wi-Fi 扫码查看或发送文本", "Scan to view or send text on the same Wi-Fi")
-        case .scanCaptionSend:      return ("同一 Wi-Fi 扫码发送到 Mac", "Scan to send text to this Mac on the same Wi-Fi")
+        case .scanCaptionTransfer:  return ("扫码查看或发送文本", "Scan to view or send text")
+        case .scanCaptionSend:      return ("扫码发送到 Mac", "Scan to send text to this Mac")
         case .textIdleHint:         return ("分享文本或开启接收后显示二维码",
                                            "Share text or enable receiving to show the QR code")
         case .retract:              return ("撤回", "Retract")
