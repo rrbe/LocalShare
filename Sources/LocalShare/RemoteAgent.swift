@@ -256,6 +256,9 @@ final class RemoteAgent: NSObject {
         case "share.ready":
             shareBaseURL = message.shareURL
             onShareURLChange?(message.shareURL)
+        case "connection.replaced":
+            shouldConnect = false
+            connectionEnded(RemoteDisplayError(message: L.remoteConnectionReplaced(lang)))
         case "request.begin":
             guard let id = message.requestID, let method = message.method, let path = message.path else { return }
             startLocalRequest(id: id, shareID: message.shareID, method: method,

@@ -453,6 +453,7 @@ func (h *hub) agentHandler(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 	if old != nil {
 		h.removeAgent(old)
+		_ = old.send(wireMessage{Type: "connection.replaced"})
 		_ = old.conn.CloseNow()
 	}
 	defer h.removeAgent(a)

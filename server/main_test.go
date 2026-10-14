@@ -80,6 +80,77 @@ func TestPublicShareQueryCannotOverrideLocalToken(t *testing.T) {
 	}
 }
 
+func TestNewDeviceConnectionNotifiesReplacedAgent(t *testing.T) {
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(store, "")
+	server := httptest.NewServer(newHTTPHandler(h))
+	defer server.Close()
+	h.publicURL = server.URL
+	_, key, err := store.createEnrollmentKey("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.enroll(key, "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	dial := func() *websocket.Conn {
+		t.Helper()
+		conn, _, err := websocket.Dial(ctx, server.URL+"/api/v1/agent", &websocket.DialOptions{
+			HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.CloseNow() })
+		return conn
+	}
+	read := func(conn *websocket.Conn, expected string) wireMessage {
+		t.Helper()
+		_, payload, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var message wireMessage
+		if err := json.Unmarshal(payload, &message); err != nil || message.Type != expected {
+			t.Fatalf("expected %s, received %q, err=%v", expected, payload, err)
+		}
+		return message
+	}
+	first := dial()
+	read(first, "hello")
+	if err := first.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":2,"share_id":"first"}`)); err != nil {
+		t.Fatal(err)
+	}
+	oldShare := read(first, "share.ready")
+	second := dial()
+	read(second, "hello")
+	read(first, "connection.replaced")
+	if _, _, err := first.Read(ctx); err == nil {
+		t.Fatal("replaced connection remained open")
+	}
+	response, err := http.Get(oldShare.ShareURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("replaced share returned %d", response.StatusCode)
+	}
+	if err := second.Write(ctx, websocket.MessageText, []byte(`{"type":"share.start","protocol":2,"share_id":"second"}`)); err != nil {
+		t.Fatal(err)
+	}
+	newShare := read(second, "share.ready")
+	if newShare.ShareURL == "" || newShare.ShareURL == oldShare.ShareURL {
+		t.Fatalf("replacement share URL = %q", newShare.ShareURL)
+	}
+}
+
 func TestWebSocketRelayStreamsAgentResponse(t *testing.T) {
 	store, err := newStateStore(t.TempDir())
 	if err != nil {

@@ -113,7 +113,7 @@ enum L: CaseIterable {
     case remotePair, remotePairing, remotePairSucceeded
     case remoteConnect, remoteDisconnect, remoteForget, remotePairHint
     case remoteDefaultService, remoteCustomService, remoteUseDefault, remoteReceiveText, localReceiveText, remotePrivacy, remoteGuide
-    case remoteProtocolMismatch, remoteLimitReached, remoteTLSFailed, remoteConnectionFailed
+    case remoteProtocolMismatch, remoteLimitReached, remoteTLSFailed, remoteConnectionFailed, remoteConnectionReplaced
 
     // 设置 —— 端口校验（静态部分；被占用一项带数字走 LStr）
     case portEmptyMsg, portNotNumberMsg, portTooLowMsg, portTooHighMsg
@@ -313,6 +313,7 @@ enum L: CaseIterable {
         case .remoteLimitReached: return ("服务额度已用完，请稍后再试", "Service limit reached. Try again later.")
         case .remoteTLSFailed: return ("无法建立安全连接，请检查服务器的 HTTPS 配置", "A secure connection could not be established. Check the server's HTTPS configuration.")
         case .remoteConnectionFailed: return ("无法连接服务器，请检查网络和服务器状态", "Could not connect to the server. Check your network and the server's status.")
+        case .remoteConnectionReplaced: return ("此设备已在另一个 LocalShare 中连接，当前互联网分享已停止。请只运行一个 LocalShare。", "This device connected in another LocalShare instance. Internet sharing here has stopped. Keep only one LocalShare running.")
         case .remoteServerAddress: return ("服务器地址", "Server Address")
         case .remoteEnrollmentKey: return ("配对码", "Enrollment Key")
         case .remoteEnrollmentOptional: return ("可选", "Optional")

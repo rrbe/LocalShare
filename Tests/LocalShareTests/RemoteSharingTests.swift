@@ -423,6 +423,48 @@ final class RemoteSharingTests: XCTestCase {
         }
     }
 
+    @MainActor func testReplacedConnectionShowsReasonAndStopsRetrying() async throws {
+        for lang in [Lang.zh, Lang.en] {
+            let server = HttpServer()
+            server["/api/v1/enroll"] = { _ in .ok(.text("{\"device_id\":\"test\",\"device_token\":\"test-token\"}")) }
+            let reopened = expectation(description: "replaced connection does not reopen")
+            reopened.isInverted = true
+            let lock = NSLock()
+            var connections = 0
+            let handler = websocket(text: { socket, raw in
+                guard (try? JSONDecoder().decode(RemoteWireMessage.self, from: Data(raw.utf8)))?.type == "share.start" else { return }
+                socket.writeText("{\"type\":\"share.ready\",\"share_url\":\"https://example.com/share/test/\"}")
+                socket.writeText("{\"type\":\"connection.replaced\"}")
+                socket.writeCloseFrame()
+            }, connected: { $0.writeText("{\"type\":\"hello\",\"protocol\":2}") })
+            server["/api/v1/agent"] = { request in
+                lock.withLock { connections += 1; if connections > 1 { reopened.fulfill() } }
+                return handler(request)
+            }
+            try server.start(0, forceIPv4: true)
+            defer { server.stop() }
+            let base = URL(string: "http://127.0.0.1:\(try server.port())")!
+            let ready = expectation(description: "initial share ready")
+            let replaced = expectation(description: "replacement reason shown")
+            let retrying = expectation(description: "replacement does not enter retry state")
+            retrying.isInverted = true
+            let agent = RemoteAgent()
+            defer { agent.disconnect() }
+            agent.onShareURLChange = { if $0 != nil { ready.fulfill() } }
+            agent.onStateChange = { status, error in
+                if status == .disconnected, error == L.remoteConnectionReplaced(lang) { replaced.fulfill() }
+                if status == .reconnecting { retrying.fulfill() }
+            }
+            agent.connect(serverURL: base, enrollmentKey: "test", localBaseURL: base,
+                          localToken: "test", deviceName: "Test", lang: lang, persistCredential: false)
+            await fulfillment(of: [ready, replaced], timeout: 2)
+            await fulfillment(of: [reopened, retrying], timeout: 1.2)
+            XCTAssertEqual(agent.status, .disconnected)
+            XCTAssertEqual(agent.lastError, L.remoteConnectionReplaced(lang))
+            XCTAssertNil(agent.shareBaseURL)
+        }
+    }
+
     @MainActor func testTemporaryDisconnectionReconnectsWithSameCredential() async throws {
         let server = HttpServer()
         let enrollment = expectation(description: "only one enrollment")
