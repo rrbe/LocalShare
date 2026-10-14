@@ -5,7 +5,7 @@ import Swifter
 @testable import LocalShare
 
 final class AppStateRemoteTests: XCTestCase {
-    @MainActor func testAccessCodeAddressesKeepAuthenticatedQRCodes() throws {
+    @MainActor func testAccessCodeAddressesKeepAuthenticatedQRCodes() async throws {
         let preferences = Preferences()
         defer { preferences.restore() }
         let state = AppState()
