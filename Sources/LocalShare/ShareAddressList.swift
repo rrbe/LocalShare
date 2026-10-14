@@ -228,15 +228,26 @@ struct ShareQRScope: View {
 
     var body: some View {
         if let address = state.selectedShareAddress {
-            Text(scopeLabel(address.scope)).font(.sans(11)).foregroundStyle(t.inkMute)
+            HStack(spacing: 8) {
+                Text(scopeTitle(address.scope)).font(.sans(12, .semibold)).foregroundStyle(t.ink)
+                Text(scopeHint(address.scope)).font(.sans(10.5)).foregroundStyle(t.inkMute)
+            }
         }
     }
 
-    private func scopeLabel(_ scope: ShareAddress.Scope) -> String {
+    private func scopeTitle(_ scope: ShareAddress.Scope) -> String {
         switch scope {
-        case .localNetwork: return "\(L.localNetwork(state.lang)) · \(L.sameNetwork(state.lang))"
-        case .tailscale: return "Tailscale · \(L.tailscaleAccessHint(state.lang))"
-        case .publicInternet: return "\(L.internet(state.lang)) · \(L.internetAccessHint(state.lang))"
+        case .localNetwork: return L.localNetwork(state.lang)
+        case .tailscale: return "Tailscale"
+        case .publicInternet: return L.internet(state.lang)
+        }
+    }
+
+    private func scopeHint(_ scope: ShareAddress.Scope) -> String {
+        switch scope {
+        case .localNetwork: return L.sameNetwork(state.lang)
+        case .tailscale: return L.tailscaleAccessHint(state.lang)
+        case .publicInternet: return L.internetAccessHint(state.lang)
         }
     }
 }

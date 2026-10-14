@@ -29,6 +29,12 @@ struct RemoteAccessCard: View {
                 .accessibilityValue(Text(state.remoteAccessEnabled ? L.accessEnabled(state.lang) : L.accessDisabled(state.lang)))
             }
             .padding(12)
+            if state.remoteAccessEnabled {
+                Label(L.remotePrivacy(state.lang), systemImage: "exclamationmark.triangle")
+                    .font(.sans(10.5)).foregroundStyle(t.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12).padding(.bottom, 10)
+            }
             ForEach(state.shareAddresses.filter { $0.scope == .publicInternet }) { address in
                 ShareAddressRow(t: t, address: address)
             }
@@ -55,9 +61,6 @@ struct RemoteAccessCard: View {
             }
             if state.remoteAccessEnabled {
                 HStack(spacing: 8) {
-                    Label(L.remotePrivacy(state.lang), systemImage: "exclamationmark.triangle")
-                        .font(.sans(10.5)).foregroundStyle(t.warn)
-                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     RemoteGuideLink(t: t, lang: state.lang)
                 }
